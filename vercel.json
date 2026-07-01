@@ -1,11 +1,10 @@
 {
   "buildCommand": "npm run vercel-build",
-  "outputDirectory": "dist",
   "env": {
     "NODE_ENV": "production"
   },
   "functions": {
-    "api/**/*.ts": {
+    "api/**/*.js": {
       "runtime": "nodejs20.x"
     }
   }
