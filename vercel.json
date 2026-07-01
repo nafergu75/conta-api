@@ -1,11 +1,17 @@
 {
-  "buildCommand": "npm run vercel-build",
+  "buildCommand": "npm run build && npm run vercel-build",
+  "outputDirectory": null,
   "env": {
     "NODE_ENV": "production"
   },
-  "functions": {
-    "api/**/*.js": {
-      "runtime": "nodejs20.x"
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/$1.js"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/dist/src/index.js"
     }
-  }
+  ]
 }
