@@ -33,3 +33,9 @@ coverage/
 # Logs
 logs/
 *.log
+
+# Compiled artifacts in api/ (Vercel functions must be .ts only)
+api/*.js
+api/*.js.map
+api/*.d.ts
+api/*.d.ts.map
