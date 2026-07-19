@@ -1,17 +1,9 @@
 {
-  "buildCommand": "npm run build && npm run vercel-build",
-  "outputDirectory": null,
-  "env": {
-    "NODE_ENV": "production"
-  },
-  "routes": [
+  "buildCommand": "",
+  "rewrites": [
     {
-      "src": "/api/(.*)",
-      "dest": "/api/$1.js"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/dist/src/index.js"
+      "source": "/((?!api/).*)",
+      "destination": "/api"
     }
   ]
 }
