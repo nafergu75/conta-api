@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -27,7 +28,7 @@ import {
 } from '@phosphor-icons/react';
 import type { Icon } from '@phosphor-icons/react';
 import { NAV_GROUPS } from './nav';
-import { getUser } from '@/lib/auth';
+import { getUser, type SessionUser } from '@/lib/auth';
 
 const ICONS: Record<string, Icon> = {
   '': ChartPieSlice,
@@ -68,7 +69,22 @@ function userHasRole(userRoles: string[] | undefined, requiredRoles: string[] | 
 
 export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
-  const user = getUser();
+
+  // La sesion vive en localStorage, que no existe al renderizar en servidor.
+  // Leerla directamente daba un desajuste de hidratacion: el servidor pintaba
+  // el menu vacio (sin roles) y el cliente lo pintaba lleno. Se lee tras montar,
+  // de modo que el primer render coincide en ambos lados.
+  const [user, setUser] = useState<SessionUser | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setUser(getUser());
+    setMounted(true);
+  }, []);
+
+  if (!mounted) {
+    return <nav className="flex flex-col gap-6 p-4" aria-busy="true" />;
+  }
 
   return (
     <nav className="flex flex-col gap-6 p-4">
