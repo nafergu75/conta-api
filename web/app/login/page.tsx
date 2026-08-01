@@ -7,6 +7,22 @@ import { saveSession } from '@/lib/auth';
 
 const API = '/api/conta';
 
+// Acceso directo sin backend. Activo siempre en desarrollo; en un build de
+// produccion SOLO si se define NEXT_PUBLIC_DEMO_MODE=true de forma explicita,
+// para que no se pueda colar por descuido en la app publica.
+const DEMO_MODE =
+  process.env.NODE_ENV !== 'production' ||
+  process.env.NEXT_PUBLIC_DEMO_MODE === 'true';
+
+const DEMO_ROLES = [
+  'contabilidad:read',
+  'contabilidad:write',
+  'fiscal:read',
+  'fiscal:write',
+  'tesoreria:read',
+  'tesoreria:write',
+];
+
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState('demo@empresa.com');
@@ -24,6 +40,17 @@ export default function LoginPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
       });
+
+      // Si el proxy no llega al backend, la respuesta es una pagina HTML de
+      // error. Sin este control, el JSON.parse revienta con un
+      // "Unexpected token '<'" que no le dice nada a quien lo ve.
+      const contentType = res.headers.get('content-type') ?? '';
+      if (!contentType.includes('application/json')) {
+        throw new Error(
+          `El servidor no responde (HTTP ${res.status}). El backend no está accesible; no es un problema de tu contraseña.`
+        );
+      }
+
       const json = await res.json();
       if (!res.ok) {
         throw new Error(json.message || 'Credenciales incorrectas');
@@ -38,6 +65,14 @@ export default function LoginPage() {
       setError(err instanceof Error ? err.message : 'Error de conexión');
       setLoading(false);
     }
+  }
+
+  function entrarSinBackend() {
+    saveSession('demo-local-sin-backend', {
+      email: 'demo@empresa.com',
+      roles: DEMO_ROLES,
+    });
+    router.push('/dashboard');
   }
 
   return (
@@ -110,6 +145,22 @@ export default function LoginPage() {
             {loading ? 'Entrando...' : 'Entrar'}
           </button>
         </form>
+
+        {DEMO_MODE && (
+          <div className="mt-6 pt-6 border-t border-slate-200">
+            <button
+              type="button"
+              onClick={entrarSinBackend}
+              className="w-full py-2.5 border border-slate-300 text-slate-700 font-medium rounded-lg hover:bg-slate-50 active:scale-[0.98] transition-all"
+            >
+              Entrar sin contraseña
+            </button>
+            <p className="text-xs text-slate-400 mt-3 text-center">
+              Acceso directo para revisar la interfaz. Los datos aparecerán
+              vacíos: no hay backend conectado.
+            </p>
+          </div>
+        )}
 
         <p className="text-xs text-slate-400 mt-6 text-center">
           Demo: demo@empresa.com / demo1234
