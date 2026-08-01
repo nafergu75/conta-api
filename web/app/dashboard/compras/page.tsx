@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getToken, clearSession } from '@/lib/auth';
-import { Plus, MagnifyingGlass, Eye } from '@phosphor-icons/react';
+import { Plus, MagnifyingGlass, Eye, ArrowRight } from '@phosphor-icons/react';
 import Link from 'next/link';
 
 interface Compra {
@@ -52,7 +52,7 @@ export default function ComprasPage() {
         }
 
         // Cargar facturas de compra desde la API
-        const res = await fetch('http://localhost:3000/companies/1/compras', {
+        const res = await fetch('/api/conta/companies/1/compras', {
           headers: {
             Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json'
@@ -273,9 +273,12 @@ export default function ComprasPage() {
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center">
-                      <button className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition">
-                        <Eye size={18} />
-                      </button>
+                      <Link
+                        href={`/dashboard/compras/${compra.id}`}
+                        className="inline-flex items-center gap-1 px-3 py-1 text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition font-medium"
+                      >
+                        Ver <ArrowRight size={16} />
+                      </Link>
                     </td>
                   </tr>
                 ))}

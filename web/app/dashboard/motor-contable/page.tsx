@@ -3,7 +3,11 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { getToken, clearSession } from '@/lib/auth';
-import { CheckCircle, XCircle, Clock, Eye } from '@phosphor-icons/react';
+import { CheckCircle, XCircle, Clock, Eye, ArrowRight } from '@phosphor-icons/react';
+import Link from 'next/link';
+import { Tooltip } from '@/app/dashboard/components/Tooltip';
+import { ConfirmationModal } from '@/components/dashboard/ConfirmationModal';
+import { Toast, ToastContainer, ToastType } from '@/components/dashboard/Toast';
 
 interface JournalEntry {
   id: string;
@@ -17,13 +21,33 @@ interface JournalEntry {
   facturaId?: string;
 }
 
-const API = 'http://localhost:3000';
+const API = '/api/conta';
 
 const ESTADO_CONFIG = {
-  DRAFT: { color: 'bg-slate-50 text-slate-700', icon: Clock, label: 'Borrador' },
-  PENDING_REVIEW: { color: 'bg-yellow-50 text-yellow-700', icon: Eye, label: 'Revisión' },
-  POSTED: { color: 'bg-green-50 text-green-700', icon: CheckCircle, label: 'Contabilizado' },
-  REVERSED: { color: 'bg-red-50 text-red-700', icon: XCircle, label: 'Reversado' },
+  DRAFT: {
+    color: 'bg-amber-50 text-amber-700 border-amber-200',
+    icon: Clock,
+    label: 'Borrador',
+    tooltip: 'Asiento en borrador, no contabilizado aún.',
+  },
+  PENDING_REVIEW: {
+    color: 'bg-blue-50 text-blue-700 border-blue-200',
+    icon: Eye,
+    label: 'Pendiente revisión',
+    tooltip: 'Esperando aprobación manual antes de contabilizar.',
+  },
+  POSTED: {
+    color: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    icon: CheckCircle,
+    label: 'Aprobado',
+    tooltip: 'Contabilizado correctamente en el sistema.',
+  },
+  REVERSED: {
+    color: 'bg-rose-50 text-rose-700 border-rose-200',
+    icon: XCircle,
+    label: 'Rechazado',
+    tooltip: 'Asiento anulado o reversado.',
+  },
 };
 
 export default function MotorContablePage() {
@@ -50,6 +74,8 @@ export default function MotorContablePage() {
     desde: '',
     hasta: '',
   });
+  const [confirmModal, setConfirmModal] = useState({ isOpen: false, asientoId: '', isLoading: false });
+  const [toasts, setToasts] = useState<Array<{ id: string; type: ToastType; title: string; message?: string }>>([]);
 
   useEffect(() => {
     const loadAsientos = async () => {
@@ -67,7 +93,7 @@ export default function MotorContablePage() {
         if (filtros.hasta) params.append('hasta', filtros.hasta);
 
         const res = await fetch(
-          `http://localhost:3000/companies/${companyId}/accounting/journal-entries?${params}`,
+          `${API}/companies/${companyId}/accounting/journal-entries?${params}`,
           { headers: { Authorization: `Bearer ${token}` } }
         );
 
@@ -91,18 +117,30 @@ export default function MotorContablePage() {
     if (companyId) loadAsientos();
   }, [companyId, filtros, router]);
 
-  const handleApprove = async (journalEntryId: string) => {
-    if (!confirm('¿Aprobar este asiento?')) return;
+  const addToast = (type: ToastType, title: string, message?: string) => {
+    const id = Math.random().toString(36).substr(2, 9);
+    setToasts((prev) => [...prev, { id, type, title, message }]);
+  };
 
+  const removeToast = (id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  };
+
+  const handleApproveClick = (asientoId: string) => {
+    setConfirmModal({ isOpen: true, asientoId, isLoading: false });
+  };
+
+  const handleApproveConfirm = async () => {
+    setConfirmModal((prev) => ({ ...prev, isLoading: true }));
     const token = getToken();
     if (!token) {
-      router.replace('/login');
+      setConfirmModal({ isOpen: false, asientoId: '', isLoading: false });
       return;
     }
 
     try {
       const res = await fetch(
-        `${API}/companies/${companyId}/accounting/journal-entries/${journalEntryId}/approve`,
+        `${API}/companies/${companyId}/accounting/journal-entries/${confirmModal.asientoId}/approve`,
         {
           method: 'POST',
           headers: {
@@ -115,16 +153,20 @@ export default function MotorContablePage() {
 
       if (res.status === 401) {
         clearSession();
-        router.replace('/login');
+        setConfirmModal({ isOpen: false, asientoId: '', isLoading: false });
         return;
       }
 
       if (!res.ok) throw new Error('Error aprobando asiento');
+
       setAsientos(asientos.map((a) =>
-        a.id === journalEntryId ? { ...a, estado: 'POSTED' } : a
+        a.id === confirmModal.asientoId ? { ...a, estado: 'POSTED' } : a
       ));
+      addToast('success', 'Asiento aprobado', 'El asiento se ha contabilizado correctamente');
+      setConfirmModal({ isOpen: false, asientoId: '', isLoading: false });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error aprobando asiento');
+      addToast('error', 'Error al aprobar', err instanceof Error ? err.message : 'Error desconocido');
+      setConfirmModal((prev) => ({ ...prev, isLoading: false }));
     }
   };
 
@@ -254,22 +296,31 @@ export default function MotorContablePage() {
                       {asiento.haber.toFixed(2)}
                     </td>
                     <td className="px-6 py-4 text-sm">
-                      <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold ${config.color}`}>
-                        <Icon size={14} />
-                        {config.label}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold ${config.color}`}>
+                          <Icon size={14} />
+                          {config.label}
+                        </span>
+                        <Tooltip text={config.tooltip} position="left" />
+                      </div>
                     </td>
                     <td className="px-6 py-4 text-sm space-x-2">
+                      <Link
+                        href={`/dashboard/motor-contable/${asiento.id}`}
+                        className="text-blue-600 hover:text-blue-900 font-medium inline-flex items-center gap-1"
+                      >
+                        Ver detalle <ArrowRight size={14} />
+                      </Link>
                       {asiento.estado === 'PENDING_REVIEW' && (
-                        <button
-                          onClick={() => handleApprove(asiento.id)}
-                          className="text-green-600 hover:text-green-900 font-medium"
-                        >
-                          Aprobar
-                        </button>
-                      )}
-                      {asiento.estado === 'POSTED' && (
-                        <span className="text-gray-500">Contabilizado</span>
+                        <>
+                          <span className="text-gray-300">|</span>
+                          <button
+                            onClick={() => handleApproveClick(asiento.id)}
+                            className="text-green-600 hover:text-green-900 font-medium"
+                          >
+                            Aprobar
+                          </button>
+                        </>
                       )}
                     </td>
                   </tr>
@@ -320,6 +371,21 @@ export default function MotorContablePage() {
           contables definidas. Requieren aprobación manual antes de registrarse definitivamente.
         </p>
       </div>
+
+      {/* Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={confirmModal.isOpen}
+        title="Aprobar asiento"
+        message="¿Estás seguro de que deseas aprobar este asiento? Se contabilizará inmediatamente."
+        confirmLabel="Aprobar"
+        cancelLabel="Cancelar"
+        isLoading={confirmModal.isLoading}
+        onConfirm={handleApproveConfirm}
+        onCancel={() => setConfirmModal({ isOpen: false, asientoId: '', isLoading: false })}
+      />
+
+      {/* Toast Container */}
+      <ToastContainer toasts={toasts} onClose={removeToast} />
     </div>
   );
 }

@@ -1,9 +1,17 @@
+export interface NavSubItem {
+  label: string;
+  slug: string;
+  description: string;
+}
+
 export interface NavItem {
   label: string;
   slug: string;
   description: string;
   implemented: boolean;
   endpoints: string[];
+  requiredRoles?: string[]; // Si no se especifica, accesible a todos
+  subItems?: NavSubItem[];
 }
 
 export interface NavGroup {
@@ -139,53 +147,73 @@ export const NAV_GROUPS: NavGroup[] = [
         slug: 'motor-contable',
         description:
           'Generación automática de asientos a partir de documentos.',
-        implemented: false,
+        implemented: true,
         endpoints: [
-          'POST /companies/:id/accounting-engine/generate',
-          'GET /companies/:id/accounting-engine/rules',
+          'POST /companies/:id/accounting/contabilizar/:invoiceId',
+          'GET /companies/:id/accounting/journal-entries',
+          'GET /companies/:id/accounting/journal-entries/:id',
+          'POST /companies/:id/accounting/journal-entries/:id/approve',
         ],
+        requiredRoles: ['contabilidad:read', 'contabilidad:write'],
       },
       {
         label: 'Cierre contable',
-        slug: 'cierre',
+        slug: 'cierre-contable',
         description: 'Cierre de ejercicio y apertura del siguiente.',
-        implemented: false,
+        implemented: true,
         endpoints: [
-          'POST /companies/:id/accounting-closure/close',
-          'GET /companies/:id/accounting-closure/status',
+          'POST /companies/:id/accounting/closures/generar-asiento',
+          'GET /companies/:id/accounting/closures',
         ],
+        requiredRoles: ['contabilidad:write'],
       },
     ],
   },
   {
-    title: 'Bancos',
+    title: 'Tesorería',
     items: [
       {
-        label: 'Extractos',
-        slug: 'extractos',
-        description: 'Importación de extractos bancarios (Norma 43, CSV).',
-        implemented: false,
+        label: 'Resumen',
+        slug: 'tesoreria',
+        description: 'Visión general de la posición de tesorería.',
+        implemented: true,
+        endpoints: ['GET /companies/:id/treasury/bank-accounts'],
+        requiredRoles: ['tesoreria:read', 'tesoreria:write'],
+      },
+      {
+        label: 'Cuentas bancarias',
+        slug: 'tesoreria/cuentas',
+        description: 'Gestión de cuentas bancarias de la empresa.',
+        implemented: true,
         endpoints: [
-          'GET /companies/:id/extractos',
-          'POST /companies/:id/extractos/import',
+          'GET /companies/:id/treasury/bank-accounts',
+          'POST /companies/:id/treasury/bank-accounts',
+          'GET /companies/:id/treasury/bank-accounts/:accountId',
         ],
+        requiredRoles: ['tesoreria:read', 'tesoreria:write'],
+      },
+      {
+        label: 'Extractos',
+        slug: 'tesoreria/extractos',
+        description: 'Importación de extractos bancarios (CSV, OFX).',
+        implemented: true,
+        endpoints: [
+          'POST /companies/:id/treasury/bank-accounts/:accountId/statements',
+          'GET /companies/:id/treasury/bank-accounts/:accountId/movements',
+        ],
+        requiredRoles: ['tesoreria:read', 'tesoreria:write'],
       },
       {
         label: 'Conciliación',
-        slug: 'conciliacion',
-        description: 'Cruce automático de apuntes bancarios con facturas.',
-        implemented: false,
+        slug: 'tesoreria/conciliacion',
+        description: 'Cruce de movimientos bancarios con facturas y asientos.',
+        implemented: true,
         endpoints: [
-          'GET /companies/:id/conciliacion/pendientes',
-          'POST /companies/:id/conciliacion/match',
+          'GET /companies/:id/treasury/bank-accounts/:accountId/movements',
+          'POST /companies/:id/treasury/movements/:movementId/reconcile',
+          'DELETE /companies/:id/treasury/movements/:movementId/reconcile',
         ],
-      },
-      {
-        label: 'Cuadre de bancos',
-        slug: 'cuadre-bancos',
-        description: 'Verificación de saldos contables contra saldos reales.',
-        implemented: false,
-        endpoints: ['GET /companies/:id/cuadre-bancos'],
+        requiredRoles: ['tesoreria:read', 'tesoreria:write'],
       },
     ],
   },
@@ -193,21 +221,62 @@ export const NAV_GROUPS: NavGroup[] = [
     title: 'Fiscalidad',
     items: [
       {
-        label: 'Impuestos',
-        slug: 'impuestos',
-        description: 'Modelos de IVA, IRPF y calendario fiscal.',
-        implemented: false,
+        label: 'Modelos Fiscales',
+        slug: 'fiscal',
+        description: 'Gestión centralizada de declaraciones fiscales (IVA, Retenciones, IS).',
+        implemented: true,
         endpoints: [
-          'GET /companies/:id/tax/models',
-          'GET /companies/:id/impuestos-modulo',
+          'GET /companies/:id/tax-models',
+          'GET /companies/:id/tax-models/303',
+          'GET /companies/:id/tax-models/111',
+          'GET /companies/:id/tax-models/200',
+          'GET /companies/:id/tax-models/347',
+          'GET /companies/:id/tax-models/115',
+          'POST /companies/:id/tax-models/:codigo/presentado',
         ],
-      },
-      {
-        label: 'Impuesto de Sociedades',
-        slug: 'sociedades',
-        description: 'Cálculo y preparación del modelo 200.',
-        implemented: false,
-        endpoints: ['GET /companies/:id/impuesto-sociedades'],
+        requiredRoles: ['fiscal:read', 'fiscal:write'],
+        subItems: [
+          {
+            label: 'Estado Fiscal',
+            slug: 'fiscal/estado',
+            description: 'Visión global de modelos y próximos vencimientos',
+          },
+          {
+            label: 'Modelo 303 - IVA',
+            slug: 'fiscal/modelo-303',
+            description: 'IVA repercutido y soportado trimestral',
+          },
+          {
+            label: 'Modelo 111 - Retenciones',
+            slug: 'fiscal/modelo-111',
+            description: 'Retenciones e ingresos a cuenta',
+          },
+          {
+            label: 'Modelo 200 - Impuesto de Sociedades',
+            slug: 'fiscal/modelo-200',
+            description: 'Impuesto sobre Sociedades anual',
+          },
+          {
+            label: 'Modelo 347 - Operaciones con Terceros',
+            slug: 'fiscal/modelo-347',
+            description: 'Declaración de terceros (>3.000€)',
+          },
+          {
+            label: 'Modelo 115 - Arrendamientos',
+            slug: 'fiscal/modelo-115',
+            description: 'Retenciones IRPF sobre arrendamientos',
+          },
+          {
+            label: 'Modelo 390 - Resumen Anual IVA',
+            slug: 'fiscal/modelo-390',
+            description: 'Consolidación anual de trimestres (303)',
+          },
+          {
+            label: 'Modelo 190 - Resumen Anual Retenciones',
+            slug: 'fiscal/modelo-190',
+            description: 'Consolidación anual de trimestres (111)',
+          },
+        ],
       },
       {
         label: 'Registro Mercantil',
@@ -232,8 +301,44 @@ export const NAV_GROUPS: NavGroup[] = [
         label: 'Informes',
         slug: 'informes',
         description: 'Balance, PyG, mayor, sumas y saldos.',
-        implemented: false,
-        endpoints: ['GET /companies/:id/reports/:tipo'],
+        implemented: true,
+        endpoints: [
+          'GET /companies/:id/reports/balance',
+          'GET /companies/:id/reports/profit-and-loss',
+          'GET /companies/:id/reports/income',
+          'GET /companies/:id/reports/expenses',
+        ],
+        requiredRoles: ['contabilidad:read'],
+        // NOTA: conviven dos implementaciones de informes (informes/* y
+        // reportes/*). Se enlazan ambas para que ninguna quede huerfana;
+        // decidir cual prevalece esta pendiente.
+        subItems: [
+          {
+            label: 'Balance general',
+            slug: 'informes/balance',
+            description: 'Activo, pasivo y patrimonio neto por rango de fechas.',
+          },
+          {
+            label: 'Pérdidas y ganancias',
+            slug: 'informes/pyg',
+            description: 'Ingresos, gastos y resultado del periodo.',
+          },
+          {
+            label: 'Balance de situación',
+            slug: 'reportes/balance',
+            description: 'Balance con ratios de liquidez, solvencia y endeudamiento.',
+          },
+          {
+            label: 'P&L comparativo',
+            slug: 'reportes/pyl',
+            description: 'Pérdidas y ganancias con comparativa frente al año anterior.',
+          },
+          {
+            label: 'IVA vs AEAT',
+            slug: 'reportes/iva-aeat',
+            description: 'Contraste del IVA contable con lo declarado en el modelo 303.',
+          },
+        ],
       },
       {
         label: 'Asistente Carmen',

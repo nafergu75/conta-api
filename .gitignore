@@ -8,11 +8,14 @@ yarn-error.log*
 dist/
 .next/
 out/
+*.tsbuildinfo
 
 # Environment
+# El patron .env* cubre tambien copias tipo .env.local.bak, que de otro modo
+# se colarian en un commit.
 .env
-.env.local
-.env.*.local
+.env*
+!.env.example
 
 # IDE
 .vscode/

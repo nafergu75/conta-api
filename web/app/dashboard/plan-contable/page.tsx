@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getToken, clearSession } from '@/lib/auth';
-import { CaretDown, CaretRight, Plus, X } from '@phosphor-icons/react';
+import { CaretDown, CaretRight, Plus, X, MagnifyingGlass } from '@phosphor-icons/react';
+import { Tooltip } from '@/app/dashboard/components/Tooltip';
 
 interface PgcNode {
   level: 'group' | 'subgroup' | 'account';
@@ -27,6 +28,7 @@ export default function PlanContablePage() {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [expandedSubgroups, setExpandedSubgroups] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string>('');
+  const [searchTerm, setSearchTerm] = useState('');
 
   // Modal state
   const [modal, setModal] = useState<ModalData>({ type: null });
@@ -44,7 +46,7 @@ export default function PlanContablePage() {
           return;
         }
 
-        const response = await fetch('http://localhost:3000/plan-contable/base/todo', {
+        const response = await fetch('/api/conta/plan-contable/base/todo', {
           headers: { Authorization: `Bearer ${token}` },
         });
 
@@ -138,21 +140,59 @@ export default function PlanContablePage() {
   const getSubgroupsForGroup = (groupCode: string) => subgroups.filter((sg) => sg.groupCode === groupCode);
   const getAccountsForSubgroup = (subgroupCode: string) => accounts.filter((a) => a.subgroupCode === subgroupCode);
 
-  const getTypeBadgeColor = (type: string) => {
-    switch (type) {
-      case 'patrimonio_neto':
-        return 'bg-blue-100 text-blue-800';
-      case 'activo':
-        return 'bg-green-100 text-green-800';
-      case 'pasivo':
-        return 'bg-orange-100 text-orange-800';
-      case 'gasto':
-        return 'bg-red-100 text-red-800';
-      case 'ingreso':
-        return 'bg-emerald-100 text-emerald-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
+  // Filtrar cuentas por búsqueda
+  const filterAccounts = (accs: PgcNode[]) => {
+    if (!searchTerm.trim()) return accs;
+    const search = searchTerm.toLowerCase();
+    return accs.filter((a) =>
+      a.code.toLowerCase().includes(search) || a.name.toLowerCase().includes(search)
+    );
+  };
+
+  const filteredAccounts = filterAccounts(accounts);
+  const matchingSubgroups = new Set(
+    filteredAccounts.map((a) => a.subgroupCode).filter(Boolean)
+  );
+  const matchingGroups = new Set(
+    subgroups
+      .filter((sg) => matchingSubgroups.has(sg.code))
+      .map((sg) => sg.groupCode)
+      .filter(Boolean)
+  );
+
+  // Auto-expandir cuando hay búsqueda
+  const shouldAutoExpand = searchTerm.trim().length > 0;
+  const visibleGroups = shouldAutoExpand ? groups : groups;
+
+  const getTypeBadgeConfig = (type: string) => {
+    const config: Record<string, { color: string; label: string; tooltip: string }> = {
+      patrimonio_neto: {
+        color: 'bg-blue-100 text-blue-800',
+        label: 'Patrimonio',
+        tooltip: 'Capital y ganancias acumuladas de la empresa.',
+      },
+      activo: {
+        color: 'bg-green-100 text-green-800',
+        label: 'Activo',
+        tooltip: 'Bienes y derechos que posee la empresa (efectivo, inventario, equipos).',
+      },
+      pasivo: {
+        color: 'bg-orange-100 text-orange-800',
+        label: 'Pasivo',
+        tooltip: 'Obligaciones y deudas de la empresa (préstamos, proveedores).',
+      },
+      gasto: {
+        color: 'bg-red-100 text-red-800',
+        label: 'Gasto',
+        tooltip: 'Dinero invertido en operaciones (sueldos, servicios, materiales).',
+      },
+      ingreso: {
+        color: 'bg-emerald-100 text-emerald-800',
+        label: 'Ingreso',
+        tooltip: 'Dinero recibido por ventas y servicios.',
+      },
+    };
+    return config[type] || { color: 'bg-gray-100 text-gray-800', label: type, tooltip: 'Tipo de cuenta.' };
   };
 
   if (loading) {
@@ -176,9 +216,41 @@ export default function PlanContablePage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Plan Contable</h1>
+        <div className="flex-1">
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-bold text-gray-900">Plan Contable</h1>
+            <Tooltip text="Estructura organizativa de las cuentas donde se registran todas las operaciones contables de la empresa. Organismos por grupos, subgrupos y cuentas individuales." />
+          </div>
           <p className="mt-2 text-gray-600">Estructura del plan contable PGC-PYME</p>
+        </div>
+      </div>
+
+      {/* Búsqueda */}
+      <div className="rounded-lg border border-slate-200 bg-white p-4">
+        <label className="block text-sm font-medium text-slate-700 mb-2">
+          Buscar cuenta
+        </label>
+        <div className="relative">
+          <MagnifyingGlass
+            size={16}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+          />
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Buscar por código o nombre..."
+            className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-9 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+          />
+          {searchTerm && (
+            <button
+              onClick={() => setSearchTerm('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              title="Limpiar búsqueda"
+            >
+              <X size={16} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -186,28 +258,50 @@ export default function PlanContablePage() {
       <div className="grid grid-cols-4 gap-4">
         <div className="bg-white p-4 rounded-lg border border-gray-200">
           <p className="text-sm text-gray-600">Grupos</p>
-          <p className="text-2xl font-bold text-gray-900">{groups.length}</p>
+          <p className="text-2xl font-bold text-gray-900">
+            {shouldAutoExpand ? matchingGroups.size : groups.length}
+          </p>
         </div>
         <div className="bg-white p-4 rounded-lg border border-gray-200">
           <p className="text-sm text-gray-600">Subgrupos</p>
-          <p className="text-2xl font-bold text-gray-900">{subgroups.length}</p>
+          <p className="text-2xl font-bold text-gray-900">
+            {shouldAutoExpand ? matchingSubgroups.size : subgroups.length}
+          </p>
         </div>
         <div className="bg-white p-4 rounded-lg border border-gray-200">
           <p className="text-sm text-gray-600">Cuentas</p>
-          <p className="text-2xl font-bold text-gray-900">{accounts.length}</p>
+          <p className="text-2xl font-bold text-gray-900">
+            {shouldAutoExpand ? filteredAccounts.length : accounts.length}
+          </p>
         </div>
         <div className="bg-white p-4 rounded-lg border border-gray-200">
           <p className="text-sm text-gray-600">Total nodos</p>
-          <p className="text-2xl font-bold text-gray-900">{data.length}</p>
+          <p className="text-2xl font-bold text-gray-900">
+            {shouldAutoExpand ? matchingGroups.size + matchingSubgroups.size + filteredAccounts.length : data.length}
+          </p>
         </div>
       </div>
 
       {/* Plan Contable Jerárquico */}
       <div className="bg-white rounded-lg border border-gray-200">
-        <div className="divide-y">
-          {groups.map((group) => {
-            const groupSubgroups = getSubgroupsForGroup(group.code);
-            const isExpanded = expandedGroups.has(group.code);
+        {filteredAccounts.length === 0 && shouldAutoExpand && (
+          <div className="px-6 py-8 text-center">
+            <p className="text-slate-600">No se encontraron cuentas con ese término.</p>
+            <button
+              onClick={() => setSearchTerm('')}
+              className="mt-2 text-sm text-blue-600 hover:text-blue-700 font-medium"
+            >
+              Limpiar búsqueda
+            </button>
+          </div>
+        )}
+        {(filteredAccounts.length > 0 || !shouldAutoExpand) && (
+          <div className="divide-y">
+            {visibleGroups
+              .filter((g) => !shouldAutoExpand || matchingGroups.has(g.code))
+              .map((group) => {
+                const groupSubgroups = getSubgroupsForGroup(group.code);
+                const isExpanded = shouldAutoExpand || expandedGroups.has(group.code);
 
             return (
               <div key={group.code} className="divide-y">
@@ -233,9 +327,12 @@ export default function PlanContablePage() {
                 </div>
 
                 {/* Subgrupos */}
-                {isExpanded && groupSubgroups.map((subgroup) => {
-                  const subgroupAccounts = getAccountsForSubgroup(subgroup.code);
-                  const isSubgroupExpanded = expandedSubgroups.has(subgroup.code);
+                {isExpanded && groupSubgroups
+                  .filter((sg) => !shouldAutoExpand || matchingSubgroups.has(sg.code))
+                  .map((subgroup) => {
+                    const subgroupAccounts = getAccountsForSubgroup(subgroup.code);
+                    const filteredSubgroupAccounts = filterAccounts(subgroupAccounts);
+                    const isSubgroupExpanded = shouldAutoExpand || expandedSubgroups.has(subgroup.code);
 
                   return (
                     <div key={subgroup.code} className="bg-gray-50 border-t">
@@ -253,7 +350,11 @@ export default function PlanContablePage() {
                         <span className="font-medium text-gray-700 flex-1">
                           [{subgroup.code}] {subgroup.name}
                         </span>
-                        <span className="text-xs text-gray-500">{subgroupAccounts.length} cuentas</span>
+                        <span className="text-xs text-gray-500">
+                          {shouldAutoExpand
+                            ? `${filteredSubgroupAccounts.length}/${subgroupAccounts.length}`
+                            : `${subgroupAccounts.length}`} cuentas
+                        </span>
                         <button
                           onClick={() => openCreateSubcuenta(subgroup.code, subgroup.name)}
                           className="ml-2 p-2 text-gray-600 hover:bg-blue-50 hover:text-blue-600 rounded opacity-0 group-hover/subheader:opacity-100 transition"
@@ -264,24 +365,31 @@ export default function PlanContablePage() {
                       </div>
 
                       {/* Cuentas */}
-                      {isSubgroupExpanded && subgroupAccounts.map((account) => (
-                        <div key={account.code} className="px-20 py-2 text-sm border-t border-gray-200 hover:bg-white transition">
-                          <div className="flex items-center gap-3">
-                            <span className="font-mono text-gray-600 w-16">[{account.code}]</span>
-                            <span className="text-gray-700 flex-1">{account.name}</span>
-                            <span className={`px-2 py-1 rounded text-xs font-medium ${getTypeBadgeColor(account.type || '')}`}>
-                              {account.type?.replace(/_/g, ' ')}
-                            </span>
+                      {isSubgroupExpanded && filteredSubgroupAccounts.map((account) => {
+                        const typeConfig = getTypeBadgeConfig(account.type || '');
+                        return (
+                          <div key={account.code} className="px-20 py-2 text-sm border-t border-gray-200 hover:bg-white transition">
+                            <div className="flex items-center gap-3">
+                              <span className="font-mono text-gray-600 w-16">[{account.code}]</span>
+                              <span className="text-gray-700 flex-1">{account.name}</span>
+                              <div className="flex items-center gap-2">
+                                <span className={`px-2 py-1 rounded text-xs font-medium ${typeConfig.color}`}>
+                                  {typeConfig.label}
+                                </span>
+                                <Tooltip text={typeConfig.tooltip} position="left" />
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   );
                 })}
               </div>
             );
-          })}
-        </div>
+            })}
+          </div>
+        )}
       </div>
 
       {/* Modal para crear subgrupo/subcuenta */}
