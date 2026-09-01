@@ -44,7 +44,7 @@ export default function EstadoFiscalPage() {
     const fetchEstados = async () => {
       try {
         setLoading(true);
-        const response = await fetch(`/api/companies/${companyId}/tax-models`);
+        const response = await fetch(`/api/conta/companies/1/tax-models`);
         if (!response.ok) throw new Error('Error al cargar estado');
 
         const data = await response.json();

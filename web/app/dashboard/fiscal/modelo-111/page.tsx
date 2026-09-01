@@ -32,7 +32,7 @@ export default function Modelo111Page() {
       try {
         setLoading(true);
         const response = await fetch(
-          `/api/companies/${companyId}/tax-models/111?ejercicio=${ejercicio}&trimestre=${trimestre}`
+          `/api/conta/companies/1/tax-models/111?ejercicio=${ejercicio}&trimestre=${trimestre}`
         );
 
         if (!response.ok) {
@@ -58,7 +58,7 @@ export default function Modelo111Page() {
 
   const descargarAEAT = async () => {
     try {
-      const response = await fetch(`/api/companies/${companyId}/tax-models/111/${modelo?.id}/download`);
+      const response = await fetch(`/api/conta/companies/1/tax-models/111/${modelo?.id}/download`);
       if (!response.ok) throw new Error('Error al descargar');
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);

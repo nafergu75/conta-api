@@ -53,8 +53,8 @@ export function FormPresentar({
     try {
       const endpoint =
         codigo === '200'
-          ? `/api/companies/${companyId}/tax-models/${codigo}/presentado`
-          : `/api/companies/${companyId}/tax-models/${codigo}/presentado`;
+          ? `/api/conta/companies/1/tax-models/${codigo}/presentado`
+          : `/api/conta/companies/1/tax-models/${codigo}/presentado`;
 
       const payload = {
         ejercicio,

@@ -37,7 +37,7 @@ export default function Modelo390Page() {
     const fetchModelo = async () => {
       try {
         setLoading(true);
-        const response = await fetch(`/api/companies/${companyId}/tax-models/390?ejercicio=${ejercicio}`);
+        const response = await fetch(`/api/conta/companies/1/tax-models/390?ejercicio=${ejercicio}`);
 
         if (!response.ok) {
           throw new Error('Error al cargar el modelo 390');
@@ -63,7 +63,7 @@ export default function Modelo390Page() {
   const descargarAEAT = async () => {
     if (!modelo) return;
     try {
-      const response = await fetch(`/api/companies/${companyId}/tax-models/390/${modelo.id}/download`);
+      const response = await fetch(`/api/conta/companies/1/tax-models/390/${modelo.id}/download`);
       if (!response.ok) throw new Error('Error al descargar');
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);

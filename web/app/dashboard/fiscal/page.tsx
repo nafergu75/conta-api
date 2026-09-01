@@ -23,7 +23,7 @@ export default function FiscalPage() {
     const fetchModelos = async () => {
       try {
         setLoading(true);
-        const response = await fetch(`/api/companies/${companyId}/tax-models`);
+        const response = await fetch(`/api/conta/companies/1/tax-models`);
 
         if (response.ok) {
           const data = await response.json();

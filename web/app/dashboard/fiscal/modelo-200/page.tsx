@@ -32,7 +32,7 @@ export default function Modelo200Page() {
     const fetchModelo = async () => {
       try {
         setLoading(true);
-        const response = await fetch(`/api/companies/${companyId}/tax-models/200?ejercicio=${ejercicio}`);
+        const response = await fetch(`/api/conta/companies/1/tax-models/200?ejercicio=${ejercicio}`);
 
         if (!response.ok) {
           throw new Error('Error al cargar el modelo 200');
@@ -62,7 +62,7 @@ export default function Modelo200Page() {
 
   const descargarAEAT = async () => {
     try {
-      const response = await fetch(`/api/companies/${companyId}/tax-models/200/${modelo?.id}/download`);
+      const response = await fetch(`/api/conta/companies/1/tax-models/200/${modelo?.id}/download`);
       if (!response.ok) throw new Error('Error al descargar');
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
