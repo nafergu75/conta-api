@@ -79,16 +79,31 @@ export default function ClientesPage() {
 
       <main className="max-w-6xl mx-auto px-4 md:px-8 py-8 flex flex-col gap-6">
         {/* Buscador */}
-        <section className="rounded-xl bg-white border border-slate-200 p-4">
-          <div className="flex items-center gap-2 border border-slate-300 rounded-lg px-3 py-2">
-            <MagnifyingGlass size={18} className="text-slate-400" />
+        <section className="rounded-lg border border-slate-200 bg-white p-4">
+          <label className="block text-sm font-medium text-slate-700 mb-2">
+            Buscar cliente
+          </label>
+          <div className="relative">
+            <MagnifyingGlass
+              size={16}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+            />
             <input
               type="text"
               placeholder="Buscar por nombre o NIF..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="flex-1 bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none"
+              className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-9 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
             />
+            {search && (
+              <button
+                onClick={() => setSearch('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                title="Limpiar búsqueda"
+              >
+                <X size={16} />
+              </button>
+            )}
           </div>
         </section>
 
@@ -166,7 +181,7 @@ export default function ClientesPage() {
         </section>
 
         <p className="text-sm text-slate-500 text-center">
-          {loading ? 'Cargando...' : `${filtered.length} cliente${filtered.length !== 1 ? 's' : ''}`}
+          {loading ? 'Cargando...' : search ? `${filtered.length}/${clientes.length} cliente${filtered.length !== 1 ? 's' : ''}` : `${clientes.length} cliente${clientes.length !== 1 ? 's' : ''}`}
         </p>
       </main>
 
