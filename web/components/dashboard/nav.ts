@@ -421,6 +421,29 @@ export const NAV_GROUPS: NavGroup[] = [
       },
     ],
   },
+  {
+    // Solo el administrador global (modo administrador de la plataforma).
+    title: 'Administración',
+    items: [
+      {
+        label: 'Empresas y usuarios',
+        slug: 'admin',
+        description: 'Todas las empresas y usuarios de la plataforma: altas, accesos y roles.',
+        implemented: true,
+        endpoints: [
+          'GET /admin/empresas',
+          'POST /admin/empresas',
+          'PATCH /admin/empresas/:id',
+          'GET /admin/usuarios',
+          'POST /admin/usuarios',
+          'PATCH /admin/usuarios/:userId',
+          'PUT /admin/usuarios/:userId/empresas/:companyId',
+          'DELETE /admin/usuarios/:userId/empresas/:companyId',
+        ],
+        requiredRoles: ['admin:global'],
+      },
+    ],
+  },
 ];
 
 export function findNavItem(slug: string): NavItem | undefined {

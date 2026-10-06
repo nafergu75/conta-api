@@ -34,11 +34,12 @@ import {
   SignOut,
   RocketLaunch,
   CalendarCheck,
+  ShieldCheck,
 } from '@phosphor-icons/react';
 import type { Icon } from '@phosphor-icons/react';
 import { NAV_GROUPS } from './nav';
 import { EmpresaSelector } from './EmpresaSelector';
-import { clearSession, EVENTO_SESION, getUser, tieneAlgunPermiso, type SessionUser } from '@/lib/auth';
+import { clearSession, EVENTO_SESION, getUser, rolEnEmpresaActiva, tieneAlgunPermiso, type SessionUser } from '@/lib/auth';
 import { aplicarTema, temaActual, type Tema } from '@/lib/tema';
 
 const ICONS: Record<string, Icon> = {
@@ -71,6 +72,7 @@ const ICONS: Record<string, Icon> = {
   ocr: Eye,
   carmen: Robot,
   configuracion: Gear,
+  admin: ShieldCheck,
 };
 
 const CLAVE_GRUPOS = 'menu-grupos-abiertos';
@@ -252,10 +254,20 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
       <div className="mt-2 border-t border-slate-200 pt-4">
         {user?.email && (
-          <p className="px-3 mb-2 truncate text-xs text-slate-500" title={user.email}>
+          <p className="px-3 truncate text-xs text-slate-500" title={user.email}>
             {user.email}
           </p>
         )}
+        {/* Que es en la empresa activa: ayuda a entender por que ve lo que ve. */}
+        {rolEnEmpresaActiva(user) && (
+          <p
+            className={`px-3 mt-0.5 truncate text-[11px] ${user?.esAdminGlobal ? 'font-medium text-indigo-600' : 'text-slate-400'}`}
+            title="Tu rol en la empresa activa"
+          >
+            {rolEnEmpresaActiva(user)}
+          </p>
+        )}
+        <div className="mb-2" />
         <button
           type="button"
           onClick={cambiarTema}

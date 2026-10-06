@@ -23,6 +23,8 @@ export interface SessionUser {
   permisos?: string[];
   /** Permisos en cada empresa: un contable puede ser solo lectura en otra. */
   permisosPorEmpresa?: Record<string, string[]>;
+  /** Roles en cada empresa ('contable', 'solo_lectura'...), para mostrarlos. */
+  rolesPorEmpresa?: Record<string, string[]>;
   /** Administrador de la plataforma: ve y gestiona todas las empresas. */
   esAdminGlobal?: boolean;
 }
@@ -103,15 +105,48 @@ export function permisosActivos(user: SessionUser | null): string[] {
  * true si el usuario tiene al menos uno de los permisos pedidos. Misma regla que
  * el backend (rbac.service): '*' lo cubre todo y 'recurso:*' cubre 'recurso:read'.
  * Sin requisitos, accesible a todos.
+ *
+ * Excepcion, igual que authorize en el backend: 'admin:global' es SOLO del
+ * administrador de la plataforma. El comodin '*' del rol 'admin' de una
+ * empresa no lo cubre (si no, veria el menu de Administracion y le daria 403).
  */
 export function tieneAlgunPermiso(user: SessionUser | null, requeridos?: string[]): boolean {
   if (!requeridos || requeridos.length === 0) return true;
   // Los de la empresa activa: se puede ser contable en una y solo lectura en otra.
   const permisos = permisosActivos(user);
   return requeridos.some((p) => {
+    if (p === 'admin:global') return user?.esAdminGlobal === true;
     if (permisos.includes('*') || permisos.includes(p)) return true;
     return permisos.includes(`${p.split(':')[0]}:*`);
   });
+}
+
+/** Roles que se pueden dar en una empresa (enum Role del backend), en castellano. */
+export const ROLES_EMPRESA: Array<{ valor: string; etiqueta: string }> = [
+  { valor: 'admin', etiqueta: 'Administrador' },
+  { valor: 'contable', etiqueta: 'Contable' },
+  { valor: 'ventas', etiqueta: 'Ventas' },
+  { valor: 'solo_lectura', etiqueta: 'Solo lectura' },
+];
+
+/** Nombre en castellano de un rol ('solo_lectura' y 'solo-lectura' -> 'Solo lectura'). */
+export function nombreRol(rol: string): string {
+  const valor = rol.replace(/-/g, '_');
+  return ROLES_EMPRESA.find((r) => r.valor === valor)?.etiqueta ?? (valor === 'tesoreria' ? 'Tesorería' : rol);
+}
+
+/**
+ * Que es el usuario en la empresa activa, para el pie del menu: "Administrador
+ * global" o su rol ("Contable"...). null si no se sabe (sesion antigua sin
+ * roles por empresa; el panel los refresca al entrar).
+ */
+export function rolEnEmpresaActiva(user: SessionUser | null): string | null {
+  if (!user) return null;
+  if (user.esAdminGlobal) return 'Administrador global';
+  const activa = user.empresaActiva ?? user.companies?.[0];
+  const roles = activa ? user.rolesPorEmpresa?.[activa] : undefined;
+  if (roles?.length) return roles.map(nombreRol).join(' · ');
+  return null;
 }
 
 export function clearSession() {
@@ -128,7 +163,7 @@ export const EVENTO_SESION = 'conta:sesion-actualizada';
  * iniciada antes de un cambio de permisos no deja el menu a medias.
  */
 export function actualizarPermisos(datos: {
-  user: Pick<SessionUser, 'roles' | 'companies' | 'permisos' | 'permisosPorEmpresa' | 'esAdminGlobal'> & { email?: string };
+  user: Pick<SessionUser, 'roles' | 'companies' | 'permisos' | 'permisosPorEmpresa' | 'rolesPorEmpresa' | 'esAdminGlobal'> & { email?: string };
   empresas?: EmpresaSesion[];
 }): void {
   const u = getUser();
@@ -141,6 +176,7 @@ export function actualizarPermisos(datos: {
     companies,
     permisos: datos.user.permisos ?? u.permisos,
     permisosPorEmpresa: datos.user.permisosPorEmpresa ?? u.permisosPorEmpresa,
+    rolesPorEmpresa: datos.user.rolesPorEmpresa ?? u.rolesPorEmpresa,
     esAdminGlobal: datos.user.esAdminGlobal ?? u.esAdminGlobal,
     empresas: datos.empresas?.length ? datos.empresas : u.empresas,
     empresaActiva: activa,

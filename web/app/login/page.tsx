@@ -59,6 +59,7 @@ export default function LoginPage() {
         empresaActiva: empresaInicial(correo, companies, esAdminGlobal),
         permisos: data.user?.permisos ?? [],
         permisosPorEmpresa: data.user?.permisosPorEmpresa ?? {},
+        rolesPorEmpresa: data.user?.rolesPorEmpresa ?? {},
         esAdminGlobal,
       });
       router.push('/dashboard');

@@ -40,7 +40,9 @@ export default function DashboardLayout({
   // completan, porque salen en todas las facturas. Solo a quien puede editarlos.
   const pathname = usePathname();
   useEffect(() => {
-    if (!autorizado || pathname.startsWith('/dashboard/empresa')) return;
+    // Administracion tampoco: el administrador tiene que poder llegar aunque
+    // la empresa en la que esta no tenga aun sus datos.
+    if (!autorizado || pathname.startsWith('/dashboard/empresa') || pathname.startsWith('/dashboard/admin')) return;
     if (!tieneAlgunPermiso(getUser(), ['contabilidad:write'])) return;
     apiFetch<{ completo?: boolean }>(companyPath('/legal-config'))
       .then((cfg) => {
