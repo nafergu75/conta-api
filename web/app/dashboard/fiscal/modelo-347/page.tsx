@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { CaretLeft, Download, MagnifyingGlass, X } from '@phosphor-icons/react';
 import { CasillasViewer } from '../components/CasillasViewer';
 import { FormPresentar } from '../components/FormPresentar';
@@ -25,11 +25,10 @@ interface Modelo347 {
 }
 
 export default function Modelo347Page() {
-  const params = useParams();
-  const companyId = params.companyId as string;
   const [modelo, setModelo] = useState<Modelo347 | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [avisoDescarga, setAvisoDescarga] = useState('');
   const [ejercicio, setEjercicio] = useState(new Date().getFullYear());
   const [searchTercero, setSearchTercero] = useState('');
 
@@ -37,45 +36,28 @@ export default function Modelo347Page() {
     const fetchModelo = async () => {
       try {
         setLoading(true);
-        const response = await fetch(`/api/conta/companies/1/tax-models/347?ejercicio=${ejercicio}`);
-
-        if (!response.ok) {
-          throw new Error('Error al cargar el modelo 347');
-        }
-
-        const data = await response.json();
-        setModelo(data.data);
+        setError('');
+        setModelo(await apiFetch<Modelo347>(companyPath(`/tax-models/347?ejercicio=${ejercicio}`)));
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Error desconocido');
+        setError(errorMessage(err));
       } finally {
         setLoading(false);
       }
     };
 
     fetchModelo();
-  }, [companyId, ejercicio]);
+  }, [ejercicio]);
 
   const eur = new Intl.NumberFormat('es-ES', {
     style: 'currency',
     currency: 'EUR',
   });
 
-  const descargarAEAT = async () => {
-    try {
-      const response = await fetch(`/api/conta/companies/1/tax-models/347/${modelo?.id}/download`);
-      if (!response.ok) throw new Error('Error al descargar');
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `modelo-347-${ejercicio}.txt`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-    } catch (err) {
-      console.error('Error descargando fichero AEAT:', err);
-    }
+  const descargarAEAT = () => {
+    // El backend aun no genera el fichero de este modelo (solo el del 303).
+    setAvisoDescarga(
+      'La descarga del fichero AEAT de este modelo aún no está disponible. Puedes copiar las casillas desde esta pantalla.',
+    );
   };
 
   if (loading) {
@@ -316,13 +298,18 @@ export default function Modelo347Page() {
       <div className="space-y-4">
         {/* Botón de Descarga AEAT */}
         {modelo.estado === 'vigente' && (
-          <button
-            onClick={descargarAEAT}
-            className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-6 py-3 text-sm font-medium text-white hover:bg-emerald-700 transition"
-          >
-            <Download size={18} />
-            Descargar Fichero AEAT (TXT)
-          </button>
+          <>
+            <button
+              onClick={descargarAEAT}
+              className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-6 py-3 text-sm font-medium text-white hover:bg-emerald-700 transition"
+            >
+              <Download size={18} />
+              Descargar Fichero AEAT (TXT)
+            </button>
+            {avisoDescarga && (
+              <p role="status" className="mt-2 text-sm text-amber-700">{avisoDescarga}</p>
+            )}
+          </>
         )}
 
         {/* Formulario de Presentación */}

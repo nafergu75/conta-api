@@ -4,6 +4,8 @@ const USER_KEY = 'conta_user';
 export interface SessionUser {
   email: string;
   roles: string[];
+  /** Empresas del usuario, tal como las devuelve el login del backend. */
+  companies?: string[];
 }
 
 export function saveSession(token: string, user: SessionUser) {
@@ -25,6 +27,14 @@ export function getUser(): SessionUser | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Empresa activa: la primera de la sesion. Sesiones antiguas (guardadas antes
+ * de que el login devolviera las empresas) caen en '1', la empresa demo.
+ */
+export function getCompanyId(): string {
+  return getUser()?.companies?.[0] ?? '1';
 }
 
 export function clearSession() {

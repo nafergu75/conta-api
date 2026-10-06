@@ -30,8 +30,9 @@ export function CuentaBancariaCard({
   });
 
   const estadoClasses = {
-    activo: 'bg-green-50 text-green-700 border-green-200',
-    inactivo: 'bg-gray-50 text-gray-700 border-gray-200',
+    // El backend devuelve 'activa' | 'inactiva'.
+    activa: 'bg-green-50 text-green-700 border-green-200',
+    inactiva: 'bg-gray-50 text-gray-700 border-gray-200',
     cerrado: 'bg-red-50 text-red-700 border-red-200',
   };
 
@@ -47,7 +48,7 @@ export function CuentaBancariaCard({
             <p className="text-sm text-slate-500">{iban}</p>
           </div>
         </div>
-        <span className={`rounded-full border px-3 py-1 text-xs font-medium ${estadoClasses[estado as keyof typeof estadoClasses] || estadoClasses.activo}`}>
+        <span className={`rounded-full border px-3 py-1 text-xs font-medium ${estadoClasses[estado as keyof typeof estadoClasses] || estadoClasses.activa}`}>
           {estado}
         </span>
       </div>

@@ -1,7 +1,8 @@
 'use client';
 
 import { Suspense, useEffect, useState } from 'react';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
+import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { TablaMovimientos } from '../components/TablaMovimientos';
 
 interface CuentaBancaria {
@@ -22,9 +23,7 @@ interface Movimiento {
 }
 
 function ConciliacionPageInner() {
-  const params = useParams();
   const searchParams = useSearchParams();
-  const companyId = params.companyId as string;
   const cuentaParam = searchParams.get('cuenta');
 
   const [cuentas, setCuentas] = useState<CuentaBancaria[]>([]);
@@ -34,6 +33,8 @@ function ConciliacionPageInner() {
   const [filtroEstado, setFiltroEstado] = useState<'pendiente' | 'conciliado' | 'todos'>('pendiente');
   const [reconciliando, setReconciliando] = useState<string | null>(null);
   const [modalMovimiento, setModalMovimiento] = useState<Movimiento | null>(null);
+  const [errorCarga, setErrorCarga] = useState('');
+  const [errorConciliacion, setErrorConciliacion] = useState('');
   const [formReconciliacion, setFormReconciliacion] = useState({
     tipoOrigen: 'factura_ingreso',
     origenId: '',
@@ -41,7 +42,7 @@ function ConciliacionPageInner() {
 
   useEffect(() => {
     fetchCuentas();
-  }, [companyId]);
+  }, []);
 
   useEffect(() => {
     if (selectedCuenta) {
@@ -51,19 +52,15 @@ function ConciliacionPageInner() {
 
   const fetchCuentas = async () => {
     try {
-      const response = await fetch(`/api/companies/${companyId}/treasury/bank-accounts`);
-      if (response.ok) {
-        const data = await response.json();
-        const cuentasActivas = data.data || [];
-        setCuentas(cuentasActivas);
-        if (cuentaParam) {
-          setSelectedCuenta(cuentaParam);
-        } else if (cuentasActivas.length > 0) {
-          setSelectedCuenta(cuentasActivas[0].id);
-        }
+      const cuentasActivas = (await apiFetch<CuentaBancaria[]>(companyPath('/treasury/bank-accounts'))) || [];
+      setCuentas(cuentasActivas);
+      if (cuentaParam) {
+        setSelectedCuenta(cuentaParam);
+      } else if (cuentasActivas.length > 0) {
+        setSelectedCuenta(cuentasActivas[0].id);
       }
     } catch (error) {
-      console.error('Error fetching accounts:', error);
+      setErrorCarga(errorMessage(error));
     }
   };
 
@@ -71,17 +68,13 @@ function ConciliacionPageInner() {
     if (!selectedCuenta) return;
     setLoading(true);
     try {
-      let url = `/api/companies/${companyId}/treasury/bank-accounts/${selectedCuenta}/movements`;
+      let path = `/treasury/bank-accounts/${selectedCuenta}/movements`;
       if (filtroEstado !== 'todos') {
-        url += `?estado=${filtroEstado}`;
+        path += `?estado=${filtroEstado}`;
       }
-      const response = await fetch(url);
-      if (response.ok) {
-        const data = await response.json();
-        setMovimientos(data.data || []);
-      }
+      setMovimientos((await apiFetch<Movimiento[]>(companyPath(path))) || []);
     } catch (error) {
-      console.error('Error fetching movements:', error);
+      setErrorCarga(errorMessage(error));
     } finally {
       setLoading(false);
     }
@@ -98,27 +91,22 @@ function ConciliacionPageInner() {
   const handleSubmitReconciliacion = async () => {
     if (!reconciliando || !formReconciliacion.origenId) return;
 
+    setErrorConciliacion('');
     try {
-      const response = await fetch(
-        `/api/companies/${companyId}/treasury/movements/${reconciliando}/reconcile`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            tipoOrigen: formReconciliacion.tipoOrigen,
-            origenId: formReconciliacion.origenId,
-          }),
-        }
-      );
-
-      if (response.ok) {
-        setReconciliando(null);
-        setModalMovimiento(null);
-        setFormReconciliacion({ tipoOrigen: 'factura_ingreso', origenId: '' });
-        fetchMovimientos();
-      }
+      await apiFetch(companyPath(`/treasury/movements/${reconciliando}/reconcile`), {
+        method: 'POST',
+        body: JSON.stringify({
+          tipoOrigen: formReconciliacion.tipoOrigen,
+          origenId: formReconciliacion.origenId,
+        }),
+      });
+      setReconciliando(null);
+      setModalMovimiento(null);
+      setFormReconciliacion({ tipoOrigen: 'factura_ingreso', origenId: '' });
+      fetchMovimientos();
     } catch (error) {
-      console.error('Error reconciling:', error);
+      // El error se muestra dentro del modal, junto al formulario.
+      setErrorConciliacion(errorMessage(error));
     }
   };
 
@@ -129,6 +117,11 @@ function ConciliacionPageInner() {
 
   return (
     <div className="space-y-6">
+      {errorCarga && (
+        <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+          {errorCarga}
+        </div>
+      )}
       <div>
         <h1 className="text-3xl font-bold text-slate-900">Conciliación Bancaria</h1>
         <p className="mt-2 text-slate-600">
@@ -241,19 +234,19 @@ function ConciliacionPageInner() {
                   }
                   className="block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
                 >
-                  <option value="factura_ingreso">Factura de ingreso</option>
-                  <option value="factura_gasto">Factura de gasto</option>
-                  <option value="asiento">Asiento contable</option>
+                  <option value="factura_ingreso">Factura de ingreso (cobro)</option>
+                  <option value="factura_gasto" disabled>Factura de gasto (aún no disponible)</option>
+                  <option value="asiento" disabled>Asiento contable (aún no disponible)</option>
                 </select>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">
-                  ID de referencia
+                  ID de la factura
                 </label>
                 <input
                   type="text"
-                  placeholder="ID de la factura o asiento"
+                  placeholder="ID de la factura de venta"
                   value={formReconciliacion.origenId}
                   onChange={(e) =>
                     setFormReconciliacion({ ...formReconciliacion, origenId: e.target.value })
@@ -262,6 +255,12 @@ function ConciliacionPageInner() {
                 />
               </div>
             </div>
+
+            {errorConciliacion && (
+              <p role="alert" className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">
+                {errorConciliacion}
+              </p>
+            )}
 
             <div className="mt-6 flex gap-2">
               <button
@@ -273,6 +272,7 @@ function ConciliacionPageInner() {
               </button>
               <button
                 onClick={() => {
+                  setErrorConciliacion('');
                   setReconciliando(null);
                   setModalMovimiento(null);
                   setFormReconciliacion({ tipoOrigen: 'factura_ingreso', origenId: '' });

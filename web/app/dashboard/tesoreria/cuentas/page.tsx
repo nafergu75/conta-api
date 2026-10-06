@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { CuentaBancariaCard } from '../components/CuentaBancariaCard';
 import { Plus } from '@phosphor-icons/react';
 
@@ -17,8 +17,6 @@ interface CuentaBancaria {
 }
 
 export default function CuentasPage() {
-  const params = useParams();
-  const companyId = params.companyId as string;
   const [cuentas, setCuentas] = useState<CuentaBancaria[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -36,18 +34,13 @@ export default function CuentasPage() {
 
   useEffect(() => {
     fetchCuentas();
-  }, [companyId]);
+  }, []);
 
   const fetchCuentas = async () => {
     try {
-      const response = await fetch(`/api/companies/${companyId}/treasury/bank-accounts`);
-      if (response.ok) {
-        const data = await response.json();
-        setCuentas(data.data || []);
-      }
+      setCuentas((await apiFetch<CuentaBancaria[]>(companyPath('/treasury/bank-accounts'))) || []);
     } catch (error) {
-      console.error('Error fetching accounts:', error);
-      setError('Error al cargar las cuentas');
+      setError(errorMessage(error));
     } finally {
       setLoading(false);
     }
@@ -69,16 +62,10 @@ export default function CuentasPage() {
         observaciones: formData.observaciones || undefined,
       };
 
-      const response = await fetch(`/api/companies/${companyId}/treasury/bank-accounts`, {
+      await apiFetch(companyPath('/treasury/bank-accounts'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Error al crear la cuenta');
-      }
 
       setSuccess('Cuenta bancaria creada exitosamente');
       setFormData({
@@ -93,7 +80,7 @@ export default function CuentasPage() {
       setShowForm(false);
       fetchCuentas();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al crear la cuenta');
+      setError(errorMessage(err));
     }
   };
 
@@ -255,7 +242,7 @@ export default function CuentasPage() {
               bancoNombre={cuenta.bancoNombre}
               entidad={cuenta.entidad}
               saldoInicial={cuenta.saldoInicial || 0}
-              estado={cuenta.estado || 'activo'}
+              estado={cuenta.estado || 'activa'}
               pendientes={cuenta.movimientos?.filter((m) => m.estado === 'pendiente').length || 0}
               conciliados={cuenta.movimientos?.filter((m) => m.estado === 'conciliado').length || 0}
             />

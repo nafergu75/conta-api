@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import {
   ChartPieSlice,
   Users,
@@ -25,10 +25,11 @@ import {
   Gear,
   FolderOpen,
   Eye,
+  SignOut,
 } from '@phosphor-icons/react';
 import type { Icon } from '@phosphor-icons/react';
 import { NAV_GROUPS } from './nav';
-import { getUser, type SessionUser } from '@/lib/auth';
+import { clearSession, getUser, type SessionUser } from '@/lib/auth';
 
 const ICONS: Record<string, Icon> = {
   '': ChartPieSlice,
@@ -69,6 +70,7 @@ function userHasRole(userRoles: string[] | undefined, requiredRoles: string[] | 
 
 export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
+  const router = useRouter();
 
   // La sesion vive en localStorage, que no existe al renderizar en servidor.
   // Leerla directamente daba un desajuste de hidratacion: el servidor pintaba
@@ -81,6 +83,12 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     setUser(getUser());
     setMounted(true);
   }, []);
+
+  function cerrarSesion() {
+    clearSession();
+    onNavigate?.();
+    router.replace('/login');
+  }
 
   if (!mounted) {
     return <nav className="flex flex-col gap-6 p-4" aria-busy="true" />;
@@ -183,6 +191,22 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           </div>
         );
       })}
+
+      <div className="mt-2 border-t border-slate-200 pt-4">
+        {user?.email && (
+          <p className="px-3 mb-2 truncate text-xs text-slate-500" title={user.email}>
+            {user.email}
+          </p>
+        )}
+        <button
+          type="button"
+          onClick={cerrarSesion}
+          className="flex w-full items-center gap-3 px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors"
+        >
+          <SignOut size={18} className="text-slate-400" />
+          Cerrar sesión
+        </button>
+      </div>
     </nav>
   );
 }

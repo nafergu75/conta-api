@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { CheckCircle, WarningCircle } from '@phosphor-icons/react';
-import { useParams } from 'next/navigation';
+import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { ConfirmationModal } from '@/components/dashboard/ConfirmationModal';
 
 interface FormPresentarProps {
@@ -20,8 +20,6 @@ export function FormPresentar({
   onSuccess,
   isLoading = false,
 }: FormPresentarProps) {
-  const params = useParams();
-  const companyId = params.companyId as string;
   const [formData, setFormData] = useState({
     numero: '',
     fecha: new Date().toISOString().split('T')[0],
@@ -51,11 +49,6 @@ export function FormPresentar({
     setShowConfirmation(false);
 
     try {
-      const endpoint =
-        codigo === '200'
-          ? `/api/conta/companies/1/tax-models/${codigo}/presentado`
-          : `/api/conta/companies/1/tax-models/${codigo}/presentado`;
-
       const payload = {
         ejercicio,
         ...(trimestre && { trimestre }),
@@ -65,16 +58,10 @@ export function FormPresentar({
         },
       };
 
-      const response = await fetch(endpoint, {
+      await apiFetch(companyPath(`/tax-models/${codigo}/presentado`), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Error al marcar como presentado');
-      }
 
       setSuccess(true);
       setFormData({ numero: '', fecha: new Date().toISOString().split('T')[0] });
@@ -82,7 +69,7 @@ export function FormPresentar({
 
       setTimeout(() => setSuccess(false), 5000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error desconocido');
+      setError(errorMessage(err));
     } finally {
       setSubmitting(false);
     }

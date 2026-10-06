@@ -2,7 +2,7 @@
 
 import { useState, useRef } from 'react';
 import { Upload, CheckCircle, WarningCircle } from '@phosphor-icons/react';
-import { useParams } from 'next/navigation';
+import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 
 interface UploadExtractoFormProps {
   accountId: string;
@@ -10,8 +10,6 @@ interface UploadExtractoFormProps {
 }
 
 export function UploadExtractoForm({ accountId, onSuccess }: UploadExtractoFormProps) {
-  const params = useParams();
-  const companyId = params.companyId as string;
   const [uploading, setUploading] = useState(false);
   const [resultado, setResultado] = useState<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -23,24 +21,18 @@ export function UploadExtractoForm({ accountId, onSuccess }: UploadExtractoFormP
     setUploading(true);
     try {
       const content = await file.text();
-      const response = await fetch(
-        `/api/companies/${companyId}/treasury/bank-accounts/${accountId}/statements`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ contenidoCSV: content, origen: 'csv' }),
-        }
-      );
-
-      if (!response.ok) throw new Error('Error en la subida');
-
-      const data = await response.json();
+      const importado = await apiFetch(companyPath(`/treasury/bank-accounts/${accountId}/statements`), {
+        method: 'POST',
+        body: JSON.stringify({ contenidoCSV: content, origen: 'csv' }),
+      });
+      // Se conserva la forma { data } que leen esta tarjeta y la pagina de extractos.
+      const data = { data: importado };
       setResultado(data);
       onSuccess?.(data);
       if (fileInputRef.current) fileInputRef.current.value = '';
     } catch (error) {
       setResultado({
-        error: error instanceof Error ? error.message : 'Error desconocido',
+        error: errorMessage(error),
       });
     } finally {
       setUploading(false);

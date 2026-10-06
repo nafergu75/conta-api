@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { FileText, ArrowRight } from '@phosphor-icons/react';
 
 interface ModeloResumen {
@@ -14,42 +14,43 @@ interface ModeloResumen {
 }
 
 export default function FiscalPage() {
-  const params = useParams();
-  const companyId = params.companyId as string;
   const [modelos, setModelos] = useState<ModeloResumen[]>([]);
   const [loading, setLoading] = useState(true);
+  const [errorCarga, setErrorCarga] = useState('');
 
   useEffect(() => {
     const fetchModelos = async () => {
       try {
         setLoading(true);
-        const response = await fetch(`/api/conta/companies/1/tax-models`);
-
-        if (response.ok) {
-          const data = await response.json();
-          // Transformar datos para mostrar resumen
-          setModelos(
-            (data.data || []).slice(0, 6).map((m: any) => ({
-              codigo: m.codigo,
-              nombre: m.nombre,
-              descripcion: m.descripcion,
-              estado: m.estado,
-              periodo: `${m.ejercicio}${m.trimestre ? ` Q${m.trimestre}` : ''}`,
-            }))
-          );
-        }
+        setErrorCarga('');
+        const lista = await apiFetch<any[]>(companyPath('/tax-models'));
+        // Transformar datos para mostrar resumen
+        setModelos(
+          (lista || []).slice(0, 6).map((m: any) => ({
+            codigo: m.codigo,
+            nombre: m.nombre,
+            descripcion: m.descripcion,
+            estado: m.estado,
+            periodo: `${m.ejercicio}${m.trimestre ? ` Q${m.trimestre}` : ''}`,
+          }))
+        );
       } catch (err) {
-        console.error('Error fetching modelos:', err);
+        setErrorCarga(errorMessage(err));
       } finally {
         setLoading(false);
       }
     };
 
     fetchModelos();
-  }, [companyId]);
+  }, []);
 
   return (
     <div className="space-y-8">
+      {errorCarga && (
+        <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+          {errorCarga}
+        </div>
+      )}
       {/* Header */}
       <div>
         <h1 className="text-4xl font-bold text-slate-900">Modelos Fiscales</h1>

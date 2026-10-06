@@ -59,6 +59,7 @@ export default function LoginPage() {
       saveSession(data.token, {
         email: data.user?.email ?? email,
         roles: data.user?.roles ?? [],
+        companies: data.user?.companies ?? [],
       });
       router.push('/dashboard');
     } catch (err) {
@@ -71,6 +72,7 @@ export default function LoginPage() {
     saveSession('demo-local-sin-backend', {
       email: 'demo@empresa.com',
       roles: DEMO_ROLES,
+      companies: ['1'],
     });
     router.push('/dashboard');
   }

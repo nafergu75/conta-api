@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { CheckCircle, Clock, WarningCircle, ArrowRight, Calendar, MagnifyingGlass, X } from '@phosphor-icons/react';
 
 interface ModeloEstado {
@@ -32,11 +32,10 @@ const VENCIMIENTOS = [
 ];
 
 export default function EstadoFiscalPage() {
-  const params = useParams();
-  const companyId = params.companyId as string;
   const [ejercicio, setEjercicio] = useState(new Date().getFullYear());
   const [estados, setEstados] = useState<Record<number, ModeloEstado[]>>({});
   const [loading, setLoading] = useState(true);
+  const [errorCarga, setErrorCarga] = useState('');
   const [busqueda, setBusqueda] = useState('');
   const [filtroEstado, setFiltroEstado] = useState<'todos' | 'presentado' | 'borrador' | 'no-generado'>('todos');
 
@@ -44,13 +43,11 @@ export default function EstadoFiscalPage() {
     const fetchEstados = async () => {
       try {
         setLoading(true);
-        const response = await fetch(`/api/conta/companies/1/tax-models`);
-        if (!response.ok) throw new Error('Error al cargar estado');
-
-        const data = await response.json();
+        setErrorCarga('');
+        const lista = await apiFetch<any[]>(companyPath('/tax-models'));
         const grouped: Record<number, ModeloEstado[]> = {};
 
-        (data.data || []).forEach((modelo: any) => {
+        (lista || []).forEach((modelo: any) => {
           if (!grouped[modelo.ejercicio]) grouped[modelo.ejercicio] = [];
           grouped[modelo.ejercicio].push({
             codigo: modelo.codigo,
@@ -62,14 +59,14 @@ export default function EstadoFiscalPage() {
 
         setEstados(grouped);
       } catch (err) {
-        console.error(err);
+        setErrorCarga(errorMessage(err));
       } finally {
         setLoading(false);
       }
     };
 
     fetchEstados();
-  }, [companyId]);
+  }, []);
 
   const ejercicioModelos = estados[ejercicio] || [];
   const modelosCodigos = Object.keys(MODELOS_INFO);
@@ -93,6 +90,11 @@ export default function EstadoFiscalPage() {
 
   return (
     <div className="space-y-8">
+      {errorCarga && (
+        <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+          {errorCarga}
+        </div>
+      )}
       <div>
         <h1 className="text-4xl font-bold text-slate-900">Estado Fiscal</h1>
         <p className="mt-2 text-lg text-slate-600">Visión global de modelos generados, presentados y próximos vencimientos</p>

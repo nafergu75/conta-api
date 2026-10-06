@@ -1,34 +1,29 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { Bank, ArrowDown, CheckCircle, Clock } from '@phosphor-icons/react';
 import { Tooltip } from '@/app/dashboard/components/Tooltip';
 
 export default function TesoreríaPage() {
-  const params = useParams();
-  const companyId = params.companyId as string;
   const [resumen, setResumen] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [errorCarga, setErrorCarga] = useState('');
 
   useEffect(() => {
     const fetchResumen = async () => {
       try {
-        const response = await fetch(`/api/companies/${companyId}/treasury/summary`);
-        if (response.ok) {
-          const data = await response.json();
-          setResumen(data.data);
-        }
+        setResumen(await apiFetch(companyPath('/treasury/summary')));
       } catch (error) {
-        console.error('Error fetching treasury summary:', error);
+        setErrorCarga(errorMessage(error));
       } finally {
         setLoading(false);
       }
     };
 
     fetchResumen();
-  }, [companyId]);
+  }, []);
 
   const eur = new Intl.NumberFormat('es-ES', {
     style: 'currency',
@@ -50,6 +45,11 @@ export default function TesoreríaPage() {
 
   return (
     <div className="space-y-8">
+      {errorCarga && (
+        <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+          {errorCarga}
+        </div>
+      )}
       <div>
         <h1 className="text-3xl font-bold text-slate-900">Tesorería</h1>
         <p className="mt-2 text-slate-600">
@@ -83,7 +83,7 @@ export default function TesoreríaPage() {
             </div>
           </div>
           <p className="text-2xl font-bold text-slate-900">
-            {eur.format(resumen?.totalMovimientos || 0)}
+            {eur.format(resumen?.saldoTotal || 0)}
           </p>
         </div>
 

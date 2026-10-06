@@ -1,16 +1,31 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { List, X } from '@phosphor-icons/react';
 import Sidebar from '@/components/dashboard/Sidebar';
+import { getToken } from '@/lib/auth';
 
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
+  // Guard unico para todo /dashboard: sin sesion, al login. La sesion vive en
+  // localStorage, asi que solo se puede comprobar tras montar.
+  const [autorizado, setAutorizado] = useState(false);
+
+  useEffect(() => {
+    if (getToken()) setAutorizado(true);
+    else router.replace('/login');
+  }, [router]);
+
+  if (!autorizado) {
+    return <div className="min-h-[100dvh] bg-slate-50" aria-busy="true" />;
+  }
 
   return (
     <div className="min-h-[100dvh] bg-slate-50 md:grid md:grid-cols-[260px_1fr]">

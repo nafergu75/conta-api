@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { UploadExtractoForm } from '../components/UploadExtractoForm';
 
 interface CuentaBancaria {
@@ -12,30 +12,26 @@ interface CuentaBancaria {
 }
 
 export default function ExtractosPage() {
-  const params = useParams();
-  const companyId = params.companyId as string;
   const [cuentas, setCuentas] = useState<CuentaBancaria[]>([]);
   const [selectedCuenta, setSelectedCuenta] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [ultimaSubida, setUltimaSubida] = useState<any>(null);
+  const [errorCarga, setErrorCarga] = useState('');
 
   useEffect(() => {
     fetchCuentas();
-  }, [companyId]);
+  }, []);
 
   const fetchCuentas = async () => {
     try {
-      const response = await fetch(`/api/companies/${companyId}/treasury/bank-accounts`);
-      if (response.ok) {
-        const data = await response.json();
-        const cuentasActivas = data.data?.filter((c: any) => c.estado === 'activo') || [];
-        setCuentas(cuentasActivas);
-        if (cuentasActivas.length > 0) {
-          setSelectedCuenta(cuentasActivas[0].id);
-        }
+      const todas = await apiFetch<CuentaBancaria[]>(companyPath('/treasury/bank-accounts'));
+      const cuentasActivas = (todas || []).filter((c) => c.estado === 'activa');
+      setCuentas(cuentasActivas);
+      if (cuentasActivas.length > 0) {
+        setSelectedCuenta(cuentasActivas[0].id);
       }
     } catch (error) {
-      console.error('Error fetching accounts:', error);
+      setErrorCarga(errorMessage(error));
     } finally {
       setLoading(false);
     }
@@ -69,6 +65,11 @@ export default function ExtractosPage() {
 
   return (
     <div className="space-y-6">
+      {errorCarga && (
+        <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+          {errorCarga}
+        </div>
+      )}
       <div>
         <h1 className="text-3xl font-bold text-slate-900">Subir Extractos</h1>
         <p className="mt-2 text-slate-600">Importa movimientos bancarios desde archivos CSV</p>
