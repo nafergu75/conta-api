@@ -55,6 +55,7 @@ interface FacturaApi {
   serie: string;
   estadoDocumento: string;
   tipoFactura: string;
+  formaPago?: string;
   fechaEmision: string;
   fechaVencimiento: string;
   observaciones?: string;
@@ -71,6 +72,11 @@ interface FacturaApi {
 
 const IVAS = [21, 10, 5, 4, 0];
 const IRPFS = [0, 7, 15, 19];
+const FORMAS_PAGO = [
+  ['TRANSFERENCIA', 'Transferencia bancaria'],
+  ['GIRO', 'Giro / recibo domiciliado'],
+  ['CONTADO', 'Contado'],
+] as const;
 const eur = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' });
 const num = (s: string): number => {
   const n = Number(String(s).replace(',', '.'));
@@ -121,6 +127,7 @@ function FormularioFactura() {
   const [clienteId, setClienteId] = useState('');
   const [serie, setSerie] = useState('');
   const [tipoFactura, setTipoFactura] = useState('F1');
+  const [formaPago, setFormaPago] = useState('TRANSFERENCIA');
   const [fechaEmision, setFechaEmision] = useState(hoy());
   const [fechaVencimiento, setFechaVencimiento] = useState(masDias(hoy(), 30));
   const [irpf, setIrpf] = useState(0);
@@ -149,6 +156,7 @@ function FormularioFactura() {
           setClienteId(invoice.customerId);
           setSerie(invoice.serie);
           setTipoFactura(invoice.tipoFactura);
+          setFormaPago(invoice.formaPago ?? 'TRANSFERENCIA');
           setFechaEmision(invoice.fechaEmision);
           setFechaVencimiento(invoice.fechaVencimiento);
           setObservaciones(invoice.observaciones ?? '');
@@ -213,6 +221,7 @@ function FormularioFactura() {
     customer: { id: clienteId },
     serie,
     tipoFactura,
+    formaPago,
     fechaEmision,
     fechaVencimiento,
     observaciones: observaciones.trim() || undefined,
@@ -323,6 +332,16 @@ function FormularioFactura() {
           <select id="tipo" className={campo} value={tipoFactura} onChange={(e) => setTipoFactura(e.target.value)}>
             <option value="F1">Completa (F1)</option>
             <option value="F2">Simplificada / ticket (F2)</option>
+          </select>
+        </div>
+        <div>
+          <label className={etiqueta} htmlFor="forma-pago">Forma de pago</label>
+          <select id="forma-pago" className={campo} value={formaPago} onChange={(e) => setFormaPago(e.target.value)}>
+            {FORMAS_PAGO.map(([v, t]) => (
+              <option key={v} value={v}>
+                {t}
+              </option>
+            ))}
           </select>
         </div>
         <div>
@@ -467,7 +486,15 @@ function FormularioFactura() {
           </div>
           <div>
             <label className={etiqueta} htmlFor="obs">Observaciones</label>
-            <textarea id="obs" rows={3} className={campo} value={observaciones} onChange={(e) => setObservaciones(e.target.value)} />
+            <textarea
+              id="obs"
+              rows={3}
+              className={campo}
+              value={observaciones}
+              placeholder="Ej.: pedido nº 1234; entrega en almacén; gracias por su confianza…"
+              onChange={(e) => setObservaciones(e.target.value)}
+            />
+            <p className="mt-1 text-xs text-slate-500">Se imprimen en la factura.</p>
           </div>
         </div>
 

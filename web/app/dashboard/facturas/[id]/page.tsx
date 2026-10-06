@@ -28,6 +28,7 @@ interface Factura {
   numeroCompleto: string | null;
   estadoDocumento: 'BORRADOR' | 'FINAL';
   tipoFactura: string;
+  formaPago?: string;
   tipoRectificativa?: string;
   motivoRectificacion?: string;
   fechaEmision: string;
@@ -57,6 +58,12 @@ const ESTADO_COBRO: Record<string, { texto: string; clase: string }> = {
   OVERDUE: { texto: 'Vencida', clase: 'bg-red-50 text-red-700 border-red-200' },
   PAID: { texto: 'Cobrada', clase: 'bg-green-50 text-green-800 border-green-200' },
   ACCOUNTED: { texto: 'Contabilizada', clase: 'bg-blue-50 text-blue-800 border-blue-200' },
+};
+
+const FORMA_PAGO: Record<string, string> = {
+  TRANSFERENCIA: 'Transferencia bancaria',
+  GIRO: 'Giro / recibo domiciliado',
+  CONTADO: 'Contado',
 };
 
 const TIPOS_RECTIFICATIVA = [
@@ -247,7 +254,7 @@ export default function FacturaDetallePage() {
         <Dato etiqueta="Número" valor={factura.numeroCompleto ?? '—'} />
         <Dato etiqueta="Fecha de emisión" valor={fecha(factura.fechaEmision)} />
         <Dato etiqueta="Vencimiento" valor={fecha(factura.fechaVencimiento)} />
-        <Dato etiqueta="Tipo" valor={factura.tipoFactura === 'F2' ? 'Simplificada (F2)' : factura.tipoFactura} />
+        <Dato etiqueta="Forma de pago" valor={FORMA_PAGO[factura.formaPago ?? 'TRANSFERENCIA'] ?? factura.formaPago ?? ''} />
         <div className="col-span-2 md:col-span-4 border-t border-slate-100 pt-4">
           <p className="text-xs uppercase tracking-wide text-slate-500">Cliente</p>
           <p className="font-medium text-slate-900">{cliente?.nombreFiscal ?? '—'}</p>
