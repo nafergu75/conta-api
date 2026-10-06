@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCircle, Trash, XCircle } from '@phosphor-icons/react';
 import { Tooltip } from '@/app/dashboard/components/Tooltip';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
@@ -20,6 +20,9 @@ import {
   Mensajes,
   num,
   SubidaFichero,
+  subirPorTrozos,
+  TAM_DIRECTO,
+  TAM_MAXIMO,
   type AjustesLectura,
   type Lectura,
   type NecesitaMapeo,
@@ -217,18 +220,22 @@ export default function PuestaEnMarchaPage() {
 
 function useImportacion<V>(ruta: string, opciones: Record<string, string | number | boolean | undefined>) {
   const [archivo, setArchivo] = useState<File | null>(null);
+  // Lo que se manda al servidor: el fichero si es pequeno, o el id de su subida por trozos.
+  const [fuente, setFuente] = useState<File | string | null>(null);
+  const [progreso, setProgreso] = useState<number | null>(null);
   const [ajustes, setAjustes] = useState<AjustesLectura>(AJUSTES_INICIALES);
   const [vista, setVista] = useState<V | NecesitaMapeo | null>(null);
   const [error, setError] = useState('');
   const [ocupado, setOcupado] = useState(false);
+  const eleccion = useRef(0);
   const clave = JSON.stringify(opciones);
 
   useEffect(() => {
-    if (!archivo) return;
+    if (!fuente) return;
     let vigente = true;
     setOcupado(true);
     setError('');
-    apiFetch<V | NecesitaMapeo>(companyPath(`${ruta}/vista-previa`), { method: 'POST', body: formulario(archivo, ajustes, JSON.parse(clave)) })
+    apiFetch<V | NecesitaMapeo>(companyPath(`${ruta}/vista-previa`), { method: 'POST', body: formulario(fuente, ajustes, JSON.parse(clave)) })
       .then((v) => vigente && setVista(v))
       .catch((e) => {
         if (!vigente) return;
@@ -239,15 +246,15 @@ function useImportacion<V>(ruta: string, opciones: Record<string, string | numbe
     return () => {
       vigente = false;
     };
-  }, [archivo, ajustes, clave, ruta]);
+  }, [fuente, ajustes, clave, ruta]);
 
   // `extra`: opciones que solo cuentan al confirmar (no cambian la vista previa).
   const confirmar = async <R,>(extra: Record<string, string | number | boolean | undefined> = {}): Promise<R | null> => {
-    if (!archivo) return null;
+    if (!fuente) return null;
     setOcupado(true);
     setError('');
     try {
-      return await apiFetch<R>(companyPath(ruta), { method: 'POST', body: formulario(archivo, ajustes, { ...opciones, ...extra }) });
+      return await apiFetch<R>(companyPath(ruta), { method: 'POST', body: formulario(fuente, ajustes, { ...opciones, ...extra }) });
     } catch (e) {
       setError(errorMessage(e));
       return null;
@@ -257,18 +264,38 @@ function useImportacion<V>(ruta: string, opciones: Record<string, string | numbe
   };
 
   const elegir = (f: File) => {
+    const n = ++eleccion.current;
     setArchivo(f);
+    setFuente(null);
     setAjustes(AJUSTES_INICIALES);
     setVista(null);
+    setError('');
+    if (f.size > TAM_MAXIMO) {
+      setError(`El fichero pesa ${(f.size / 1024 / 1024).toFixed(1)} MB y el máximo son ${TAM_MAXIMO / 1024 / 1024} MB. Exporta un periodo más corto o quita columnas que no hagan falta.`);
+      return;
+    }
+    if (f.size <= TAM_DIRECTO) {
+      setFuente(f);
+      return;
+    }
+    // Fichero grande: se sube antes por trozos y luego se trabaja con su id.
+    setProgreso(0);
+    subirPorTrozos(f, (p) => n === eleccion.current && setProgreso(p))
+      .then((id) => n === eleccion.current && setFuente(id))
+      .catch((e) => n === eleccion.current && setError(`No se pudo subir el fichero: ${errorMessage(e)}`))
+      .finally(() => n === eleccion.current && setProgreso(null));
   };
   const limpiar = () => {
+    eleccion.current++;
     setArchivo(null);
+    setFuente(null);
+    setProgreso(null);
     setVista(null);
     setAjustes(AJUSTES_INICIALES);
     setError('');
   };
 
-  return { archivo, elegir, limpiar, ajustes, setAjustes, vista, error, ocupado, confirmar };
+  return { archivo, elegir, limpiar, ajustes, setAjustes, vista, error, ocupado: ocupado || progreso !== null, progreso, confirmar };
 }
 
 function BloqueMapeo({
@@ -422,6 +449,7 @@ function ImportarApertura({ onHecho }: { onHecho: (t: string) => void }) {
       <SubidaFichero
         archivo={imp.archivo}
         ocupado={imp.ocupado}
+        progreso={imp.progreso}
         texto="Haz clic o arrastra el balance de sumas y saldos"
         ayuda="Excel (.xlsx, .xls) o CSV, de cualquier programa"
         onElegir={imp.elegir}
@@ -555,7 +583,7 @@ function ImportarDiario({ onHecho }: { onHecho: (t: string) => void }) {
         </label>
       </div>
 
-      <SubidaFichero archivo={imp.archivo} ocupado={imp.ocupado} texto="Haz clic o arrastra el libro diario o el mayor" ayuda="Excel (.xlsx, .xls) o CSV con fecha, cuenta e importes" onElegir={imp.elegir} />
+      <SubidaFichero archivo={imp.archivo} ocupado={imp.ocupado} progreso={imp.progreso} texto="Haz clic o arrastra el libro diario o el mayor" ayuda="Excel (.xlsx, .xls) o CSV con fecha, cuenta e importes" onElegir={imp.elegir} />
 
       {imp.error && <Mensajes errores={[imp.error]} />}
       {imp.vista && <BloqueMapeo vista={imp.vista} campos={CAMPOS_DIARIO} ajustes={imp.ajustes} setAjustes={imp.setAjustes} />}
@@ -695,7 +723,7 @@ function ImportarComparativo({ onHecho }: { onHecho: (t: string) => void }) {
         </label>
       </div>
 
-      <SubidaFichero archivo={imp.archivo} ocupado={imp.ocupado} texto="Haz clic o arrastra el balance o la PyG" ayuda="Excel o CSV por cuentas o subcuentas, con su saldo" onElegir={imp.elegir} />
+      <SubidaFichero archivo={imp.archivo} ocupado={imp.ocupado} progreso={imp.progreso} texto="Haz clic o arrastra el balance o la PyG" ayuda="Excel o CSV por cuentas o subcuentas, con su saldo" onElegir={imp.elegir} />
 
       {imp.error && <Mensajes errores={[imp.error]} />}
       {imp.vista && <BloqueMapeo vista={imp.vista} campos={CAMPOS_BALANCE} ajustes={imp.ajustes} setAjustes={imp.setAjustes} conSigno />}

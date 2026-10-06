@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { ArrowLeft, Copy, FilePdf, PencilSimple, Receipt, Trash, X } from '@phosphor-icons/react';
 import ContabilizarButton from '@/components/ContabilizarButton';
 import { AvisosFactura } from './AvisosFactura';
+import CobrosFactura from '@/components/CobrosFactura';
 import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getCompanyId, getUser, tieneAlgunPermiso } from '@/lib/auth';
 
@@ -81,6 +82,7 @@ export default function FacturaDetallePage() {
   const router = useRouter();
   const id = useParams().id as string;
   const puedeEditar = tieneAlgunPermiso(getUser(), ['ventas:write']);
+  const puedeCobrar = tieneAlgunPermiso(getUser(), ['ventas:write', 'contabilidad:write']);
 
   const [factura, setFactura] = useState<Factura | null>(null);
   const [cliente, setCliente] = useState<Cliente | null>(null);
@@ -166,12 +168,6 @@ export default function FacturaDetallePage() {
       router.push(`/dashboard/facturas/nueva?id=${invoice.id}`);
     });
 
-  const marcarCobro = (estado: 'PAID' | 'PENDING') =>
-    accion(async () => {
-      await apiFetch(companyPath(`/income-invoices/${id}/status`), { method: 'PATCH', body: JSON.stringify({ estado }) });
-      await cargar();
-    }, estado === 'PAID' ? 'Marcada como cobrada.' : 'Marcada como pendiente.');
-
   const pdf = () =>
     accion(() =>
       apiDownload(companyPath(`/income-invoices/${id}/pdf`), esBorrador ? 'borrador_factura.pdf' : `factura_${factura.numeroCompleto}.pdf`),
@@ -217,11 +213,6 @@ export default function FacturaDetallePage() {
               <button type="button" disabled={ocupado} onClick={duplicar} className={boton}>
                 <Copy size={16} /> Duplicar
               </button>
-            )}
-            {factura.estado !== 'PAID' ? (
-              <button type="button" disabled={ocupado} onClick={() => marcarCobro('PAID')} className={boton}>Marcar como cobrada</button>
-            ) : (
-              <button type="button" disabled={ocupado} onClick={() => marcarCobro('PENDING')} className={boton}>Marcar como pendiente</button>
             )}
             <button type="button" disabled={ocupado} onClick={() => setRectificando(true)} className={boton}>
               Hacer rectificativa
@@ -303,6 +294,10 @@ export default function FacturaDetallePage() {
           </div>
         </dl>
       </section>
+
+      {!esBorrador && factura.totalFactura > 0 && (
+        <CobrosFactura tipo="INGRESO" facturaId={id} puedeEditar={puedeCobrar} fechaFactura={factura.fechaEmision} onCambio={cargar} />
+      )}
 
       {factura.observaciones && !factura.esRectificativa && (
         <p className="whitespace-pre-line rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-700">{factura.observaciones}</p>
