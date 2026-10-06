@@ -10,7 +10,7 @@ export interface NavItem {
   description: string;
   implemented: boolean;
   endpoints: string[];
-  requiredRoles?: string[]; // Si no se especifica, accesible a todos
+  requiredRoles?: string[]; // Codigos de PERMISO (no nombres de rol); sin especificar, accesible a todos
   subItems?: NavSubItem[];
 }
 
@@ -234,7 +234,7 @@ export const NAV_GROUPS: NavGroup[] = [
           'GET /companies/:id/tax-models/115',
           'POST /companies/:id/tax-models/:codigo/presentado',
         ],
-        requiredRoles: ['fiscal:read', 'fiscal:write'],
+        requiredRoles: ['impuestos:read', 'impuestos:write'],
         subItems: [
           {
             label: 'Estado Fiscal',

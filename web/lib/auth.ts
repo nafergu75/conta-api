@@ -6,6 +6,11 @@ export interface SessionUser {
   roles: string[];
   /** Empresas del usuario, tal como las devuelve el login del backend. */
   companies?: string[];
+  /**
+   * Permisos efectivos que devuelve el login ('contabilidad:read', '*'...).
+   * `roles` son nombres de rol ('contable'), no sirven para filtrar el menu.
+   */
+  permisos?: string[];
 }
 
 export function saveSession(token: string, user: SessionUser) {
@@ -35,6 +40,21 @@ export function getUser(): SessionUser | null {
  */
 export function getCompanyId(): string {
   return getUser()?.companies?.[0] ?? '1';
+}
+
+/**
+ * true si el usuario tiene al menos uno de los permisos pedidos. Misma regla que
+ * el backend (rbac.service): '*' lo cubre todo y 'recurso:*' cubre 'recurso:read'.
+ * Sin requisitos, accesible a todos.
+ */
+export function tieneAlgunPermiso(user: SessionUser | null, requeridos?: string[]): boolean {
+  if (!requeridos || requeridos.length === 0) return true;
+  // Sesiones demo anteriores guardaban los permisos en `roles`.
+  const permisos = user?.permisos ?? user?.roles ?? [];
+  return requeridos.some((p) => {
+    if (permisos.includes('*') || permisos.includes(p)) return true;
+    return permisos.includes(`${p.split(':')[0]}:*`);
+  });
 }
 
 export function clearSession() {

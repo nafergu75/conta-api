@@ -29,7 +29,7 @@ import {
 } from '@phosphor-icons/react';
 import type { Icon } from '@phosphor-icons/react';
 import { NAV_GROUPS } from './nav';
-import { clearSession, getUser, type SessionUser } from '@/lib/auth';
+import { clearSession, getUser, tieneAlgunPermiso, type SessionUser } from '@/lib/auth';
 
 const ICONS: Record<string, Icon> = {
   '': ChartPieSlice,
@@ -56,17 +56,6 @@ const ICONS: Record<string, Icon> = {
   carmen: Robot,
   configuracion: Gear,
 };
-
-function userHasRole(userRoles: string[] | undefined, requiredRoles: string[] | undefined): boolean {
-  // Sin requiredRoles especificado = accesible a todos
-  if (!requiredRoles || requiredRoles.length === 0) return true;
-
-  // Sin roles de usuario = no tiene acceso
-  if (!userRoles || userRoles.length === 0) return false;
-
-  // Usuario tiene al menos uno de los roles requeridos
-  return requiredRoles.some((role) => userRoles.includes(role));
-}
 
 export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
@@ -97,9 +86,9 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <nav className="flex flex-col gap-6 p-4">
       {NAV_GROUPS.map((group) => {
-        // Filtrar items por rol
+        // Filtrar items por permiso (requiredRoles contiene codigos de permiso)
         const visibleItems = group.items.filter((item) =>
-          userHasRole(user?.roles, item.requiredRoles)
+          tieneAlgunPermiso(user, item.requiredRoles)
         );
 
         // No mostrar grupo si no tiene items visibles

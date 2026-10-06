@@ -14,14 +14,6 @@ const DEMO_MODE =
   process.env.NODE_ENV !== 'production' ||
   process.env.NEXT_PUBLIC_DEMO_MODE === 'true';
 
-const DEMO_ROLES = [
-  'contabilidad:read',
-  'contabilidad:write',
-  'fiscal:read',
-  'fiscal:write',
-  'tesoreria:read',
-  'tesoreria:write',
-];
 
 export default function LoginPage() {
   const router = useRouter();
@@ -60,6 +52,7 @@ export default function LoginPage() {
         email: data.user?.email ?? email,
         roles: data.user?.roles ?? [],
         companies: data.user?.companies ?? [],
+        permisos: data.user?.permisos ?? [],
       });
       router.push('/dashboard');
     } catch (err) {
@@ -71,8 +64,10 @@ export default function LoginPage() {
   function entrarSinBackend() {
     saveSession('demo-local-sin-backend', {
       email: 'demo@empresa.com',
-      roles: DEMO_ROLES,
+      // La demo ve todo el menu; no hay backend que aplique permisos.
+      roles: ['admin'],
       companies: ['1'],
+      permisos: ['*'],
     });
     router.push('/dashboard');
   }
