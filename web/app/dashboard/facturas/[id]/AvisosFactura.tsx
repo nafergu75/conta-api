@@ -37,7 +37,7 @@ export function AvisosFactura({ facturaId }: { facturaId: string }) {
     <div className={`rounded-lg border p-4 text-sm ${hayObligatorios ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-slate-200 bg-slate-50 text-slate-700'}`}>
       <p className="mb-2 flex items-center gap-2 font-medium">
         <WarningCircle size={18} />
-        {hayObligatorios ? 'Faltan datos obligatorios para emitir la factura' : 'Para que la factura salga completa'}
+        {hayObligatorios ? 'Faltan datos obligatorios para emitir facturas' : 'Para que el documento salga completo'}
       </p>
       <ul className="space-y-1 pl-6">
         {avisos.map((a) => {
