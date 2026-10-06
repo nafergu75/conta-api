@@ -38,7 +38,7 @@ import {
 import type { Icon } from '@phosphor-icons/react';
 import { NAV_GROUPS } from './nav';
 import { EmpresaSelector } from './EmpresaSelector';
-import { clearSession, getUser, tieneAlgunPermiso, type SessionUser } from '@/lib/auth';
+import { clearSession, EVENTO_SESION, getUser, tieneAlgunPermiso, type SessionUser } from '@/lib/auth';
 import { aplicarTema, temaActual, type Tema } from '@/lib/tema';
 
 const ICONS: Record<string, Icon> = {
@@ -118,6 +118,10 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   useEffect(() => {
     setUser(getUser());
     setMounted(true);
+    // Si el panel refresca los permisos con el servidor, el menu se repinta.
+    const alActualizar = () => setUser(getUser());
+    window.addEventListener(EVENTO_SESION, alActualizar);
+    return () => window.removeEventListener(EVENTO_SESION, alActualizar);
   }, []);
 
   function cerrarSesion() {

@@ -118,3 +118,33 @@ export function clearSession() {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
 }
+
+/** Evento que avisa al menu de que la sesion guardada ha cambiado. */
+export const EVENTO_SESION = 'conta:sesion-actualizada';
+
+/**
+ * Sustituye roles y permisos de la sesion guardada por los ACTUALES del
+ * servidor (GET /auth/me), conservando la empresa activa. Asi una sesion
+ * iniciada antes de un cambio de permisos no deja el menu a medias.
+ */
+export function actualizarPermisos(datos: {
+  user: Pick<SessionUser, 'roles' | 'companies' | 'permisos' | 'permisosPorEmpresa' | 'esAdminGlobal'> & { email?: string };
+  empresas?: EmpresaSesion[];
+}): void {
+  const u = getUser();
+  if (!u) return;
+  const companies = datos.user.companies ?? u.companies ?? [];
+  const activa = u.empresaActiva && (datos.user.esAdminGlobal || companies.includes(u.empresaActiva)) ? u.empresaActiva : companies[0];
+  const nuevo: SessionUser = {
+    ...u,
+    roles: datos.user.roles ?? u.roles,
+    companies,
+    permisos: datos.user.permisos ?? u.permisos,
+    permisosPorEmpresa: datos.user.permisosPorEmpresa ?? u.permisosPorEmpresa,
+    esAdminGlobal: datos.user.esAdminGlobal ?? u.esAdminGlobal,
+    empresas: datos.empresas?.length ? datos.empresas : u.empresas,
+    empresaActiva: activa,
+  };
+  localStorage.setItem(USER_KEY, JSON.stringify(nuevo));
+  window.dispatchEvent(new Event(EVENTO_SESION));
+}

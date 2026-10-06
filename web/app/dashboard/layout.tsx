@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { List, X } from '@phosphor-icons/react';
 import Sidebar from '@/components/dashboard/Sidebar';
-import { getToken, getUser, tieneAlgunPermiso } from '@/lib/auth';
+import { actualizarPermisos, getToken, getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { apiFetch, companyPath } from '@/lib/api';
 
 export default function DashboardLayout({
@@ -23,6 +23,18 @@ export default function DashboardLayout({
     if (getToken()) setAutorizado(true);
     else router.replace('/login');
   }, [router]);
+
+  // Permisos actuales del servidor: la sesion guardada puede ser de antes de un
+  // cambio de rol o de un arreglo de permisos y dejar el menu a medias.
+  useEffect(() => {
+    // La demo sin backend no tiene sesion real: un 401 la echaria al login.
+    if (!autorizado || getToken() === 'demo-local-sin-backend') return;
+    apiFetch<Parameters<typeof actualizarPermisos>[0]>('/auth/me')
+      .then(actualizarPermisos)
+      .catch(() => {
+        // Sin backend (demo): se queda la sesion guardada.
+      });
+  }, [autorizado]);
 
   // Empresa sin sus datos (NIF, domicilio, Registro Mercantil...): primero se
   // completan, porque salen en todas las facturas. Solo a quien puede editarlos.
