@@ -75,7 +75,12 @@ export async function apiDownload(path: string, nombreFichero: string): Promise<
     redirigirALogin();
     throw new ApiError('Tu sesión ha caducado. Vuelve a iniciar sesión.', 401);
   }
-  if (!res.ok) throw new ApiError(`No se pudo descargar el fichero (HTTP ${res.status}).`, res.status);
+  if (!res.ok) {
+    // El backend explica el motivo en JSON (p. ej. "Falta el NIF de la empresa..."): se muestra tal cual.
+    const cuerpo = (res.headers.get('content-type') ?? '').includes('application/json') ? await res.json().catch(() => null) : null;
+    const motivo = cuerpo && (cuerpo.message || cuerpo.error);
+    throw new ApiError(motivo ? String(motivo) : `No se pudo descargar el fichero (HTTP ${res.status}).`, res.status);
+  }
 
   const url = URL.createObjectURL(await res.blob());
   const a = document.createElement('a');
