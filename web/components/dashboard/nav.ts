@@ -164,6 +164,28 @@ export const NAV_GROUPS: NavGroup[] = [
         requiredRoles: ['contabilidad:read', 'contabilidad:write'],
       },
       {
+        label: 'Informes contables',
+        slug: 'informes',
+        description: 'Balance, pérdidas y ganancias, sumas y saldos, mayor y diario de cualquier ejercicio, en PDF o Excel.',
+        implemented: true,
+        endpoints: [
+          'GET /companies/:id/informes-contables/balance',
+          'GET /companies/:id/informes-contables/perdidas-ganancias',
+          'GET /companies/:id/informes-contables/sumas-saldos',
+          'GET /companies/:id/informes-contables/mayor',
+          'GET /companies/:id/informes-contables/diario',
+        ],
+        requiredRoles: ['contabilidad:read'],
+      },
+      {
+        label: 'Mayor de clientes y proveedores',
+        slug: 'mayor-terceros',
+        description: 'Saldo de cada cliente y proveedor según la contabilidad, con su detalle de movimientos.',
+        implemented: true,
+        endpoints: ['GET /companies/:id/informes-contables/terceros/:tipo', 'GET /companies/:id/informes-contables/terceros/:tipo/:id'],
+        requiredRoles: ['contabilidad:read'],
+      },
+      {
         label: 'Cierre contable',
         slug: 'cierre-contable',
         description: 'Cierre de ejercicio y apertura del siguiente.',
@@ -326,34 +348,6 @@ export const NAV_GROUPS: NavGroup[] = [
         description: 'Registro contable de nóminas y seguros sociales.',
         implemented: false,
         endpoints: ['GET /companies/:id/nominas', 'POST /companies/:id/nominas'],
-      },
-      {
-        label: 'Informes',
-        slug: 'informes',
-        description: 'Balance, PyG, mayor, sumas y saldos.',
-        implemented: true,
-        endpoints: [
-          'GET /companies/:id/reports/balance',
-          'GET /companies/:id/reports/profit-and-loss',
-          'GET /companies/:id/reports/income',
-          'GET /companies/:id/reports/expenses',
-        ],
-        requiredRoles: ['contabilidad:read'],
-        // reportes/* (ratios, P&L comparativo, IVA vs AEAT) son prototipos con
-        // cifras escritas en el codigo, sin llamada a la API: fuera del menu
-        // hasta que tengan datos reales. Las paginas avisan de ello.
-        subItems: [
-          {
-            label: 'Balance general',
-            slug: 'informes/balance',
-            description: 'Activo, pasivo y patrimonio neto por rango de fechas.',
-          },
-          {
-            label: 'Pérdidas y ganancias',
-            slug: 'informes/pyg',
-            description: 'Ingresos, gastos y resultado del periodo.',
-          },
-        ],
       },
       {
         label: 'Asistente Carmen',

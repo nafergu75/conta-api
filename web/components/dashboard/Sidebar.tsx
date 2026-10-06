@@ -27,6 +27,7 @@ import {
   Gear,
   FolderOpen,
   Eye,
+  AddressBook,
   SignOut,
 } from '@phosphor-icons/react';
 import type { Icon } from '@phosphor-icons/react';
@@ -55,6 +56,7 @@ const ICONS: Record<string, Icon> = {
   'registro-mercantil': BookBookmark,
   nominas: IdentificationBadge,
   informes: ChartLineUp,
+  'mayor-terceros': AddressBook,
   archivo: FolderOpen,
   ocr: Eye,
   carmen: Robot,
