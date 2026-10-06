@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CaretDown, CaretRight, Plus, X, MagnifyingGlass } from '@phosphor-icons/react';
+import { CaretDown, CaretRight, Plus, X, MagnifyingGlass, PencilSimple } from '@phosphor-icons/react';
 import { Tooltip } from '@/app/dashboard/components/Tooltip';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
@@ -12,7 +12,8 @@ import { getUser, tieneAlgunPermiso } from '@/lib/auth';
  * Antes la pantalla mostraba el plan base generico y el formulario "crear"
  * solo enseñaba un aviso sin guardar nada. Ahora lee el plan de la empresa
  * (el backend lo crea la primera vez) y las subcuentas se guardan de verdad.
- * Los grupos y subgrupos del PGC son fijos: no se pueden crear.
+ * Los grupos y subgrupos del PGC son fijos: no se pueden crear. Las subcuentas
+ * propias se pueden renombrar y desactivar (no borrar: puede haber asientos).
  */
 interface Cuenta {
   id: string;
@@ -25,9 +26,7 @@ interface Cuenta {
   activo: boolean;
 }
 
-interface Modal {
-  padre: Cuenta;
-}
+type Modal = { modo: 'crear'; padre: Cuenta } | { modo: 'editar'; cuenta: Cuenta };
 
 const NATURALEZA: Record<string, { color: string; label: string; tooltip: string }> = {
   PATRIMONIO_NETO: { color: 'bg-blue-100 text-blue-800', label: 'Patrimonio', tooltip: 'Capital y resultados acumulados de la empresa.' },
@@ -60,7 +59,7 @@ export default function PlanContablePage() {
   const [busqueda, setBusqueda] = useState('');
 
   const [modal, setModal] = useState<Modal | null>(null);
-  const [form, setForm] = useState({ codigo: '', nombre: '' });
+  const [form, setForm] = useState({ codigo: '', nombre: '', activo: true });
   const [formError, setFormError] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [aviso, setAviso] = useState('');
@@ -136,14 +135,45 @@ export default function PlanContablePage() {
   };
 
   const abrirModal = (padre: Cuenta) => {
-    setModal({ padre });
-    setForm({ codigo: siguienteCodigo(padre, hijosDe.get(padre.codigo) ?? []), nombre: '' });
+    setModal({ modo: 'crear', padre });
+    setForm({ codigo: siguienteCodigo(padre, hijosDe.get(padre.codigo) ?? []), nombre: '', activo: true });
     setFormError('');
+  };
+
+  const abrirEdicion = (cuenta: Cuenta) => {
+    setModal({ modo: 'editar', cuenta });
+    setForm({ codigo: cuenta.codigo, nombre: cuenta.nombre, activo: cuenta.activo });
+    setFormError('');
+  };
+
+  const guardarEdicion = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!modal || modal.modo !== 'editar') return;
+    const nombre = form.nombre.trim();
+    if (!nombre) {
+      setFormError('El nombre no puede quedar vacío.');
+      return;
+    }
+    setGuardando(true);
+    setFormError('');
+    try {
+      await apiFetch(companyPath(`/accounting/chart-of-accounts/${encodeURIComponent(modal.cuenta.id)}`), {
+        method: 'PATCH',
+        body: JSON.stringify({ nombre, activo: form.activo }),
+      });
+      setModal(null);
+      setAviso(`Subcuenta ${modal.cuenta.codigo} guardada.`);
+      await cargar();
+    } catch (err) {
+      setFormError(errorMessage(err));
+    } finally {
+      setGuardando(false);
+    }
   };
 
   const crear = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!modal) return;
+    if (!modal || modal.modo !== 'crear') return;
     const codigo = form.codigo.trim();
     const nombre = form.nombre.trim();
     if (!codigo || !nombre) {
@@ -207,7 +237,7 @@ export default function PlanContablePage() {
     return (
       <div key={c.id}>
         <div
-          className={`group/fila flex items-center gap-3 border-t border-gray-100 pr-4 hover:bg-gray-50 transition ${estilo}`}
+          className={`group/fila flex items-center gap-3 border-t border-gray-100 pr-4 hover:bg-gray-50 transition ${estilo} ${c.activo ? '' : 'opacity-60'}`}
           style={{ paddingLeft: 16 + profundidad * 28 }}
         >
           <button
@@ -223,6 +253,9 @@ export default function PlanContablePage() {
             {c.esPersonalizadaEmpresa && (
               <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">propia</span>
             )}
+            {!c.activo && (
+              <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">inactiva</span>
+            )}
           </span>
           {c.nivel >= 3 && (
             <span className="flex items-center gap-2">
@@ -231,7 +264,16 @@ export default function PlanContablePage() {
             </span>
           )}
           {c.nivel <= 2 && <span className="text-xs text-gray-500">{hijos.length} {c.nivel === 1 ? 'subgrupos' : 'cuentas'}</span>}
-          {puedeEditar && admiteSubcuentas && (
+          {puedeEditar && c.esPersonalizadaEmpresa && (
+            <button
+              onClick={() => abrirEdicion(c)}
+              className="p-1.5 text-gray-500 hover:bg-blue-50 hover:text-blue-600 rounded opacity-0 group-hover/fila:opacity-100 focus:opacity-100 transition"
+              title={`Editar subcuenta ${c.codigo}`}
+            >
+              <PencilSimple size={16} />
+            </button>
+          )}
+          {puedeEditar && admiteSubcuentas && c.activo && (
             <button
               onClick={() => abrirModal(c)}
               className="p-1.5 text-gray-500 hover:bg-blue-50 hover:text-blue-600 rounded opacity-0 group-hover/fila:opacity-100 focus:opacity-100 transition"
@@ -318,27 +360,35 @@ export default function PlanContablePage() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" role="dialog" aria-modal="true">
           <div className="bg-white rounded-lg shadow-lg max-w-md w-full mx-4">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900">Nueva subcuenta</h2>
+              <h2 className="text-lg font-semibold text-gray-900">
+                {modal.modo === 'crear' ? 'Nueva subcuenta' : `Editar subcuenta ${modal.cuenta.codigo}`}
+              </h2>
               <button onClick={() => setModal(null)} className="p-1 text-gray-500 hover:bg-gray-100 rounded" aria-label="Cerrar">
                 <X size={20} />
               </button>
             </div>
-            <form onSubmit={crear} className="p-6 space-y-4">
-              <p className="text-sm text-gray-600">
-                Dentro de <span className="font-medium">{modal.padre.codigo} {modal.padre.nombre}</span>
-              </p>
-              <div>
-                <label htmlFor="sub-codigo" className="block text-sm font-medium text-gray-700 mb-2">Código</label>
-                <input
-                  id="sub-codigo"
-                  inputMode="numeric"
-                  value={form.codigo}
-                  onChange={(e) => setForm({ ...form, codigo: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg font-mono focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  disabled={guardando}
-                />
-                <p className="mt-1 text-xs text-gray-500">Empieza por {modal.padre.codigo}. Te proponemos el siguiente libre.</p>
-              </div>
+            <form onSubmit={modal.modo === 'crear' ? crear : guardarEdicion} className="p-6 space-y-4">
+              {modal.modo === 'crear' ? (
+                <>
+                  <p className="text-sm text-gray-600">
+                    Dentro de <span className="font-medium">{modal.padre.codigo} {modal.padre.nombre}</span>
+                  </p>
+                  <div>
+                    <label htmlFor="sub-codigo" className="block text-sm font-medium text-gray-700 mb-2">Código</label>
+                    <input
+                      id="sub-codigo"
+                      inputMode="numeric"
+                      value={form.codigo}
+                      onChange={(e) => setForm({ ...form, codigo: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg font-mono focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      disabled={guardando}
+                    />
+                    <p className="mt-1 text-xs text-gray-500">Empieza por {modal.padre.codigo}. Te proponemos el siguiente libre.</p>
+                  </div>
+                </>
+              ) : (
+                <p className="text-sm text-gray-600">El código no se puede cambiar: los asientos ya registrados lo usan.</p>
+              )}
               <div>
                 <label htmlFor="sub-nombre" className="block text-sm font-medium text-gray-700 mb-2">Nombre</label>
                 <input
@@ -351,6 +401,23 @@ export default function PlanContablePage() {
                   autoFocus
                 />
               </div>
+              {modal.modo === 'editar' && (
+                <label className="flex items-start gap-3 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={form.activo}
+                    onChange={(e) => setForm({ ...form, activo: e.target.checked })}
+                    className="mt-0.5 h-4 w-4 rounded border-gray-300"
+                    disabled={guardando}
+                  />
+                  <span>
+                    Activa
+                    <span className="block text-xs text-gray-500">
+                      Si la desactivas ya no se podrá usar en asientos nuevos. Los que ya la usan no cambian.
+                    </span>
+                  </span>
+                </label>
+              )}
               {formError && (
                 <div className="bg-red-50 border border-red-200 rounded-lg p-3">
                   <p className="text-sm text-red-700">{formError}</p>
@@ -361,7 +428,7 @@ export default function PlanContablePage() {
                   Cancelar
                 </button>
                 <button type="submit" className="flex-1 px-4 py-2 text-white bg-blue-600 hover:bg-blue-700 rounded-lg font-medium transition disabled:opacity-50" disabled={guardando}>
-                  {guardando ? 'Guardando...' : 'Crear subcuenta'}
+                  {guardando ? 'Guardando...' : modal.modo === 'crear' ? 'Crear subcuenta' : 'Guardar'}
                 </button>
               </div>
             </form>
