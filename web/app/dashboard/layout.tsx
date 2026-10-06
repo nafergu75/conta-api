@@ -24,11 +24,11 @@ export default function DashboardLayout({
   }, [router]);
 
   if (!autorizado) {
-    return <div className="min-h-[100dvh] bg-slate-50" aria-busy="true" />;
+    return <div className="zona-app min-h-[100dvh] bg-slate-50" aria-busy="true" />;
   }
 
   return (
-    <div className="min-h-[100dvh] bg-slate-50 md:grid md:grid-cols-[260px_1fr]">
+    <div className="zona-app min-h-[100dvh] bg-slate-50 md:grid md:grid-cols-[260px_1fr]">
       {/* Sidebar desktop */}
       <aside className="hidden md:block border-r border-slate-200 bg-white">
         <div className="sticky top-0 max-h-[100dvh] overflow-y-auto">

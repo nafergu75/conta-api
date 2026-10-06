@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { GeistSans } from 'geist/font/sans';
 import { GeistMono } from 'geist/font/mono';
 import './globals.css';
+import { SCRIPT_TEMA } from '@/lib/tema';
 
 export const metadata: Metadata = {
   title: 'Conta API - Automatización contable para pymes y despachos',
@@ -27,6 +28,9 @@ export default function RootLayout({
       className={`${GeistSans.variable} ${GeistMono.variable}`}
       suppressHydrationWarning
     >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: SCRIPT_TEMA }} />
+      </head>
       <body className="font-sans">{children}</body>
     </html>
   );

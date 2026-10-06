@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   CaretDown,
+  Moon,
+  Sun,
   ChartPieSlice,
   Users,
   Package,
@@ -33,6 +35,7 @@ import type { Icon } from '@phosphor-icons/react';
 import { NAV_GROUPS } from './nav';
 import { EmpresaSelector } from './EmpresaSelector';
 import { clearSession, getUser, tieneAlgunPermiso, type SessionUser } from '@/lib/auth';
+import { aplicarTema, temaActual, type Tema } from '@/lib/tema';
 
 const ICONS: Record<string, Icon> = {
   '': ChartPieSlice,
@@ -75,6 +78,13 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const [mounted, setMounted] = useState(false);
   // Grupos del menu desplegados (se recuerda por navegador).
   const [abiertos, setAbiertos] = useState<Record<string, boolean>>({});
+  const [tema, setTema] = useState<Tema>('claro');
+  useEffect(() => setTema(temaActual()), []);
+  const cambiarTema = () => {
+    const nuevo: Tema = tema === 'oscuro' ? 'claro' : 'oscuro';
+    aplicarTema(nuevo);
+    setTema(nuevo);
+  };
 
   useEffect(() => {
     try {
@@ -233,6 +243,15 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             {user.email}
           </p>
         )}
+        <button
+          type="button"
+          onClick={cambiarTema}
+          aria-pressed={tema === 'oscuro'}
+          className="flex w-full items-center gap-3 px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors"
+        >
+          {tema === 'oscuro' ? <Sun size={18} className="text-slate-400" /> : <Moon size={18} className="text-slate-400" />}
+          {tema === 'oscuro' ? 'Modo día' : 'Modo noche'}
+        </button>
         <button
           type="button"
           onClick={cerrarSesion}
