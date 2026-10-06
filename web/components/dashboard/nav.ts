@@ -368,6 +368,13 @@ export const NAV_GROUPS: NavGroup[] = [
     title: 'Más',
     items: [
       {
+        label: 'Datos de la empresa',
+        slug: 'empresa',
+        description: 'Datos fiscales, contacto, Registro Mercantil y logo que salen en las facturas.',
+        implemented: true,
+        endpoints: ['GET /companies/:id/legal-config', 'PUT /companies/:id/legal-config'],
+      },
+      {
         label: 'Nóminas',
         slug: 'nominas',
         description: 'Registro contable de nóminas y seguros sociales.',

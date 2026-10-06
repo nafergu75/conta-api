@@ -42,6 +42,7 @@ import { aplicarTema, temaActual, type Tema } from '@/lib/tema';
 
 const ICONS: Record<string, Icon> = {
   '': ChartPieSlice,
+  empresa: Buildings,
   clientes: Users,
   productos: Package,
   facturas: FileText,

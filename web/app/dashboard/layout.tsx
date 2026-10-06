@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { List, X } from '@phosphor-icons/react';
 import Sidebar from '@/components/dashboard/Sidebar';
-import { getToken } from '@/lib/auth';
+import { getToken, getUser, tieneAlgunPermiso } from '@/lib/auth';
+import { apiFetch, companyPath } from '@/lib/api';
 
 export default function DashboardLayout({
   children,
@@ -22,6 +23,21 @@ export default function DashboardLayout({
     if (getToken()) setAutorizado(true);
     else router.replace('/login');
   }, [router]);
+
+  // Empresa sin sus datos (NIF, domicilio, Registro Mercantil...): primero se
+  // completan, porque salen en todas las facturas. Solo a quien puede editarlos.
+  const pathname = usePathname();
+  useEffect(() => {
+    if (!autorizado || pathname.startsWith('/dashboard/empresa')) return;
+    if (!tieneAlgunPermiso(getUser(), ['contabilidad:write'])) return;
+    apiFetch<{ completo?: boolean }>(companyPath('/legal-config'))
+      .then((cfg) => {
+        if (cfg.completo === false) router.replace('/dashboard/empresa?primera=1');
+      })
+      .catch(() => {
+        // Sin backend (demo) o sin permiso: no se fuerza nada.
+      });
+  }, [autorizado, pathname, router]);
 
   if (!autorizado) {
     return <div className="zona-app min-h-[100dvh] bg-slate-50" aria-busy="true" />;

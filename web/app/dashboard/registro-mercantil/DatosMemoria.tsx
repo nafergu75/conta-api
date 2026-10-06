@@ -183,6 +183,7 @@ export function DatosMemoria({ fyId, ejercicio, puedeEditar }: { fyId: string; e
               <option value="SL">Sociedad limitada</option>
               <option value="SLU">Sociedad limitada unipersonal</option>
               <option value="SA">Sociedad anónima</option>
+              <option value="AUTONOMO">Autónomo (empresario individual)</option>
               <option value="SCP">Sociedad civil</option>
               <option value="OTRA">Otra</option>
             </select>
