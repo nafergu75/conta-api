@@ -1,11 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { getToken, clearSession, getCompanyId } from '@/lib/auth';
+import { getCompanyId, getUser, tieneAlgunPermiso } from '@/lib/auth';
+import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { ArrowLeft } from '@phosphor-icons/react';
 import Link from 'next/link';
 import ContabilizarButton from '@/components/ContabilizarButton';
+import CobrosFactura from '@/components/CobrosFactura';
 
 interface LineaGasto {
   id: string;
@@ -34,11 +36,17 @@ interface FacturaGasto {
   retencionTotal: number;
   totalFactura: number;
   estado: string;
+  /** PENDIENTE | PARCIAL | PAGADA */
+  estadoPago?: string;
   tipoGasto?: string;
   lineas: LineaGasto[];
 }
 
-const API = '/api/conta';
+const ESTADO_PAGO: Record<string, { texto: string; clase: string }> = {
+  PENDIENTE: { texto: 'Pendiente de pago', clase: 'bg-amber-50 text-amber-800 border-amber-200' },
+  PARCIAL: { texto: 'Pagada en parte', clase: 'bg-blue-50 text-blue-800 border-blue-200' },
+  PAGADA: { texto: 'Pagada', clase: 'bg-green-50 text-green-800 border-green-200' },
+};
 
 const TIPO_GASTO_LABELS: Record<string, string> = {
   COMPRA: 'Compra de Mercaderías',
@@ -55,39 +63,28 @@ export default function GastoDetailPage() {
   // Empresa activa de la sesion (la que devolvio el login).
   const companyId = getCompanyId();
 
+  const puedePagar = tieneAlgunPermiso(getUser(), ['compras:write', 'contabilidad:write']);
+
   const [gasto, setGasto] = useState<FacturaGasto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  const loadGasto = useCallback(async () => {
+    try {
+      // El backend responde { data: factura } dentro del sobre { ok, data }.
+      const r = await apiFetch<{ data?: FacturaGasto } & Partial<FacturaGasto>>(companyPath(`/expense-invoices/${gastoId}`));
+      setGasto((r.data ?? r) as FacturaGasto);
+      setError('');
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }, [gastoId]);
+
   useEffect(() => {
-    const loadGasto = async () => {
-      const token = getToken();
-      if (!token || !companyId) return;
-
-      try {
-        setLoading(true);
-        const res = await fetch(`${API}/companies/${companyId}/expense-invoices/${gastoId}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
-        if (res.status === 401) {
-          clearSession();
-          return;
-        }
-
-        if (!res.ok) throw new Error('Error cargando factura de gasto');
-        const data = await res.json();
-        setGasto(data.data || data);
-        setError('');
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Error desconocido');
-      } finally {
-        setLoading(false);
-      }
-    };
-
     if (companyId) loadGasto();
-  }, [companyId, gastoId]);
+  }, [companyId, loadGasto]);
 
   if (loading) {
     return (
@@ -115,6 +112,11 @@ export default function GastoDetailPage() {
           <ArrowLeft size={20} />
         </Link>
         <h1 className="text-3xl font-bold text-gray-900">Gasto {gasto.numeroCompleto}</h1>
+        {gasto.estadoPago && ESTADO_PAGO[gasto.estadoPago] && (
+          <span className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${ESTADO_PAGO[gasto.estadoPago].clase}`}>
+            {ESTADO_PAGO[gasto.estadoPago].texto}
+          </span>
+        )}
       </div>
 
       {error && (
@@ -234,6 +236,13 @@ export default function GastoDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* Pagos */}
+      {gasto.totalFactura > 0 && (
+        <div className="mb-6">
+          <CobrosFactura tipo="GASTO" facturaId={gastoId} puedeEditar={puedePagar} fechaFactura={gasto.fechaEmision} onCambio={loadGasto} />
+        </div>
+      )}
 
       {/* Contabilizar */}
       {companyId && (

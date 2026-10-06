@@ -8,8 +8,8 @@ import { TablaInforme, fecha, importe, type Tabla } from '../informes/TablaInfor
 
 /**
  * Mayor de clientes y de proveedores: el saldo de cada tercero segun la
- * contabilidad (cuentas 43 / 40-41), con su detalle de movimientos. En clientes
- * se cruza con lo pendiente segun las facturas emitidas.
+ * contabilidad (cuentas 43 / 40-41), con su detalle de movimientos, cruzado con
+ * lo pendiente segun las facturas (emitidas menos cobros, o recibidas menos pagos).
  */
 
 type Tipo = 'clientes' | 'proveedores';
@@ -34,7 +34,15 @@ interface Listado {
 
 interface Detalle {
   tercero: { id: string; nombre: string; nif: string | null; saldoInicial: number; debe: number; haber: number; saldoFinal: number };
-  facturasPendientes: Array<{ id: string; numeroCompleto: string | null; fechaEmision: string; fechaVencimiento: string; totalFactura: number; estado: string }>;
+  facturasPendientes: Array<{
+    id: string;
+    numeroCompleto: string | null;
+    fechaEmision: string;
+    fechaVencimiento: string;
+    totalFactura: number;
+    importePendiente: number;
+    estado: string;
+  }>;
   totalPendiente: number;
   tabla: Tabla;
 }
@@ -204,14 +212,19 @@ export default function MayorTercerosPage() {
                   <th className="px-4 py-3 text-right font-medium">Debe</th>
                   <th className="px-4 py-3 text-right font-medium">Haber</th>
                   <th className="px-4 py-3 text-right font-medium">Saldo final</th>
-                  {esCliente && (
-                    <th className="px-4 py-3 text-right font-medium">
-                      <span className="inline-flex items-center gap-1">
-                        Pendiente s/ facturas
-                        <Tooltip text="Facturas emitidas no marcadas como cobradas. Si no coincide con el saldo contable, hay un cobro sin registrar o una factura sin marcar." position="left" />
-                      </span>
-                    </th>
-                  )}
+                  <th className="px-4 py-3 text-right font-medium">
+                    <span className="inline-flex items-center gap-1">
+                      Pendiente s/ facturas
+                      <Tooltip
+                        text={
+                          esCliente
+                            ? 'Facturas emitidas menos sus cobros registrados. Si no coincide con el saldo contable, hay un cobro sin registrar en la factura o un asiento sin factura.'
+                            : 'Facturas recibidas menos sus pagos registrados. Si no coincide con el saldo contable, hay un pago sin registrar en la factura, una factura sin contabilizar o un asiento sin factura.'
+                        }
+                        position="left"
+                      />
+                    </span>
+                  </th>
                   <th className="px-2 py-3"><span className="sr-only">Ver</span></th>
                 </tr>
               </thead>
@@ -226,11 +239,9 @@ export default function MayorTercerosPage() {
                     <td className="whitespace-nowrap px-4 py-2 text-right font-mono tabular-nums">{t.debe ? importe(t.debe) : ''}</td>
                     <td className="whitespace-nowrap px-4 py-2 text-right font-mono tabular-nums">{t.haber ? importe(t.haber) : ''}</td>
                     <td className={`whitespace-nowrap px-4 py-2 text-right font-mono font-semibold tabular-nums ${t.saldoFinal < 0 ? 'text-amber-700' : 'text-slate-900'}`}>{importe(t.saldoFinal)}</td>
-                    {esCliente && (
-                      <td className={`whitespace-nowrap px-4 py-2 text-right font-mono tabular-nums ${descuadre(t) ? 'text-red-700' : 'text-slate-500'}`} title={descuadre(t) ? 'No coincide con el saldo contable' : undefined}>
-                        {t.pendienteFacturas === null ? '—' : importe(t.pendienteFacturas)}
-                      </td>
-                    )}
+                    <td className={`whitespace-nowrap px-4 py-2 text-right font-mono tabular-nums ${descuadre(t) ? 'text-red-700' : 'text-slate-500'}`} title={descuadre(t) ? 'No coincide con el saldo contable' : undefined}>
+                      {t.pendienteFacturas === null ? '—' : importe(t.pendienteFacturas)}
+                    </td>
                     <td className="px-2 py-2 text-slate-400"><CaretRight size={16} /></td>
                   </tr>
                 ))}
@@ -242,7 +253,7 @@ export default function MayorTercerosPage() {
                   <td className="px-4 py-2 text-right font-mono tabular-nums">{importe(listado.totales.debe)}</td>
                   <td className="px-4 py-2 text-right font-mono tabular-nums">{importe(listado.totales.haber)}</td>
                   <td className="px-4 py-2 text-right font-mono tabular-nums">{importe(listado.totales.saldoFinal)}</td>
-                  {esCliente && <td />}
+                  <td />
                   <td />
                 </tr>
               </tfoot>
@@ -266,7 +277,7 @@ export default function MayorTercerosPage() {
                     <span>Debe <span className="block font-mono text-slate-700">{importe(t.debe)}</span></span>
                     <span>Haber <span className="block font-mono text-slate-700">{importe(t.haber)}</span></span>
                   </div>
-                  {esCliente && t.pendienteFacturas !== null && descuadre(t) && (
+                  {t.pendienteFacturas !== null && descuadre(t) && (
                     <p className="mt-2 text-xs text-red-700">Pendiente según facturas: {importe(t.pendienteFacturas)} €</p>
                   )}
                 </button>
@@ -361,15 +372,22 @@ function DetalleTercero({ tipo, fila, periodo, onCerrar }: { tipo: Tipo; fila: F
                 ))}
               </div>
               <TablaInforme tabla={detalle.tabla} />
-              {tipo === 'clientes' && detalle.facturasPendientes.length > 0 && (
+              {detalle.facturasPendientes.length > 0 && (
                 <section className="rounded-lg border border-slate-200 bg-white p-4">
-                  <h3 className="text-sm font-semibold text-slate-900">Facturas pendientes de cobro según facturación</h3>
+                  <h3 className="text-sm font-semibold text-slate-900">
+                    Facturas pendientes de {tipo === 'clientes' ? 'cobro' : 'pago'} según facturación
+                  </h3>
                   <ul className="mt-2 divide-y divide-slate-100 text-sm">
                     {detalle.facturasPendientes.map((f) => (
                       <li key={f.id} className="flex flex-wrap items-center justify-between gap-2 py-1.5">
                         <span className="font-mono">{f.numeroCompleto}</span>
                         <span className="text-slate-500">emitida {fecha(f.fechaEmision)} · vence {fecha(f.fechaVencimiento)}</span>
-                        <span className="font-mono tabular-nums">{importe(f.totalFactura)} €</span>
+                        <span className="font-mono tabular-nums">
+                          {importe(f.importePendiente ?? f.totalFactura)} €
+                          {f.importePendiente !== undefined && f.importePendiente !== f.totalFactura && (
+                            <span className="ml-1 text-xs text-slate-500">de {importe(f.totalFactura)} €</span>
+                          )}
+                        </span>
                       </li>
                     ))}
                   </ul>

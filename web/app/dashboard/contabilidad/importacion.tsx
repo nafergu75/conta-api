@@ -2,6 +2,7 @@
 
 import { useRef, type ReactNode } from 'react';
 import { FileXls, UploadSimple, Warning, WarningCircle } from '@phosphor-icons/react';
+import { ApiError, apiFetch, companyPath } from '@/lib/api';
 
 /**
  * Piezas comunes de las importaciones contables (puesta en marcha): subida del
@@ -52,10 +53,18 @@ export function esNecesitaMapeo(v: unknown): v is NecesitaMapeo {
   return !!v && typeof v === 'object' && (v as NecesitaMapeo).necesitaMapeo === true;
 }
 
-/** FormData con el fichero, los ajustes de lectura y las opciones de la importacion. */
-export function formulario(archivo: File, ajustes: AjustesLectura, opciones: Record<string, string | number | boolean | undefined>): FormData {
+/**
+ * FormData con el fichero (o el id de su subida por trozos), los ajustes de
+ * lectura y las opciones de la importacion.
+ */
+export function formulario(
+  fuente: File | string,
+  ajustes: AjustesLectura,
+  opciones: Record<string, string | number | boolean | undefined>,
+): FormData {
   const d = new FormData();
-  d.append('archivo', archivo);
+  if (typeof fuente === 'string') d.append('subidaId', fuente);
+  else d.append('archivo', fuente);
   if (ajustes.mapeo) d.append('mapeo', JSON.stringify(ajustes.mapeo));
   if (ajustes.filaCabecera !== undefined) d.append('filaCabecera', String(ajustes.filaCabecera));
   d.append('convencionSigno', ajustes.convencionSigno);
@@ -67,19 +76,78 @@ export function formulario(archivo: File, ajustes: AjustesLectura, opciones: Rec
   return d;
 }
 
+// ---------------------------------------------------------------------------
+// Ficheros grandes: subida por trozos
+// ---------------------------------------------------------------------------
+
+/** Hasta este tamano el fichero va directo en cada peticion (Vercel corta a ~4,5 MB). */
+export const TAM_DIRECTO = 3.5 * 1024 * 1024;
+/** Tamano de cada trozo de una subida grande. */
+const TAM_TROZO = 3 * 1024 * 1024;
+/** Maximo que admite el servidor. */
+export const TAM_MAXIMO = 50 * 1024 * 1024;
+
+async function sha256(b: Blob): Promise<string | undefined> {
+  if (typeof crypto === 'undefined' || !crypto.subtle) return undefined; // http sin TLS: sin comprobacion
+  const h = await crypto.subtle.digest('SHA-256', await b.arrayBuffer());
+  return Array.from(new Uint8Array(h), (x) => x.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Sube un fichero grande en trozos de ~3 MB, en orden, y devuelve el id de la
+ * subida (lo que despues se manda en lugar del fichero). Cada trozo se
+ * reintenta hasta 3 veces si falla la conexion o el servidor.
+ */
+export async function subirPorTrozos(archivo: File, onProgreso: (porcentaje: number) => void): Promise<string> {
+  if (archivo.size > TAM_MAXIMO) throw new Error(`El fichero pesa demasiado (máximo ${TAM_MAXIMO / 1024 / 1024} MB).`);
+  const total = Math.max(1, Math.ceil(archivo.size / TAM_TROZO));
+  let subidaId: string | undefined;
+  onProgreso(0);
+  for (let i = 0; i < total; i++) {
+    const trozo = archivo.slice(i * TAM_TROZO, (i + 1) * TAM_TROZO);
+    const hash = await sha256(trozo);
+    for (let intento = 1; ; intento++) {
+      const d = new FormData();
+      d.append('trozo', trozo, archivo.name);
+      d.append('indice', String(i));
+      d.append('total', String(total));
+      if (i === 0) {
+        d.append('nombre', archivo.name);
+        d.append('tamano', String(archivo.size));
+      } else d.append('subidaId', subidaId!);
+      if (hash) d.append('hash', hash);
+      try {
+        const r = await apiFetch<{ subidaId: string }>(companyPath('/puesta-en-marcha/subidas'), { method: 'POST', body: d });
+        subidaId = r.subidaId;
+        break;
+      } catch (e) {
+        const reintentable = e instanceof ApiError && (e.status === 0 || e.status >= 500);
+        if (!reintentable || intento >= 3) throw e;
+        await new Promise((ok) => setTimeout(ok, 1000 * intento));
+      }
+    }
+    onProgreso(Math.round(((i + 1) / total) * 100));
+  }
+  return subidaId!;
+}
+
 export function SubidaFichero({
   archivo,
   ocupado,
+  progreso,
   texto,
   ayuda,
   onElegir,
 }: {
   archivo: File | null;
   ocupado: boolean;
+  /** Porcentaje de una subida por trozos en curso (null si no hay). */
+  progreso?: number | null;
   texto: string;
   ayuda: string;
   onElegir: (f: File) => void;
 }) {
+  const subiendo = progreso !== null && progreso !== undefined;
   const input = useRef<HTMLInputElement>(null);
   return (
     <label
@@ -92,13 +160,23 @@ export function SubidaFichero({
       }}
     >
       {archivo ? <FileXls size={30} className="mb-2 text-emerald-600" /> : <UploadSimple size={30} className="mb-2 text-slate-400" />}
-      <span className="text-sm font-medium text-slate-900">{ocupado ? 'Leyendo el fichero...' : archivo ? archivo.name : texto}</span>
-      <span className="mt-1 text-xs text-slate-500">{archivo ? 'Haz clic o arrastra otro fichero para cambiarlo' : ayuda}</span>
+      <span className="text-sm font-medium text-slate-900">
+        {subiendo ? `Subiendo ${archivo?.name ?? 'el fichero'}... ${progreso} %` : ocupado ? 'Leyendo el fichero...' : archivo ? archivo.name : texto}
+      </span>
+      {subiendo ? (
+        <span className="mt-2 block h-2 w-full max-w-xs overflow-hidden rounded-full bg-slate-200" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progreso}>
+          <span className="block h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${progreso}%` }} />
+        </span>
+      ) : (
+        <span className="mt-1 text-xs text-slate-500">
+          {archivo ? 'Haz clic o arrastra otro fichero para cambiarlo' : `${ayuda} · hasta ${TAM_MAXIMO / 1024 / 1024} MB`}
+        </span>
+      )}
       <input
         ref={input}
         type="file"
         accept=".xlsx,.xls,.csv,.txt"
-        disabled={ocupado}
+        disabled={ocupado || subiendo}
         className="sr-only"
         onChange={(e) => {
           const f = e.target.files?.[0];
