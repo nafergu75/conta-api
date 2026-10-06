@@ -26,6 +26,14 @@ interface Summary {
   };
 }
 
+/** Resumen fiscal del año sacado de las facturas (GET /movements/stats/fiscal). */
+interface ResumenFiscal {
+  ventas: { facturas: number; base: number; iva: number; retencion: number; total: number };
+  gastos: { facturas: number; base: number; iva: number; retencion: number; total: number };
+  ivaResultado: number;
+  retencionesAIngresar: number;
+}
+
 interface MonthRow {
   month: string;
   income: number;
@@ -101,6 +109,7 @@ export default function DashboardPage() {
   const [availableQuarters, setAvailableQuarters] = useState<Array<{ value: string; label: string }>>([]);
   const [availableMonths, setAvailableMonths] = useState<Array<{ value: string; label: string }>>([]);
   const [maturityData, setMaturityData] = useState<MaturitySummary | null>(null);
+  const [fiscal, setFiscal] = useState<ResumenFiscal | null>(null);
   const [maturityViewType, setMaturityViewType] = useState<'months' | 'days'>('months');
   const [incomeExpenseViewType, setIncomeExpenseViewType] = useState<'income-expense' | 'result'>('income-expense');
   const [selectedAnalysisPeriod, setSelectedAnalysisPeriod] = useState<string>(''); // Período único para análisis
@@ -118,6 +127,13 @@ export default function DashboardPage() {
         get<Movement[]>('/movements?limit=15'),
         get<{ items?: Cliente[] }>('/clientes?limit=10'),
       ]);
+
+      // IVA y retenciones del año, desde las facturas (no se estiman).
+      try {
+        setFiscal(await get<ResumenFiscal>(`/movements/stats/fiscal?anio=${selectedYear}`));
+      } catch {
+        setFiscal(null);
+      }
 
       // Vencimientos de cobro/pago: solo si el backend los ofrece. Sin datos
       // reales la seccion no se muestra (antes se rellenaba con cifras inventadas).
@@ -239,9 +255,10 @@ export default function DashboardPage() {
 
   // Desglose fiscal: usar datos reales de la API si disponibles, sino calcular
   const incomeMovements = filteredMovements.filter((m) => m.type === 'income');
-  const ivaBase = summary?.fiscal?.ivaBase ?? incomeMovements.reduce((sum, m) => sum + Number(m.amount), 0);
-  const ivaAmount = summary?.fiscal?.ivaToLiquidate ?? (ivaBase * 0.21);
-  const irpfAmount = summary?.fiscal?.irpfRetained ?? incomeMovements.reduce((sum, m) => sum + Number(m.amount) * 0.15, 0);
+  // Antes se estimaba (21 % de IVA y 15 % de IRPF sobre los cobros): ahora sale de las facturas.
+  void incomeMovements;
+  void summary;
+  const sinDato = '—';
 
   // Calcular ingresos por cliente (usando nombres de clientes reales) - usando analysisMovements
   const incomeByClientName = new Map<string, number>();
@@ -471,14 +488,21 @@ export default function DashboardPage() {
                   {eur(quarterSummary.totalIncome)}
                 </p>
                 <div className="space-y-3 border-t border-slate-100 pt-4">
+                  <p className="text-xs text-slate-400">Facturas emitidas en {selectedYear}: {fiscal?.ventas.facturas ?? 0}</p>
                   <div className="flex justify-between text-sm">
-                    <span className="text-slate-600">Base IVA</span>
-                    <span className="font-mono font-medium text-slate-900">{eur(ivaBase)}</span>
+                    <span className="text-slate-600">Base imponible</span>
+                    <span className="font-mono font-medium text-slate-900">{fiscal ? eur(fiscal.ventas.base) : sinDato}</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-slate-600">IRPF (15%)</span>
-                    <span className="font-mono font-medium text-slate-900">-{eur(irpfAmount)}</span>
+                    <span className="text-slate-600">IVA repercutido</span>
+                    <span className="font-mono font-medium text-slate-900">{fiscal ? eur(fiscal.ventas.iva) : sinDato}</span>
                   </div>
+                  {!!fiscal?.ventas.retencion && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-600">IRPF que te retienen</span>
+                      <span className="font-mono font-medium text-slate-900">-{eur(fiscal.ventas.retencion)}</span>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -489,18 +513,21 @@ export default function DashboardPage() {
                   {eur(quarterSummary.totalExpense)}
                 </p>
                 <div className="space-y-3 border-t border-slate-100 pt-4">
+                  <p className="text-xs text-slate-400">Facturas de gasto en {selectedYear}: {fiscal?.gastos.facturas ?? 0}</p>
                   <div className="flex justify-between text-sm">
-                    <span className="text-slate-600">Total</span>
-                    <span className="font-mono font-medium text-slate-900">
-                      {eur(quarterSummary.totalExpense)}
-                    </span>
+                    <span className="text-slate-600">Base imponible</span>
+                    <span className="font-mono font-medium text-slate-900">{fiscal ? eur(fiscal.gastos.base) : sinDato}</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-slate-600">Movimientos</span>
-                    <span className="font-mono font-medium text-slate-900">
-                      {filteredMovements.filter((m) => m.type === 'expense').length}
-                    </span>
+                    <span className="text-slate-600">IVA soportado</span>
+                    <span className="font-mono font-medium text-slate-900">{fiscal ? eur(fiscal.gastos.iva) : sinDato}</span>
                   </div>
+                  {!!fiscal?.gastos.retencion && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-600">Retenciones practicadas</span>
+                      <span className="font-mono font-medium text-slate-900">{eur(fiscal.gastos.retencion)}</span>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -529,12 +556,18 @@ export default function DashboardPage() {
                 <p className="text-sm font-semibold text-slate-500 mb-6">Liquidaciones</p>
                 <div className="space-y-4">
                   <div className="flex justify-between items-center bg-emerald-50 -mx-8 px-8 py-3">
-                    <span className="font-medium text-slate-700">IVA a liquidar</span>
-                    <span className="text-2xl font-bold text-emerald-700">{eur(ivaAmount)}</span>
+                    <span className="font-medium text-slate-700">
+                      {fiscal && fiscal.ivaResultado < 0 ? 'IVA a compensar' : 'IVA a ingresar'}
+                      <span className="block text-xs font-normal text-slate-500">Repercutido − soportado (orientativo)</span>
+                    </span>
+                    <span className="text-2xl font-bold text-emerald-700">{fiscal ? eur(Math.abs(fiscal.ivaResultado)) : sinDato}</span>
                   </div>
                   <div className="flex justify-between items-center bg-blue-50 -mx-8 px-8 py-3">
-                    <span className="font-medium text-slate-700">IRPF a liquidar</span>
-                    <span className="text-2xl font-bold text-blue-700">{eur(irpfAmount)}</span>
+                    <span className="font-medium text-slate-700">
+                      Retenciones a ingresar
+                      <span className="block text-xs font-normal text-slate-500">Las que practicas en tus gastos (111/115)</span>
+                    </span>
+                    <span className="text-2xl font-bold text-blue-700">{fiscal ? eur(fiscal.retencionesAIngresar) : sinDato}</span>
                   </div>
                 </div>
               </div>
