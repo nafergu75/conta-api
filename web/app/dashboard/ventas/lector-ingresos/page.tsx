@@ -4,13 +4,14 @@
 import { useState, useCallback , Suspense} from 'react';
 import { useRouter } from 'next/navigation';
 import { Upload, Plus, ArrowLeft, Check } from '@phosphor-icons/react';
-import { getToken, getCompanyId } from '@/lib/auth';
+import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { useOcrSession } from '@/lib/useOcrSession';
 import { OcrSessionPanel } from '@/components/dashboard/OcrSessionPanel';
 
-const API = '/api/conta';
 
 interface IngresoExtraido {
+  /** Id del documento leido: confirmar usa los datos guardados en el servidor. */
+  documentId: string;
   numeroFactura: string | null;
   cliente: string | null;
   nifCliente: string | null;
@@ -20,6 +21,7 @@ interface IngresoExtraido {
   base: number | null;
   iva: number | null;
   total: number | null;
+  retencion: number | null;
   confianza: number;
   errores: string[];
 }
@@ -31,6 +33,7 @@ function LectorIngresosPageInner() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ingreso, setIngreso] = useState<IngresoExtraido | null>(null);
+  const [exito, setExito] = useState<string | null>(null);
 
   const validateAndProcess = async (selectedFile: File) => {
     const tiposPermitidos = ['application/pdf', 'image/jpeg', 'image/png'];
@@ -66,45 +69,31 @@ function LectorIngresosPageInner() {
     }
   };
 
+  /** El fichero en base64 (sin el prefijo data:). */
+  const leerBase64 = (f: File) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '');
+      reader.onerror = () => reject(new Error('No se pudo leer el archivo.'));
+      reader.readAsDataURL(f);
+    });
+
   const procesarIngreso = async (file: File) => {
     setLoading(true);
     setError(null);
-
+    setExito(null);
     try {
-      const reader = new FileReader();
-      reader.onload = async (event) => {
-        const base64 = event.target?.result as string;
-        const base64Data = base64.split(',')[1];
-
-        const response = await fetch(`${API}/companies/${getCompanyId()}/ingresos/extraer-ia`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${getToken()}`,
-          },
-          body: JSON.stringify({
-            archivoBase64: base64Data,
-            nombre: file.name,
-            mimeType: file.type,
-          }),
-        });
-
-        if (!response.ok) {
-          const data = await response.json().catch(() => ({}));
-          throw new Error(data.error || `Error ${response.status}`);
-        }
-
-        const data = await response.json();
-        setIngreso(data.data || data);
-      };
-
-      reader.onerror = () => {
-        throw new Error('Error al leer el archivo');
-      };
-
-      reader.readAsDataURL(file);
+      // Antes el loading no se apagaba nunca tras una lectura correcta, y los
+      // errores dentro de FileReader.onload no llegaban al catch.
+      const archivoBase64 = await leerBase64(file);
+      const leido = await apiFetch<IngresoExtraido>(companyPath('/ingresos-extractor/extraer-ia'), {
+        method: 'POST',
+        body: JSON.stringify({ archivoBase64, nombre: file.name, mimeType: file.type }),
+      });
+      setIngreso(leido);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error procesando ingreso');
+      setError(errorMessage(err));
+    } finally {
       setLoading(false);
     }
   };
@@ -113,23 +102,18 @@ function LectorIngresosPageInner() {
     if (!ingreso) return;
 
     setLoading(true);
+    setError(null);
     try {
-      const response = await fetch(`${API}/companies/${getCompanyId()}/ingresos/confirmar`, {
+      // Solo el id: el servidor registra la factura con los datos que leyo.
+      const r = await apiFetch<{ numeroCompleto: string }>(companyPath('/ingresos-extractor/confirmar'), {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${getToken()}`,
-        },
-        body: JSON.stringify(ingreso),
+        body: JSON.stringify({ documentId: ingreso.documentId }),
       });
-
-      if (!response.ok) throw new Error('Error al confirmar ingreso');
-
-      alert('Ingreso registrado correctamente');
+      setExito(`Factura ${r.numeroCompleto} registrada.`);
       setIngreso(null);
       setFile(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al confirmar');
+      setError(errorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -200,6 +184,11 @@ function LectorIngresosPageInner() {
               )}
             </div>
 
+            {exito && (
+              <div role="status" className="mt-6 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800 p-4">
+                {exito}
+              </div>
+            )}
             {error && (
               <div className="mt-6 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 p-4">
                 ❌ {error}
@@ -296,6 +285,7 @@ function LectorIngresosPageInner() {
                   </div>
                   <div className="text-xs text-slate-600 mt-1">
                     Base: €{(ingreso.base || 0).toFixed(2)} | IVA: €{(ingreso.iva || 0).toFixed(2)}
+                    {(ingreso.retencion || 0) > 0 && <> | Retención: −€{(ingreso.retencion || 0).toFixed(2)}</>}
                   </div>
                 </div>
               </div>
@@ -311,7 +301,8 @@ function LectorIngresosPageInner() {
               </button>
               <button
                 onClick={handleConfirmar}
-                disabled={loading}
+                disabled={loading || ingreso.errores.length > 0}
+                title={ingreso.errores.length > 0 ? 'Corrige los errores antes de registrar' : undefined}
                 className="flex-1 px-4 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 active:scale-[0.98] transition-all disabled:opacity-60 disabled:pointer-events-none inline-flex items-center justify-center gap-2"
               >
                 <Check size={18} />

@@ -4,11 +4,10 @@
 import { useState, useCallback , Suspense} from 'react';
 import { useRouter } from 'next/navigation';
 import { Upload, Plus, ArrowLeft, Check, X } from '@phosphor-icons/react';
-import { getToken, clearSession, getCompanyId } from '@/lib/auth';
+import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { useOcrSession } from '@/lib/useOcrSession';
 import { OcrSessionPanel } from '@/components/dashboard/OcrSessionPanel';
 
-const API = '/api/conta';
 
 interface GastoExtraido {
   numeroFactura: string | null;
@@ -31,6 +30,7 @@ function LectorGastosPageInner() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [gasto, setGasto] = useState<GastoExtraido | null>(null);
+  const [exito, setExito] = useState<string | null>(null);
 
   const validateAndProcess = async (selectedFile: File) => {
     const tiposPermitidos = ['application/pdf', 'image/jpeg', 'image/png'];
@@ -66,45 +66,31 @@ function LectorGastosPageInner() {
     }
   };
 
+  /** El fichero en base64 (sin el prefijo data:). */
+  const leerBase64 = (f: File) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '');
+      reader.onerror = () => reject(new Error('No se pudo leer el archivo.'));
+      reader.readAsDataURL(f);
+    });
+
   const procesarGasto = async (file: File) => {
     setLoading(true);
     setError(null);
-
+    setExito(null);
     try {
-      const reader = new FileReader();
-      reader.onload = async (event) => {
-        const base64 = event.target?.result as string;
-        const base64Data = base64.split(',')[1];
-
-        const response = await fetch(`${API}/companies/${getCompanyId()}/gastos-extractor/extraer-ia`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${getToken()}`,
-          },
-          body: JSON.stringify({
-            archivoBase64: base64Data,
-            nombre: file.name,
-            mimeType: file.type,
-          }),
-        });
-
-        if (!response.ok) {
-          const data = await response.json().catch(() => ({}));
-          throw new Error(data.error || `Error ${response.status}`);
-        }
-
-        const data = await response.json();
-        setGasto(data.data || data);
-      };
-
-      reader.onerror = () => {
-        throw new Error('Error al leer el archivo');
-      };
-
-      reader.readAsDataURL(file);
+      // Antes el loading no se apagaba nunca tras una lectura correcta, y los
+      // errores dentro de FileReader.onload no llegaban al catch.
+      const archivoBase64 = await leerBase64(file);
+      const leido = await apiFetch<GastoExtraido>(companyPath('/gastos-extractor/extraer-ia'), {
+        method: 'POST',
+        body: JSON.stringify({ archivoBase64, nombre: file.name, mimeType: file.type }),
+      });
+      setGasto(leido);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error procesando gasto');
+      setError(errorMessage(err));
+    } finally {
       setLoading(false);
     }
   };
@@ -113,23 +99,18 @@ function LectorGastosPageInner() {
     if (!gasto) return;
 
     setLoading(true);
+    setError(null);
     try {
-      const response = await fetch(`${API}/companies/${getCompanyId()}/gastos-extractor/confirmar`, {
+      await apiFetch(companyPath('/gastos-extractor/confirmar'), {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${getToken()}`,
-        },
         body: JSON.stringify(gasto),
       });
-
-      if (!response.ok) throw new Error('Error al confirmar gasto');
-
-      alert('Gasto registrado correctamente');
+      setExito('Gasto registrado.');
       setGasto(null);
       setFile(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al confirmar');
+      // El mensaje del backend (p. ej. un campo que falta) llega al usuario.
+      setError(errorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -200,6 +181,11 @@ function LectorGastosPageInner() {
               )}
             </div>
 
+            {exito && (
+              <div role="status" className="mt-6 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800 p-4">
+                {exito}
+              </div>
+            )}
             {error && (
               <div className="mt-6 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 p-4">
                 ❌ {error}
