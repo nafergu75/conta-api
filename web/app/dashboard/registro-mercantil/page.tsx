@@ -4,6 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Books,
   CalendarCheck,
+  CaretDown,
+  CaretUp,
+  NotePencil,
   DownloadSimple,
   FileArchive,
   FilePdf,
@@ -16,6 +19,7 @@ import { Tooltip } from '@/app/dashboard/components/Tooltip';
 import { ConfirmationModal } from '@/components/dashboard/ConfirmationModal';
 import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
+import { DatosMemoria } from './DatosMemoria';
 
 /**
  * Registro Mercantil: cierre del ejercicio, legalizacion de libros (4 meses
@@ -159,6 +163,7 @@ export default function RegistroMercantilPage() {
   const [ocupado, setOcupado] = useState('');
   const [confirmarCierre, setConfirmarCierre] = useState(false);
   const [dialogo, setDialogo] = useState<Dialogo | null>(null);
+  const [verMemoria, setVerMemoria] = useState(false);
 
   const ejercicio = useMemo(() => ejercicios.find((e) => e.id === fyId) ?? null, [ejercicios, fyId]);
 
@@ -498,7 +503,7 @@ export default function RegistroMercantilPage() {
               )}
             </header>
             <p className="px-5 pt-4 text-sm text-slate-600">
-              Balance, cuenta de pérdidas y ganancias, estado de cambios en el patrimonio neto y memoria, a partir de los asientos contabilizados.
+              Balance, cuenta de pérdidas y ganancias, estado de cambios en el patrimonio neto, estado de flujos de efectivo y memoria, a partir de los asientos contabilizados. Completa antes los datos para la memoria (apartado 3).
               {!cerrado && ' Puedes generar un borrador antes de cerrar para revisarlo.'}
             </p>
             <div className="overflow-x-auto px-5 py-4">
@@ -557,6 +562,27 @@ export default function RegistroMercantilPage() {
                 </table>
               )}
             </div>
+          </section>
+
+          {/* 3. Datos de la memoria */}
+          <section className="rounded-lg border border-slate-200 bg-white">
+            <button
+              type="button"
+              onClick={() => setVerMemoria((v) => !v)}
+              aria-expanded={verMemoria}
+              className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left"
+            >
+              <span className="flex items-center gap-2">
+                <NotePencil size={20} className="text-slate-500" />
+                <span className="text-lg font-semibold text-slate-900">3. Datos para la memoria</span>
+              </span>
+              {verMemoria ? <CaretUp size={18} /> : <CaretDown size={18} />}
+            </button>
+            {verMemoria && (
+              <div className="border-t border-slate-200">
+                <DatosMemoria fyId={ejercicio.id} ejercicio={ejercicio.label} puedeEditar={puedeEditar} />
+              </div>
+            )}
           </section>
         </>
       )}
