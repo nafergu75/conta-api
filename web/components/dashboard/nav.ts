@@ -47,6 +47,13 @@ export const NAV_GROUPS: NavGroup[] = [
         ],
       },
       {
+        label: 'Productos',
+        slug: 'productos',
+        description: 'Catálogo de productos y servicios por códigos y familias.',
+        implemented: true,
+        endpoints: ['GET /companies/:id/productos', 'GET /companies/:id/productos/familias'],
+      },
+      {
         label: 'Facturas de ingreso',
         slug: 'facturas',
         description:

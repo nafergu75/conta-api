@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   ChartPieSlice,
   Users,
+  Package,
   FileText,
   ScanSmiley,
   Truck,
@@ -35,6 +36,7 @@ import { clearSession, getUser, tieneAlgunPermiso, type SessionUser } from '@/li
 const ICONS: Record<string, Icon> = {
   '': ChartPieSlice,
   clientes: Users,
+  productos: Package,
   facturas: FileText,
   lector: ScanSmiley,
   proveedores: Truck,
