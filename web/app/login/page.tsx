@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { saveSession } from '@/lib/auth';
+import { empresaInicial, saveSession } from '@/lib/auth';
 
 const API = '/api/conta';
 
@@ -48,11 +48,18 @@ export default function LoginPage() {
         throw new Error(json.message || 'Credenciales incorrectas');
       }
       const data = json.data ?? json;
+      const correo = data.user?.email ?? email;
+      const companies: string[] = data.user?.companies ?? [];
+      const esAdminGlobal = Boolean(data.user?.esAdminGlobal);
       saveSession(data.token, {
-        email: data.user?.email ?? email,
+        email: correo,
         roles: data.user?.roles ?? [],
-        companies: data.user?.companies ?? [],
+        companies,
+        empresas: data.empresas ?? [],
+        empresaActiva: empresaInicial(correo, companies, esAdminGlobal),
         permisos: data.user?.permisos ?? [],
+        permisosPorEmpresa: data.user?.permisosPorEmpresa ?? {},
+        esAdminGlobal,
       });
       router.push('/dashboard');
     } catch (err) {

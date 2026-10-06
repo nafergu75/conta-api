@@ -29,6 +29,7 @@ import {
 } from '@phosphor-icons/react';
 import type { Icon } from '@phosphor-icons/react';
 import { NAV_GROUPS } from './nav';
+import { EmpresaSelector } from './EmpresaSelector';
 import { clearSession, getUser, tieneAlgunPermiso, type SessionUser } from '@/lib/auth';
 
 const ICONS: Record<string, Icon> = {
@@ -85,6 +86,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <nav className="flex flex-col gap-6 p-4">
+      {user && <EmpresaSelector user={user} />}
       {NAV_GROUPS.map((group) => {
         // Filtrar items por permiso (requiredRoles contiene codigos de permiso)
         const visibleItems = group.items.filter((item) =>
