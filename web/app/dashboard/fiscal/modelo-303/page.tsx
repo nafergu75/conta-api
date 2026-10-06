@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
+import { trimestreAPresentar, ejerciciosSeleccionables } from '@/lib/aeatCalendar';
 import { CaretLeft, Download } from '@phosphor-icons/react';
 import { CasillasViewer } from '../components/CasillasViewer';
 import { FormPresentar } from '../components/FormPresentar';
@@ -24,8 +25,9 @@ export default function Modelo303Page() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [avisoDescarga, setAvisoDescarga] = useState('');
-  const [ejercicio, setEjercicio] = useState(new Date().getFullYear());
-  const [trimestre, setTrimestre] = useState(1);
+  // Se abre en el trimestre que toca presentar (en octubre, el 3T).
+  const [ejercicio, setEjercicio] = useState(() => trimestreAPresentar().ejercicio);
+  const [trimestre, setTrimestre] = useState(() => trimestreAPresentar().trimestre);
 
   useEffect(() => {
     const fetchModelo = async () => {
@@ -104,7 +106,7 @@ export default function Modelo303Page() {
             onChange={(e) => setEjercicio(parseInt(e.target.value))}
             className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
           >
-            {[2024, 2025, 2026, 2027].map((year) => (
+            {ejerciciosSeleccionables().map((year) => (
               <option key={year} value={year}>
                 {year}
               </option>

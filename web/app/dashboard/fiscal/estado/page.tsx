@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
+import { ejerciciosSeleccionables } from '@/lib/aeatCalendar';
 import { CheckCircle, Clock, WarningCircle, ArrowRight, Calendar, MagnifyingGlass, X } from '@phosphor-icons/react';
 
 interface ModeloEstado {
@@ -108,7 +109,7 @@ export default function EstadoFiscalPage() {
             onChange={(e) => setEjercicio(parseInt(e.target.value))}
             className="mt-2 rounded-lg border border-slate-300 px-4 py-2 text-base font-medium"
           >
-            {[2024, 2025, 2026, 2027].map((year) => (
+            {ejerciciosSeleccionables().map((year) => (
               <option key={year} value={year}>{year}</option>
             ))}
           </select>

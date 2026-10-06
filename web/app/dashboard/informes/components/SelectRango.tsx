@@ -93,7 +93,8 @@ export function SelectRango({ onRangeChange, loading }: SelectRangoProps) {
             disabled={loading}
             className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100"
           >
-            {[2020, 2021, 2022, 2023, 2024, 2025, 2026, 2027].map((y) => (
+            {/* El ano en curso y los siete anteriores (antes, una lista fija hasta 2027). */}
+            {Array.from({ length: 8 }, (_, i) => new Date().getFullYear() - i).map((y) => (
               <option key={y} value={y}>
                 {y}
               </option>

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
+import { ejercicioAnualAPresentar, ejerciciosSeleccionables } from '@/lib/aeatCalendar';
 import { CaretLeft, Download, MagnifyingGlass, X } from '@phosphor-icons/react';
 import { CasillasViewer } from '../components/CasillasViewer';
 import { FormPresentar } from '../components/FormPresentar';
@@ -29,7 +30,8 @@ export default function Modelo347Page() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [avisoDescarga, setAvisoDescarga] = useState('');
-  const [ejercicio, setEjercicio] = useState(new Date().getFullYear());
+  // Modelo anual: se presenta por el ejercicio anterior.
+  const [ejercicio, setEjercicio] = useState(ejercicioAnualAPresentar);
   const [searchTercero, setSearchTercero] = useState('');
 
   useEffect(() => {
@@ -123,7 +125,7 @@ export default function Modelo347Page() {
             onChange={(e) => setEjercicio(parseInt(e.target.value))}
             className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
           >
-            {[2024, 2025, 2026, 2027].map((year) => (
+            {ejerciciosSeleccionables().map((year) => (
               <option key={year} value={year}>
                 {year}
               </option>

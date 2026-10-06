@@ -76,3 +76,24 @@ export function proximosVencimientos(hoy: Date = new Date(), n = 4): Vencimiento
       enlace: p.enlace,
     }));
 }
+
+/**
+ * Trimestre que toca presentar en una fecha: el ultimo terminado. En octubre se
+ * presenta el 3T; de enero a marzo, el 4T del ano anterior.
+ */
+export function trimestreAPresentar(hoy: Date = new Date()): { ejercicio: number; trimestre: number } {
+  const trimestreEnCurso = Math.floor(hoy.getMonth() / 3) + 1;
+  return trimestreEnCurso === 1
+    ? { ejercicio: hoy.getFullYear() - 1, trimestre: 4 }
+    : { ejercicio: hoy.getFullYear(), trimestre: trimestreEnCurso - 1 };
+}
+
+/** Los modelos anuales (390, 190, 347, 200) se presentan por el ejercicio anterior. */
+export function ejercicioAnualAPresentar(hoy: Date = new Date()): number {
+  return hoy.getFullYear() - 1;
+}
+
+/** Ejercicios seleccionables en los modelos: el actual y los cuatro anteriores. */
+export function ejerciciosSeleccionables(hoy: Date = new Date()): number[] {
+  return Array.from({ length: 5 }, (_, i) => hoy.getFullYear() - i);
+}
