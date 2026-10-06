@@ -4,15 +4,16 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Plus, MagnifyingGlass, X } from '@phosphor-icons/react';
-import { getToken, clearSession, getCompanyId } from '@/lib/auth';
-
-const API = '/api/conta';
+import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 
 interface Factura {
   id: string;
-  numeroCompleto: string;
+  numeroCompleto: string | null;
+  estadoDocumento: 'BORRADOR' | 'FINAL';
+  esRectificativa: boolean;
   fechaEmision: string;
-  cliente: { id: string; nombreFiscal: string };
+  customerId: string;
+  customerNombre: string;
   baseTotal: number;
   ivaTotal: number;
   totalFactura: number;
@@ -33,12 +34,14 @@ const statusStyles: Record<string, string> = {
   PENDING: 'bg-blue-50 text-blue-700 border-blue-200',
   PAID: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   OVERDUE: 'bg-rose-50 text-rose-700 border-rose-200',
+  ACCOUNTED: 'bg-slate-50 text-slate-700 border-slate-200',
 };
 
 const statusLabels: Record<string, string> = {
   DRAFT: 'Borrador',
   PENDING: 'Pendiente',
-  PAID: 'Pagada',
+  PAID: 'Cobrada',
+  ACCOUNTED: 'Contabilizada',
   OVERDUE: 'Vencida',
 };
 
@@ -52,41 +55,21 @@ export default function FacturasPage() {
   const [showForm, setShowForm] = useState(false);
 
   const loadData = useCallback(async () => {
-    const token = getToken();
     setLoading(true);
     try {
-      const [factRes, clientRes] = await Promise.all([
-        fetch(`${API}/companies/${getCompanyId()}/income-invoices?limit=100`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-        fetch(`${API}/companies/${getCompanyId()}/clientes?limit=100`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
+      const [fact, cli] = await Promise.all([
+        apiFetch<{ items: Factura[] }>(companyPath('/income-invoices?take=500')),
+        apiFetch<{ items: Cliente[] } | Cliente[]>(companyPath('/clientes?limit=1000')),
       ]);
-
-      if (factRes.status === 401 || clientRes.status === 401) {
-        clearSession();
-        router.replace('/login');
-        return;
-      }
-
-      if (!factRes.ok || !clientRes.ok) {
-        throw new Error('Error al cargar datos');
-      }
-
-      const factData = await factRes.json();
-      const clientData = await clientRes.json();
-
-      const facturasArray = Array.isArray(factData.data) ? factData.data : factData.data?.items ?? [];
-      setFacturas(facturasArray);
-      setClientes(clientData.data.items ?? clientData.data ?? []);
+      setFacturas(fact.items ?? []);
+      setClientes(Array.isArray(cli) ? cli : cli.items ?? []);
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error desconocido');
+      setError(errorMessage(e));
     } finally {
       setLoading(false);
     }
-  }, [router]);
+  }, []);
 
   useEffect(() => {
     loadData();
@@ -102,10 +85,10 @@ export default function FacturasPage() {
     if (!search.trim()) return facturas;
     const searchLower = search.toLowerCase();
     return facturas.filter((f) => {
-      const cliente = clienteMap.get(f.cliente?.id || '');
+      const cliente = clienteMap.get(f.customerId);
       return (
-        f.numeroCompleto.toLowerCase().includes(searchLower) ||
-        f.cliente?.nombreFiscal.toLowerCase().includes(searchLower) ||
+        (f.numeroCompleto ?? 'borrador').toLowerCase().includes(searchLower) ||
+        f.customerNombre?.toLowerCase().includes(searchLower) ||
         cliente?.nifCif.toLowerCase().includes(searchLower)
       );
     });
@@ -214,28 +197,35 @@ export default function FacturasPage() {
                           href={`/dashboard/facturas/${factura.id}`}
                           className="font-mono font-medium text-blue-600 hover:text-blue-700 hover:underline"
                         >
-                          {factura.numeroCompleto}
+                          {factura.numeroCompleto ?? <span className="font-sans italic text-slate-500">Borrador</span>}
                         </Link>
+                        {factura.esRectificativa && <span className="ml-2 text-xs text-amber-700">Rectificativa</span>}
                       </td>
                       <td className="px-6 py-3 text-slate-900">
                         <Link
                           href={`/dashboard/facturas/${factura.id}`}
                           className="hover:underline hover:text-blue-600"
                         >
-                          {factura.cliente?.nombreFiscal ?? '-'}
+                          {factura.customerNombre ?? '-'}
                         </Link>
                       </td>
                       <td className="px-6 py-3 text-slate-600">
                         {new Date(factura.fechaEmision).toLocaleDateString('es-ES')}
                       </td>
                       <td className="px-6 py-3">
-                        <span
-                          className={`inline-block text-xs font-medium border rounded-full px-2.5 py-0.5 ${
-                            statusStyles[factura.estado] || statusStyles.DRAFT
-                          }`}
-                        >
-                          {statusLabels[factura.estado] || factura.estado}
-                        </span>
+                        {factura.estadoDocumento === 'BORRADOR' ? (
+                          <span className={`inline-block text-xs font-medium border rounded-full px-2.5 py-0.5 ${statusStyles.DRAFT}`}>
+                            Borrador
+                          </span>
+                        ) : (
+                          <span
+                            className={`inline-block text-xs font-medium border rounded-full px-2.5 py-0.5 ${
+                              statusStyles[factura.estado] || statusStyles.DRAFT
+                            }`}
+                          >
+                            {statusLabels[factura.estado] || factura.estado}
+                          </span>
+                        )}
                       </td>
                       <td className="px-6 py-3 text-right font-mono font-medium text-slate-900">
                         {eur(factura.totalFactura)}
