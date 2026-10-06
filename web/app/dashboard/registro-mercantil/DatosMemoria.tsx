@@ -186,7 +186,7 @@ export function DatosMemoria({ fyId, ejercicio, puedeEditar }: { fyId: string; e
             </select>
           </div>
           <Campo id="m-constitucion" label="Fecha de constitución" tipo="date" valor={sociedad.fechaConstitucion} onChange={s('fechaConstitucion')} disabled={off} ancho="md:col-span-2" />
-          <Campo id="m-cnae" label="CNAE" valor={sociedad.cnae} onChange={s('cnae')} disabled={off} ancho="md:col-span-2" />
+          <Campo id="m-cnae" label="CNAE-2025" valor={sociedad.cnae} onChange={s('cnae')} disabled={off} ancho="md:col-span-2" ayuda="Desde mayo de 2026 el Registro solo acepta CNAE-2025." />
           <Campo id="m-domicilio" label="Domicilio social" valor={sociedad.domicilioSocial} onChange={s('domicilioSocial')} disabled={off} ancho="md:col-span-6" />
           <Campo id="m-cp" label="Código postal" valor={sociedad.codigoPostal} onChange={s('codigoPostal')} disabled={off} ancho="md:col-span-2" />
           <Campo id="m-municipio" label="Municipio" valor={sociedad.municipio} onChange={s('municipio')} disabled={off} ancho="md:col-span-2" />

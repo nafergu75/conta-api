@@ -100,7 +100,7 @@ const ESTADO: Record<string, { label: string; color: string }> = {
 const MODELOS = [
   { valor: 'PYME', label: 'PYMES', ayuda: 'Para la mayoría de pymes: balance y PyG abreviados, memoria PYMES.' },
   { valor: 'ABREVIADO', label: 'Abreviado', ayuda: 'Balance, ECPN y memoria abreviados.' },
-  { valor: 'NORMAL', label: 'Normal', ayuda: 'Para empresas que superan los límites del abreviado.' },
+  { valor: 'NORMAL', label: 'Normal', ayuda: 'Para empresas que superan los límites del abreviado. Todavía sin XBRL.' },
 ];
 
 function Estado({ status }: { status: string }) {
@@ -504,7 +504,7 @@ export default function RegistroMercantilPage() {
             </header>
             <p className="px-5 pt-4 text-sm text-slate-600">
               Balance, cuenta de pérdidas y ganancias, estado de cambios en el patrimonio neto, estado de flujos de efectivo y memoria, a partir de los asientos contabilizados. Completa antes los datos para la memoria (apartado 3).
-              {!cerrado && ' Puedes generar un borrador antes de cerrar para revisarlo.'}
+              {!cerrado && ' Puedes generar un borrador antes de cerrar para revisarlo.'} El fichero XBRL se importa en el programa D2 del Colegio de Registradores; allí se completan la hoja de identificación y la certificación, se firma y se envía.
             </p>
             <div className="overflow-x-auto px-5 py-4">
               {cuentas.length === 0 ? (
@@ -543,6 +543,15 @@ export default function RegistroMercantilPage() {
                             >
                               <DownloadSimple size={16} /> PDF
                             </button>
+                            {c.modelo !== 'NORMAL' && (
+                              <button
+                                onClick={() => descargar(`xbrl-${c.id}`, `/annual-accounts/${c.id}/xbrl`, `cuentas-anuales-${ejercicio.label}-v${c.version}.xbrl`)}
+                                className="flex items-center gap-1 font-medium text-blue-600 hover:text-blue-700"
+                                title="Balance y cuenta de pérdidas y ganancias en XBRL (taxonomía PGC2007) para importar en el programa D2 del Registro"
+                              >
+                                <DownloadSimple size={16} /> XBRL
+                              </button>
+                            )}
                             {/* Solo se presenta la ultima version; las anteriores quedan como historial. */}
                             {puedeEditar && c.isLatestVersion && (c.status === 'READY' || c.status === 'DEFECTOS') && (
                               <button onClick={() => setDialogo({ tipo: 'presentarCuentas', cuentas: c })} className="font-medium text-slate-700 hover:text-slate-900">
