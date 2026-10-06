@@ -68,6 +68,19 @@ export const NAV_GROUPS: NavGroup[] = [
         ],
       },
       {
+        label: 'Proformas',
+        slug: 'proformas',
+        description:
+          'Facturas proforma (serie P): se guardan sin contabilizarse y, si el cliente las acepta, se pasan a factura.',
+        implemented: true,
+        endpoints: [
+          'GET /companies/:id/income-invoices?estadoDocumento=PROFORMA',
+          'POST /companies/:id/income-invoices { proforma: true }',
+          'POST /companies/:id/income-invoices/:id/pasar-a-factura',
+          'POST /companies/:id/income-invoices/:id/rechazar',
+        ],
+      },
+      {
         label: 'Lector de facturas (OCR)',
         slug: 'lector',
         description:

@@ -10,9 +10,13 @@ import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 /**
  * Alta de factura de venta, o edicion de un borrador (?id=...).
  *
- * "Guardar borrador" la deja sin numero y editable. "Emitir factura" le da el
+ * "Guardar borrador" la deja sin numero y editable. "Pasar a factura" le da el
  * siguiente numero de la serie y ya no se puede cambiar: los errores se
  * corrigen con una rectificativa (como exige Verifactu).
+ *
+ * Con ?tipo=proforma (o al editar una proforma pendiente) es el formulario de
+ * la factura proforma: mismo documento, numerado en la serie P al guardarlo y
+ * sin efectos fiscales. Solo tiene "Guardar proforma".
  */
 
 interface Cliente {
@@ -53,7 +57,9 @@ interface FacturaApi {
   id: string;
   customerId: string;
   serie: string;
+  numeroCompleto?: string | null;
   estadoDocumento: string;
+  estado: string;
   tipoFactura: string;
   formaPago?: string;
   fechaEmision: string;
@@ -115,7 +121,11 @@ export default function NuevaFacturaPage() {
 
 function FormularioFactura() {
   const router = useRouter();
-  const borradorId = useSearchParams().get('id');
+  const params = useSearchParams();
+  const borradorId = params.get('id');
+  // Proforma nueva (?tipo=proforma) o una proforma pendiente que se edita.
+  const [esProforma, setEsProforma] = useState(params.get('tipo') === 'proforma');
+  const [numeroProforma, setNumeroProforma] = useState('');
 
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [series, setSeries] = useState<Serie[]>([]);
@@ -149,10 +159,13 @@ function FormularioFactura() {
 
         if (borradorId) {
           const { invoice } = await apiFetch<{ invoice: FacturaApi }>(companyPath(`/income-invoices/${borradorId}`));
-          if (invoice.estadoDocumento !== 'BORRADOR') {
-            router.replace(`/dashboard/facturas/${invoice.id}`);
+          const proforma = invoice.estadoDocumento === 'PROFORMA';
+          if (proforma ? invoice.estado !== 'PENDIENTE' : invoice.estadoDocumento !== 'BORRADOR') {
+            router.replace(`/dashboard/${proforma ? 'proformas' : 'facturas'}/${invoice.id}`);
             return;
           }
+          setEsProforma(proforma);
+          setNumeroProforma(proforma ? (invoice.numeroCompleto ?? '') : '');
           setClienteId(invoice.customerId);
           setSerie(invoice.serie);
           setTipoFactura(invoice.tipoFactura);
@@ -219,7 +232,8 @@ function FormularioFactura() {
 
   const cuerpo = () => ({
     customer: { id: clienteId },
-    serie,
+    // La proforma va siempre en su serie de proformas (la pone el servidor).
+    serie: esProforma ? undefined : serie,
     tipoFactura,
     formaPago,
     fechaEmision,
@@ -238,7 +252,7 @@ function FormularioFactura() {
 
   const comprobar = (): string => {
     if (!clienteId) return 'Elige el cliente.';
-    if (!serie) return 'Elige la serie.';
+    if (!serie && !esProforma) return 'Elige la serie.';
     if (fechaVencimiento < fechaEmision) return 'El vencimiento no puede ser anterior a la fecha de emisión.';
     const mal = lineas.findIndex((l) => !l.descripcion.trim() || num(l.cantidad) === 0 || l.precioUnitario === '');
     if (mal >= 0) return `Completa la línea ${mal + 1}: descripción, cantidad y precio.`;
@@ -251,8 +265,8 @@ function FormularioFactura() {
     if (emitir) {
       const siguiente = (serieElegida?.ultimoNumero ?? 0) + 1;
       const ok = window.confirm(
-        `Vas a emitir la factura ${serie}-${siguiente} (aprox.) por ${eur.format(totales.total)}.\n\n` +
-          'Una vez emitida no se puede modificar ni borrar; solo corregir con una factura rectificativa. ¿Emitir?',
+        `Vas a pasar a factura por ${eur.format(totales.total)} (número ${serie}-${siguiente}, aprox.).\n\n` +
+          'Una vez pasada a factura recibirá el número de la serie y no se podrá modificar ni borrar; solo corregir con una rectificativa.',
       );
       if (!ok) return;
     }
@@ -265,17 +279,17 @@ function FormularioFactura() {
       } else {
         const { invoice } = await apiFetch<{ invoice: { id: string } }>(companyPath('/income-invoices'), {
           method: 'POST',
-          body: JSON.stringify({ ...cuerpo(), borrador: true }),
+          body: JSON.stringify(esProforma ? { ...cuerpo(), proforma: true } : { ...cuerpo(), borrador: true }),
         });
         id = invoice.id;
       }
-      if (emitir) {
+      if (emitir && !esProforma) {
         await apiFetch(companyPath(`/income-invoices/${id}/finalizar`), {
           method: 'POST',
           body: JSON.stringify({ fechaEmision }),
         });
       }
-      router.push(`/dashboard/facturas/${id}`);
+      router.push(`/dashboard/${esProforma ? 'proformas' : 'facturas'}/${id}`);
     } catch (e) {
       setError(errorMessage(e));
       setGuardando(false);
@@ -284,15 +298,39 @@ function FormularioFactura() {
 
   if (cargando) return <p className="p-6 text-slate-500">Cargando…</p>;
 
+  const titulo = esProforma
+    ? borradorId
+      ? `Editar proforma ${numeroProforma}`.trim()
+      : 'Nueva proforma'
+    : borradorId
+      ? 'Editar borrador'
+      : 'Nueva factura';
+
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-6">
       <div className="flex items-center gap-3">
-        <Link href="/dashboard/facturas" className="rounded-lg p-2 text-slate-600 hover:bg-slate-100" aria-label="Volver a facturas">
+        <Link
+          href={esProforma ? '/dashboard/proformas' : '/dashboard/facturas'}
+          className="rounded-lg p-2 text-slate-600 hover:bg-slate-100"
+          aria-label={esProforma ? 'Volver a proformas' : 'Volver a facturas'}
+        >
           <ArrowLeft size={20} />
         </Link>
-        <h1 className="text-2xl font-bold text-slate-900">{borradorId ? 'Editar borrador' : 'Nueva factura'}</h1>
-        <Tooltip text="Guarda como borrador mientras la preparas. Al emitirla recibe el siguiente número de la serie y ya no se puede cambiar." />
+        <h1 className="text-2xl font-bold text-slate-900">{titulo}</h1>
+        <Tooltip
+          text={
+            esProforma
+              ? 'La proforma recibe su número P al guardarla. No es una factura: no cuenta para el IVA ni la contabilidad. Si el cliente la acepta, pásala a factura desde su ficha.'
+              : 'Guarda como borrador mientras la preparas. Al pasarla a factura recibe el siguiente número de la serie y ya no se puede cambiar.'
+          }
+        />
       </div>
+
+      {esProforma && (
+        <p className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+          Documento sin validez fiscal: se guarda tal cual, sin contabilizarse ni contar para el IVA.
+        </p>
+      )}
 
       {error && (
         <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
@@ -319,13 +357,19 @@ function FormularioFactura() {
         </div>
         <div>
           <label className={etiqueta} htmlFor="serie">Serie</label>
-          <select id="serie" className={campo} value={serie} onChange={(e) => setSerie(e.target.value)}>
-            {series.map((s) => (
-              <option key={s.id} value={s.codigo}>
-                {s.codigo} — {s.descripcion}
-              </option>
-            ))}
-          </select>
+          {esProforma ? (
+            <p id="serie" className={`${campo} bg-slate-50 text-slate-600`}>
+              {numeroProforma ? `Proforma ${numeroProforma}` : 'Proformas (P): el número se asigna al guardar'}
+            </p>
+          ) : (
+            <select id="serie" className={campo} value={serie} onChange={(e) => setSerie(e.target.value)}>
+              {series.map((s) => (
+                <option key={s.id} value={s.codigo}>
+                  {s.codigo} — {s.descripcion}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
         <div>
           <label className={etiqueta} htmlFor="tipo">Tipo de factura</label>
@@ -494,7 +538,7 @@ function FormularioFactura() {
               placeholder="Ej.: pedido nº 1234; entrega en almacén; gracias por su confianza…"
               onChange={(e) => setObservaciones(e.target.value)}
             />
-            <p className="mt-1 text-xs text-slate-500">Se imprimen en la factura.</p>
+            <p className="mt-1 text-xs text-slate-500">Se imprimen en {esProforma ? 'la proforma' : 'la factura'}.</p>
           </div>
         </div>
 
@@ -527,22 +571,35 @@ function FormularioFactura() {
       </section>
 
       <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-        <button
-          type="button"
-          disabled={guardando}
-          onClick={() => guardar(false)}
-          className="rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-        >
-          Guardar borrador
-        </button>
-        <button
-          type="button"
-          disabled={guardando}
-          onClick={() => guardar(true)}
-          className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-        >
-          {guardando ? 'Guardando…' : 'Emitir factura'}
-        </button>
+        {esProforma ? (
+          <button
+            type="button"
+            disabled={guardando}
+            onClick={() => guardar(false)}
+            className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {guardando ? 'Guardando…' : 'Guardar proforma'}
+          </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              disabled={guardando}
+              onClick={() => guardar(false)}
+              className="rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              Guardar borrador
+            </button>
+            <button
+              type="button"
+              disabled={guardando}
+              onClick={() => guardar(true)}
+              className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              {guardando ? 'Guardando…' : 'Pasar a factura'}
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

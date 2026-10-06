@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Copy, FilePdf, PencilSimple, Receipt, Trash, X } from '@phosphor-icons/react';
+import { ArrowLeft, Copy, FilePdf, PencilSimple, Prohibit, Receipt, Trash, X } from '@phosphor-icons/react';
 import ContabilizarButton from '@/components/ContabilizarButton';
 import { AvisosFactura } from './AvisosFactura';
 import CobrosFactura from '@/components/CobrosFactura';
@@ -28,7 +28,7 @@ interface Factura {
   customerId: string;
   serie: string;
   numeroCompleto: string | null;
-  estadoDocumento: 'BORRADOR' | 'FINAL';
+  estadoDocumento: 'BORRADOR' | 'FINAL' | 'PROFORMA';
   tipoFactura: string;
   formaPago?: string;
   tipoRectificativa?: string;
@@ -43,6 +43,10 @@ interface Factura {
   observaciones?: string;
   esRectificativa: boolean;
   facturaOriginalId?: string;
+  /** Factura nacida de una proforma. */
+  proformaId?: string;
+  /** Proforma aceptada: la factura que se creo al pasarla a factura. */
+  facturaGeneradaId?: string;
   lineas: Linea[];
 }
 
@@ -61,6 +65,16 @@ const ESTADO_COBRO: Record<string, { texto: string; clase: string }> = {
   PAID: { texto: 'Cobrada', clase: 'bg-green-50 text-green-800 border-green-200' },
   ACCOUNTED: { texto: 'Contabilizada', clase: 'bg-blue-50 text-blue-800 border-blue-200' },
 };
+
+/** Estados de la proforma (no tiene cobros). */
+const ESTADO_PROFORMA: Record<string, { texto: string; clase: string }> = {
+  PENDIENTE: { texto: 'Pendiente', clase: 'bg-amber-50 text-amber-800 border-amber-200' },
+  ACEPTADA: { texto: 'Aceptada', clase: 'bg-green-50 text-green-800 border-green-200' },
+  RECHAZADA: { texto: 'Rechazada', clase: 'bg-slate-100 text-slate-600 border-slate-300' },
+};
+
+const CONFIRMAR_PASAR_A_FACTURA =
+  'Una vez pasada a factura recibirá el número de la serie y no se podrá modificar ni borrar; solo corregir con una rectificativa.';
 
 const FORMA_PAGO: Record<string, string> = {
   TRANSFERENCIA: 'Transferencia bancaria',
@@ -87,6 +101,7 @@ export default function FacturaDetallePage() {
   const [factura, setFactura] = useState<Factura | null>(null);
   const [cliente, setCliente] = useState<Cliente | null>(null);
   const [original, setOriginal] = useState<Factura | null>(null);
+  const [proforma, setProforma] = useState<Factura | null>(null);
   const [cargando, setCargando] = useState(true);
   const [ocupado, setOcupado] = useState(false);
   const [error, setError] = useState('');
@@ -97,16 +112,22 @@ export default function FacturaDetallePage() {
     try {
       const { invoice } = await apiFetch<{ invoice: Factura }>(companyPath(`/income-invoices/${id}`));
       setFactura(invoice);
-      const [cli, orig] = await Promise.all([
+      const [cli, orig, prof] = await Promise.all([
         apiFetch<Cliente>(companyPath(`/clientes/${invoice.customerId}`)).catch(() => null),
         invoice.facturaOriginalId
           ? apiFetch<{ invoice: Factura }>(companyPath(`/income-invoices/${invoice.facturaOriginalId}`))
               .then((r) => r.invoice)
               .catch(() => null)
           : Promise.resolve(null),
+        invoice.proformaId
+          ? apiFetch<{ invoice: Factura }>(companyPath(`/income-invoices/${invoice.proformaId}`))
+              .then((r) => r.invoice)
+              .catch(() => null)
+          : Promise.resolve(null),
       ]);
       setCliente(cli && 'nombreFiscal' in cli ? cli : null);
       setOriginal(orig);
+      setProforma(prof);
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -142,45 +163,86 @@ export default function FacturaDetallePage() {
     );
   }
 
+  const esProforma = factura.estadoDocumento === 'PROFORMA';
   const esBorrador = factura.estadoDocumento === 'BORRADOR';
+  const esFinal = factura.estadoDocumento === 'FINAL';
+  const proformaPendiente = esProforma && factura.estado === 'PENDIENTE';
   const cobro = ESTADO_COBRO[factura.estado];
-  const titulo = esBorrador ? 'Borrador de factura' : `${factura.esRectificativa ? 'Rectificativa' : 'Factura'} ${factura.numeroCompleto}`;
+  const estadoProforma = ESTADO_PROFORMA[factura.estado];
+  const listado = esProforma ? '/dashboard/proformas' : '/dashboard/facturas';
+  const titulo = esProforma
+    ? `Proforma ${factura.numeroCompleto}`
+    : esBorrador
+      ? 'Borrador de factura'
+      : `${factura.esRectificativa ? 'Rectificativa' : 'Factura'} ${factura.numeroCompleto}`;
 
   const emitir = () => {
-    if (!window.confirm(`Vas a emitir la factura por ${eur.format(factura.totalFactura)} con fecha de hoy.\n\nUna vez emitida no se puede modificar ni borrar. ¿Emitir?`)) return;
+    if (!window.confirm(`Vas a pasar a factura por ${eur.format(factura.totalFactura)} con fecha de hoy.\n\n${CONFIRMAR_PASAR_A_FACTURA}`)) return;
     accion(async () => {
       await apiFetch(companyPath(`/income-invoices/${id}/finalizar`), { method: 'POST', body: '{}' });
       await cargar();
     }, 'Factura emitida.');
   };
 
+  // Proforma aceptada por el cliente: se crea un borrador de factura con sus datos.
+  const pasarProformaAFactura = () => {
+    if (
+      !window.confirm(
+        `Se creará un borrador de factura con los datos de la proforma ${factura.numeroCompleto} y la proforma quedará aceptada.\n\n` +
+          'Podrás revisarlo antes de pasarlo a factura definitiva. ¿Continuar?',
+      )
+    ) {
+      return;
+    }
+    accion(async () => {
+      const { invoice } = await apiFetch<{ invoice: { id: string } }>(companyPath(`/income-invoices/${id}/pasar-a-factura`), {
+        method: 'POST',
+        body: '{}',
+      });
+      router.push(`/dashboard/facturas/${invoice.id}`);
+    });
+  };
+
+  const rechazar = () => {
+    if (!window.confirm(`¿Marcar la proforma ${factura.numeroCompleto} como rechazada? Ya no se podrá editar ni pasar a factura.`)) return;
+    accion(async () => {
+      await apiFetch(companyPath(`/income-invoices/${id}/rechazar`), { method: 'POST', body: '{}' });
+      await cargar();
+    }, 'Proforma rechazada.');
+  };
+
   const borrar = () => {
-    if (!window.confirm('¿Borrar este borrador? No se puede deshacer.')) return;
+    if (!window.confirm(esProforma ? `¿Borrar la proforma ${factura.numeroCompleto}? No se puede deshacer.` : '¿Borrar este borrador? No se puede deshacer.')) return;
     accion(async () => {
       await apiFetch(companyPath(`/income-invoices/${id}`), { method: 'DELETE' });
-      router.push('/dashboard/facturas');
+      router.push(listado);
     });
   };
 
   const duplicar = () =>
     accion(async () => {
       const { invoice } = await apiFetch<{ invoice: { id: string } }>(companyPath(`/income-invoices/${id}/duplicar`), { method: 'POST' });
-      router.push(`/dashboard/facturas/nueva?id=${invoice.id}`);
+      router.push(esProforma ? `/dashboard/proformas/${invoice.id}` : `/dashboard/facturas/nueva?id=${invoice.id}`);
     });
 
   const pdf = () =>
     accion(() =>
-      apiDownload(companyPath(`/income-invoices/${id}/pdf`), esBorrador ? 'borrador_factura.pdf' : `factura_${factura.numeroCompleto}.pdf`),
+      apiDownload(
+        companyPath(`/income-invoices/${id}/pdf`),
+        esProforma ? `proforma_${factura.numeroCompleto}.pdf` : esBorrador ? 'borrador_factura.pdf' : `factura_${factura.numeroCompleto}.pdf`,
+      ),
     );
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 p-4 md:p-6">
       <div className="flex flex-wrap items-center gap-3">
-        <Link href="/dashboard/facturas" className="rounded-lg p-2 text-slate-600 hover:bg-slate-100" aria-label="Volver a facturas">
+        <Link href={listado} className="rounded-lg p-2 text-slate-600 hover:bg-slate-100" aria-label={esProforma ? 'Volver a proformas' : 'Volver a facturas'}>
           <ArrowLeft size={20} />
         </Link>
         <h1 className="text-2xl font-bold text-slate-900">{titulo}</h1>
-        {esBorrador ? (
+        {esProforma ? (
+          estadoProforma && <span className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${estadoProforma.clase}`}>{estadoProforma.texto}</span>
+        ) : esBorrador ? (
           <span className="rounded-full border border-slate-300 bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700">Borrador · sin número</span>
         ) : (
           cobro && <span className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${cobro.clase}`}>{cobro.texto}</span>
@@ -191,10 +253,26 @@ export default function FacturaDetallePage() {
       {aviso && <p role="status" className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">{aviso}</p>}
 
       <div className="flex flex-wrap gap-2">
+        {proformaPendiente && puedeEditar && (
+          <>
+            <button type="button" disabled={ocupado} onClick={pasarProformaAFactura} className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
+              <Receipt size={16} /> Pasar a factura
+            </button>
+            <Link href={`/dashboard/facturas/nueva?id=${id}`} className={boton}>
+              <PencilSimple size={16} /> Editar
+            </Link>
+            <button type="button" disabled={ocupado} onClick={rechazar} className={boton}>
+              <Prohibit size={16} /> Rechazar
+            </button>
+            <button type="button" disabled={ocupado} onClick={borrar} className={`${boton} text-red-700 hover:bg-red-50`}>
+              <Trash size={16} /> Borrar
+            </button>
+          </>
+        )}
         {esBorrador && puedeEditar && (
           <>
             <button type="button" disabled={ocupado} onClick={emitir} className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
-              <Receipt size={16} /> Emitir factura
+              <Receipt size={16} /> Pasar a factura
             </button>
             <Link href={`/dashboard/facturas/nueva?id=${id}`} className={boton}>
               <PencilSimple size={16} /> Editar
@@ -207,7 +285,12 @@ export default function FacturaDetallePage() {
         <button type="button" disabled={ocupado} onClick={pdf} className={boton}>
           <FilePdf size={16} /> Descargar PDF
         </button>
-        {!esBorrador && puedeEditar && (
+        {esProforma && puedeEditar && (
+          <button type="button" disabled={ocupado} onClick={duplicar} className={boton}>
+            <Copy size={16} /> Duplicar
+          </button>
+        )}
+        {esFinal && puedeEditar && (
           <>
             {!factura.esRectificativa && (
               <button type="button" disabled={ocupado} onClick={duplicar} className={boton}>
@@ -225,7 +308,32 @@ export default function FacturaDetallePage() {
 
       {esBorrador && (
         <p className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-          Es un borrador: no cuenta para el IVA, los informes ni la contabilidad hasta que lo emitas.
+          Es un borrador: no cuenta para el IVA, los informes ni la contabilidad hasta que lo pases a factura.
+          {proforma && (
+            <>
+              {' '}Viene de la proforma{' '}
+              <Link href={`/dashboard/proformas/${proforma.id}`} className="font-semibold underline">{proforma.numeroCompleto}</Link>.
+            </>
+          )}
+        </p>
+      )}
+
+      {esFinal && proforma && (
+        <p className="text-sm text-slate-600">
+          Viene de la proforma{' '}
+          <Link href={`/dashboard/proformas/${proforma.id}`} className="font-medium text-blue-700 underline">{proforma.numeroCompleto}</Link>.
+        </p>
+      )}
+
+      {esProforma && (
+        <p className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+          Factura proforma: documento sin validez fiscal. No cuenta para el IVA, los informes ni la contabilidad, y no admite cobros.
+          {factura.estado === 'ACEPTADA' && factura.facturaGeneradaId && (
+            <>
+              {' '}Ya se pasó a factura:{' '}
+              <Link href={`/dashboard/facturas/${factura.facturaGeneradaId}`} className="font-semibold underline">ver la factura</Link>.
+            </>
+          )}
         </p>
       )}
 
@@ -295,7 +403,7 @@ export default function FacturaDetallePage() {
         </dl>
       </section>
 
-      {!esBorrador && factura.totalFactura > 0 && (
+      {esFinal && factura.totalFactura > 0 && (
         <CobrosFactura tipo="INGRESO" facturaId={id} puedeEditar={puedeCobrar} fechaFactura={factura.fechaEmision} onCambio={cargar} />
       )}
 
@@ -303,7 +411,7 @@ export default function FacturaDetallePage() {
         <p className="whitespace-pre-line rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-700">{factura.observaciones}</p>
       )}
 
-      {!esBorrador && (
+      {esFinal && (
         <section className="rounded-xl border border-blue-200 bg-blue-50 p-5">
           <h2 className="mb-1 font-semibold text-blue-900">Contabilidad</h2>
           <p className="mb-3 text-sm text-blue-900/80">Al emitirla se contabiliza sola. Si no se pudo (por ejemplo, sin plan contable), hazlo aquí.</p>
