@@ -70,7 +70,7 @@ export default function SectionPage() {
       <p className="text-sm text-slate-500 mt-6">
         Puedes probar estos endpoints ahora mismo desde{' '}
         <a
-          href="http://localhost:3000/docs/"
+          href="/api/conta/docs/"
           target="_blank"
           rel="noreferrer"
           className="font-medium text-accent-600 hover:text-accent-700"

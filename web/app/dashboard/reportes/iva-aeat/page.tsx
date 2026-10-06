@@ -89,6 +89,10 @@ export default function IVAAEATPage() {
 
   return (
     <div className="space-y-8">
+      <div role="note" className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+        <strong>Datos de ejemplo.</strong> Esta pantalla es un prototipo: las cifras no salen de tu
+        contabilidad. Para informes reales usa Informes &gt; Balance general o Pérdidas y ganancias.
+      </div>
       <ReportHeader
         title="IVA vs AEAT"
         subtitle="Comparativa entre tu contabilidad y lo presentado a Hacienda"

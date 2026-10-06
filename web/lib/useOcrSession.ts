@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { useAuth } from './useAuth';
+import { apiFetch, companyPath, errorMessage } from './api';
 
 export interface OcrSessionData {
   id: string;
@@ -16,9 +16,7 @@ export interface OcrSessionData {
 
 export function useOcrSession() {
   const searchParams = useSearchParams();
-  const { getAuthHeader } = useAuth();
   const ocrSessionId = searchParams.get('ocrSessionId');
-  const companyId = searchParams.get('companyId') || '1';
 
   const [ocrData, setOcrData] = useState<OcrSessionData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -35,32 +33,16 @@ export function useOcrSession() {
         setLoading(true);
         setError(null);
 
-        const response = await fetch(
-          `/api/companies/${companyId}/ocr/sessions/${ocrSessionId}`,
-          {
-            headers: {
-              ...getAuthHeader(),
-            },
-            credentials: 'include',
-          }
-        );
-
-        if (!response.ok) {
-          throw new Error(`Error ${response.status}: Failed to fetch OCR session`);
-        }
-
-        const data = await response.json();
-        setOcrData(data.data);
+        setOcrData(await apiFetch<OcrSessionData>(companyPath(`/ocr/sessions/${ocrSessionId}`)));
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Unknown error';
-        setError(message);
+        setError(errorMessage(err));
       } finally {
         setLoading(false);
       }
     };
 
     fetchOcrData();
-  }, [ocrSessionId, companyId, getAuthHeader]);
+  }, [ocrSessionId]);
 
   return { ocrData, loading, error, ocrSessionId };
 }

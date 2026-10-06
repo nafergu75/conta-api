@@ -53,11 +53,6 @@ export default function FacturasPage() {
 
   const loadData = useCallback(async () => {
     const token = getToken();
-    // TEMP: Auth check disabled for development
-    // if (!token) {
-    //   // router.replace('/login') // TEMP DISABLED;
-    //   return;
-    // }
     setLoading(true);
     try {
       const [factRes, clientRes] = await Promise.all([
@@ -71,7 +66,7 @@ export default function FacturasPage() {
 
       if (factRes.status === 401 || clientRes.status === 401) {
         clearSession();
-        // router.replace('/login') // TEMP DISABLED;
+        router.replace('/login');
         return;
       }
 

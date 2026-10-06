@@ -2,11 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { FileText, Clock, AlertTriangle, CheckCircle } from 'lucide-react';
-import { useAuth } from '@/lib/useAuth';
-
-interface OcrMetricsCardProps {
-  companyId: string;
-}
+import { apiFetch, companyPath } from '@/lib/api';
 
 interface Metrics {
   processedToday: number;
@@ -15,8 +11,7 @@ interface Metrics {
   contabilizados: number;
 }
 
-export function OcrMetricsCards({ companyId }: OcrMetricsCardProps) {
-  const { token, loading: authLoading, getAuthHeader } = useAuth();
+export function OcrMetricsCards() {
   const [metrics, setMetrics] = useState<Metrics>({
     processedToday: 0,
     averageProcessingTime: 0,
@@ -28,31 +23,22 @@ export function OcrMetricsCards({ companyId }: OcrMetricsCardProps) {
   useEffect(() => {
     const fetchMetrics = async () => {
       try {
-        const response = await fetch(`/api/companies/${companyId}/ocr/stats`, {
-          headers: {
-            ...getAuthHeader(),
-          },
+        const data = await apiFetch<Partial<Metrics>>(companyPath('/ocr/stats'));
+        setMetrics({
+          processedToday: data?.processedToday || 0,
+          averageProcessingTime: data?.averageProcessingTime || 0,
+          errorRate: data?.errorRate || 0,
+          contabilizados: data?.contabilizados || 0,
         });
-        if (response.ok) {
-          const data = await response.json();
-          setMetrics({
-            processedToday: data.data?.processedToday || 0,
-            averageProcessingTime: data.data?.averageProcessingTime || 0,
-            errorRate: data.data?.errorRate || 0,
-            contabilizados: data.data?.contabilizados || 0,
-          });
-        }
-      } catch (error) {
-        console.error('Error fetching OCR metrics:', error);
+      } catch {
+        // La bandeja ya muestra el error de carga; aqui las tarjetas quedan a cero.
       } finally {
         setLoading(false);
       }
     };
 
-    if (!authLoading) {
-      fetchMetrics();
-    }
-  }, [companyId, authLoading, token, getAuthHeader]);
+    fetchMetrics();
+  }, []);
 
   const cards = [
     {

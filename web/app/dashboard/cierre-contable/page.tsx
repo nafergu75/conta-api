@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { getToken, clearSession } from '@/lib/auth';
+import { getToken, clearSession, getCompanyId } from '@/lib/auth';
+import { API_BASE } from '@/lib/api';
 import { CheckCircle, XCircle, Clock, Lock, Upload } from '@phosphor-icons/react';
 
 interface Cierre {
@@ -23,7 +24,8 @@ interface ArchivosCierre {
   tamaño: number;
 }
 
-const API = 'http://localhost:3000';
+// Antes apuntaba a http://localhost:3000 y en produccion fallaba siempre.
+const API = API_BASE;
 
 const ESTADO_CONFIG = {
   ABIERTO: { color: 'bg-green-50 text-green-700', icon: CheckCircle, label: 'Ejercicio Abierto' },
@@ -35,18 +37,8 @@ const ESTADO_CONFIG = {
 export default function CierrePage() {
   const router = useRouter();
 
-  // Obtener companyId del token JWT (usar useMemo para evitar re-cálculos)
-  const companyId = useMemo(() => {
-    const token = getToken();
-    if (!token) return null;
-    try {
-      const parts = token.split('.');
-      const payload = JSON.parse(atob(parts[1]));
-      return payload.companies?.[0] || payload.empresaSeleccionada || '1';
-    } catch {
-      return '1';
-    }
-  }, []);
+  // Empresa activa de la sesion (la que devolvio el login).
+  const companyId = getCompanyId();
 
   const [cierres, setCierres] = useState<Cierre[]>([]);
   const [loading, setLoading] = useState(true);
@@ -108,7 +100,7 @@ export default function CierrePage() {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ nuevoEstado: 'CERRADO' }),
+        body: JSON.stringify({ estado: 'CERRADO' }),
       });
 
       if (res.status === 401) {
@@ -141,15 +133,17 @@ export default function CierrePage() {
     }
 
     try {
-      const formData = new FormData();
-      formData.append('file', uploadData.file);
-
+      // El backend recibe el fichero en crudo (express.raw) y toma el nombre de ?nombre=.
+      const params = new URLSearchParams({ tipoContenido: uploadData.tipo, nombre: uploadData.file.name });
       const res = await fetch(
-        `${API}/companies/${companyId}/accounting/closures/${ejercicio}/upload?tipoContenido=${uploadData.tipo}`,
+        `${API}/companies/${companyId}/accounting/closures/${ejercicio}/upload?${params}`,
         {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}` },
-          body: formData,
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': uploadData.file.type || 'application/octet-stream',
+          },
+          body: uploadData.file,
         }
       );
 

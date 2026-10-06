@@ -1,9 +1,9 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { ArrowLeft, Send, RotateCcw } from 'lucide-react';
-import { useAuth } from '@/lib/useAuth';
+import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { OcrStatusBadge } from '../../components/OcrStatusBadge';
 import { OcrStepsRail } from '../../components/OcrStepsRail';
 import { OcrPdfPreview } from '../../components/OcrPdfPreview';
@@ -31,48 +31,30 @@ interface Step {
 
 export default function OcrSessionDetailPage({ params }: { params: { id: string } }) {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const { token, loading: authLoading, getAuthHeader } = useAuth();
-  const companyId = searchParams.get('companyId') || '1';
   const sessionId = params.id;
 
   const [session, setSession] = useState<OcrSessionDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [steps, setSteps] = useState<Step[]>([]);
   const [sendingToReader, setSendingToReader] = useState(false);
+  const [errorAccion, setErrorAccion] = useState('');
 
   useEffect(() => {
     const fetchSession = async () => {
       try {
         setLoading(true);
-        const response = await fetch(
-          `/api/companies/${companyId}/ocr/sessions/${sessionId}`,
-          {
-            headers: {
-              ...getAuthHeader(),
-            },
-            credentials: 'include',
-          }
-        );
-
-        if (response.ok) {
-          const data = await response.json();
-          setSession(data.data);
-          updateSteps(data.data.status);
-        } else if (response.status === 401) {
-          router.push('/dashboard/login');
-        }
+        const data = await apiFetch<OcrSessionDetail>(companyPath(`/ocr/sessions/${sessionId}`));
+        setSession(data);
+        updateSteps(data.status);
       } catch (error) {
-        console.error('Error fetching session:', error);
+        setErrorAccion(errorMessage(error));
       } finally {
         setLoading(false);
       }
     };
 
-    if (!authLoading) {
-      fetchSession();
-    }
-  }, [sessionId, companyId, router, authLoading, token, getAuthHeader]);
+    fetchSession();
+  }, [sessionId]);
 
   const updateSteps = (status: string) => {
     const stepsData: Step[] = [
@@ -104,21 +86,12 @@ export default function OcrSessionDetailPage({ params }: { params: { id: string 
 
   const handleRetryOcr = async () => {
     try {
-      const response = await fetch(
-        `/api/companies/${companyId}/ocr/sessions/${sessionId}/retry`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-        }
-      );
-
-      if (response.ok) {
-        setSession((prev) => prev ? { ...prev, status: 'PROCESSING' } : null);
-        updateSteps('PROCESSING');
-      }
+      setErrorAccion('');
+      await apiFetch(companyPath(`/ocr/sessions/${sessionId}/retry`), { method: 'POST' });
+      setSession((prev) => prev ? { ...prev, status: 'PROCESSING' } : null);
+      updateSteps('PROCESSING');
     } catch (error) {
-      console.error('Error retrying OCR:', error);
+      setErrorAccion(errorMessage(error));
     }
   };
 
@@ -136,7 +109,7 @@ export default function OcrSessionDetailPage({ params }: { params: { id: string 
   if (!session) {
     return (
       <div className="text-center py-12">
-        <p className="text-gray-600">Sesión no encontrada</p>
+        <p className="text-gray-600">{errorAccion || 'Sesión no encontrada'}</p>
         <button
           onClick={() => router.back()}
           className="mt-4 text-blue-600 hover:text-blue-700 font-medium"
@@ -149,6 +122,11 @@ export default function OcrSessionDetailPage({ params }: { params: { id: string 
 
   return (
     <div className="space-y-6">
+      {errorAccion && (
+        <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+          {errorAccion}
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center gap-4">
         <button

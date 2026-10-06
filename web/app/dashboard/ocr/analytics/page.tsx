@@ -2,8 +2,7 @@
 
 
 import React, { useState, useEffect , Suspense} from 'react';
-import { useSearchParams } from 'next/navigation';
-import { useAuth } from '@/lib/useAuth';
+import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { OcrKpiCard } from './components/OcrKpiCard';
 import { OcrTimelineChart } from './components/OcrTimelineChart';
 import { OcrDistributionChart } from './components/OcrDistributionChart';
@@ -34,9 +33,6 @@ interface DistributionData {
 }
 
 function OcrAnalyticsPageInner() {
-  const searchParams = useSearchParams();
-  const companyId = searchParams.get('companyId') || '1';
-  const { getAuthHeader } = useAuth();
 
   const [kpis, setKpis] = useState<KPIData | null>(null);
   const [timeline, setTimeline] = useState<TimelineData[]>([]);
@@ -51,42 +47,24 @@ function OcrAnalyticsPageInner() {
         setLoading(true);
         setError(null);
 
-        // Fetch KPIs
-        const kpiRes = await fetch(
-          `/api/companies/${companyId}/ocr/analytics/kpis?days=${days}`,
-          { headers: getAuthHeader() }
-        );
-        if (!kpiRes.ok) throw new Error('Failed to fetch KPIs');
-        const kpiData = await kpiRes.json();
-        setKpis(kpiData.data);
-
-        // Fetch Timeline
-        const tlRes = await fetch(
-          `/api/companies/${companyId}/ocr/analytics/timeline?days=${days}`,
-          { headers: getAuthHeader() }
-        );
-        if (!tlRes.ok) throw new Error('Failed to fetch timeline');
-        const tlData = await tlRes.json();
-        setTimeline(tlData.data);
-
-        // Fetch Distribution
-        const distRes = await fetch(
-          `/api/companies/${companyId}/ocr/analytics/distribution?days=${days}`,
-          { headers: getAuthHeader() }
-        );
-        if (!distRes.ok) throw new Error('Failed to fetch distribution');
-        const distData = await distRes.json();
-        setDistribution(distData.data.byType);
+        // El backend sirve las analiticas en /analytics, no en /ocr/analytics.
+        const [kpiData, tlData, distData] = await Promise.all([
+          apiFetch<KPIData>(companyPath(`/analytics/kpis?days=${days}`)),
+          apiFetch<TimelineData[]>(companyPath(`/analytics/timeline?days=${days}`)),
+          apiFetch<{ byType: DistributionData[] }>(companyPath(`/analytics/distribution?days=${days}`)),
+        ]);
+        setKpis(kpiData);
+        setTimeline(tlData);
+        setDistribution(distData?.byType ?? []);
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Error desconocido';
-        setError(message);
+        setError(errorMessage(err));
       } finally {
         setLoading(false);
       }
     };
 
     fetchAnalytics();
-  }, [companyId, days, getAuthHeader]);
+  }, [days]);
 
   return (
     <div className="space-y-6">

@@ -2,9 +2,9 @@
 
 
 import React, { useEffect, useState , Suspense} from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { Upload, Filter, X } from 'lucide-react';
-import { useAuth } from '@/lib/useAuth';
+import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { OcrMetricsCards } from './components/OcrMetricsCards';
 import { OcrSessionsTable } from './components/OcrSessionsTable';
 
@@ -27,9 +27,8 @@ interface FilterState {
 
 function OcrSessionsPageInner() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const { token, loading: authLoading, getAuthHeader } = useAuth();
-  const companyId = searchParams.get('companyId') || '1';
+  const [errorCarga, setErrorCarga] = useState('');
+  const [aviso, setAviso] = useState('');
 
   const [sessions, setSessions] = useState<OcrSession[]>([]);
   const [loading, setLoading] = useState(true);
@@ -50,50 +49,29 @@ function OcrSessionsPageInner() {
           dateRange: filters.dateRange,
         });
 
-        const response = await fetch(
-          `/api/companies/${companyId}/ocr/sessions?${params}`,
-          {
-            method: 'GET',
-            headers: {
-              'Content-Type': 'application/json',
-              ...getAuthHeader(),
-            },
-            credentials: 'include',
-          }
-        );
-
-        if (response.ok) {
-          const data = await response.json();
-          setSessions(data.data || []);
-        } else if (response.status === 401) {
-          // Redirigir a login si no hay autenticación
-          router.push('/dashboard/login');
-        }
+        setErrorCarga('');
+        setSessions((await apiFetch<OcrSession[]>(companyPath(`/ocr/sessions?${params}`))) || []);
       } catch (error) {
-        console.error('Error fetching OCR sessions:', error);
+        setErrorCarga(errorMessage(error));
       } finally {
         setLoading(false);
       }
     };
 
-    if (!authLoading) {
-      fetchSessions();
-    }
-  }, [filters, companyId, router, authLoading, token, getAuthHeader]);
+    fetchSessions();
+  }, [filters]);
 
   const handleViewDetail = (sessionId: string) => {
     router.push(`/dashboard/ocr/sessions/${sessionId}`);
   };
 
-  const handleViewPdf = (sessionId: string) => {
-    const session = sessions.find((s) => s.id === sessionId);
-    if (session) {
-      window.open(`/api/companies/${companyId}/ocr/pdf/${sessionId}`, '_blank');
-    }
+  const handleViewPdf = (_sessionId: string) => {
+    // El backend todavia no sirve el PDF original de una sesion OCR.
+    setAviso('La vista del PDF original aún no está disponible. Abre el detalle de la sesión para ver el texto extraído.');
   };
 
   const handleUploadClick = () => {
-    router.push(`/dashboard/ocr/upload?companyId=${companyId}`);
+    router.push('/dashboard/ocr/upload');
   };
 
   const resetFilters = () => {
@@ -118,7 +96,13 @@ function OcrSessionsPageInner() {
       </div>
 
       {/* Métricas */}
-      <OcrMetricsCards companyId={companyId} />
+      {(errorCarga || aviso) && (
+        <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+          {errorCarga || aviso}
+        </div>
+      )}
+
+      <OcrMetricsCards />
 
       {/* Filtros */}
       <div className="bg-white rounded-lg border border-gray-200 p-4">

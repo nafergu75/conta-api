@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { getToken, clearSession } from '@/lib/auth';
+import { getToken, clearSession, getCompanyId } from '@/lib/auth';
+import { API_BASE } from '@/lib/api';
 import { Upload, Download, Trash, FolderPlus, File } from '@phosphor-icons/react';
 
 interface Archivo {
@@ -20,22 +21,14 @@ interface Carpeta {
   archivos: Archivo[];
 }
 
-const API = 'http://localhost:3000';
+// Antes apuntaba a http://localhost:3000 y en produccion fallaba siempre.
+const API = API_BASE;
 
 export default function ArchivoPage() {
   const router = useRouter();
   
-  const companyId = useMemo(() => {
-    const token = getToken();
-    if (!token) return null;
-    try {
-      const parts = token.split('.');
-      const payload = JSON.parse(atob(parts[1]));
-      return payload.companies?.[0] || '1';
-    } catch {
-      return '1';
-    }
-  }, []);
+  // Empresa activa de la sesion (la que devolvio el login).
+  const companyId = getCompanyId();
 
   const [carpetas, setCarpetas] = useState<Carpeta[]>([]);
   const [loading, setLoading] = useState(true);

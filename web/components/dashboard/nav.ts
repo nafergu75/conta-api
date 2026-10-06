@@ -309,9 +309,9 @@ export const NAV_GROUPS: NavGroup[] = [
           'GET /companies/:id/reports/expenses',
         ],
         requiredRoles: ['contabilidad:read'],
-        // NOTA: conviven dos implementaciones de informes (informes/* y
-        // reportes/*). Se enlazan ambas para que ninguna quede huerfana;
-        // decidir cual prevalece esta pendiente.
+        // reportes/* (ratios, P&L comparativo, IVA vs AEAT) son prototipos con
+        // cifras escritas en el codigo, sin llamada a la API: fuera del menu
+        // hasta que tengan datos reales. Las paginas avisan de ello.
         subItems: [
           {
             label: 'Balance general',
@@ -322,21 +322,6 @@ export const NAV_GROUPS: NavGroup[] = [
             label: 'Pérdidas y ganancias',
             slug: 'informes/pyg',
             description: 'Ingresos, gastos y resultado del periodo.',
-          },
-          {
-            label: 'Balance de situación',
-            slug: 'reportes/balance',
-            description: 'Balance con ratios de liquidez, solvencia y endeudamiento.',
-          },
-          {
-            label: 'P&L comparativo',
-            slug: 'reportes/pyl',
-            description: 'Pérdidas y ganancias con comparativa frente al año anterior.',
-          },
-          {
-            label: 'IVA vs AEAT',
-            slug: 'reportes/iva-aeat',
-            description: 'Contraste del IVA contable con lo declarado en el modelo 303.',
           },
         ],
       },

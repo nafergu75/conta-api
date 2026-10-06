@@ -2,9 +2,9 @@
 
 
 import React, { useState, useRef , Suspense} from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { Upload, X, Check, AlertCircle, Loader } from 'lucide-react';
-import { useAuth } from '@/lib/useAuth';
+import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 
 interface UploadedFile {
   file: File;
@@ -15,9 +15,6 @@ interface UploadedFile {
 
 function OcrUploadPageInner() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const { token, getAuthHeader } = useAuth();
-  const companyId = searchParams.get('companyId') || '1';
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<UploadedFile[]>([]);
@@ -76,44 +73,17 @@ function OcrUploadPageInner() {
         formData.append('invoiceType', invoiceType);
         formData.append('language', 'es');
 
-        const response = await fetch(
-          `/api/companies/${companyId}/ocr/invoices`,
-          {
-            method: 'POST',
-            headers: {
-              ...getAuthHeader(),
-            },
-            body: formData,
-            credentials: 'include',
-          }
+        // FormData: apiFetch no fija Content-Type, el navegador pone el boundary.
+        await apiFetch(companyPath('/ocr/invoices'), { method: 'POST', body: formData });
+        setFiles((prev) =>
+          prev.map((f, idx) =>
+            idx === i
+              ? { ...f, status: 'completed', progress: 100 }
+              : f
+          )
         );
-
-        if (response.ok) {
-          const data = await response.json();
-          setFiles((prev) =>
-            prev.map((f, idx) =>
-              idx === i
-                ? { ...f, status: 'completed', progress: 100 }
-                : f
-            )
-          );
-          console.log('OCR iniciado:', data.data.sessionId);
-        } else {
-          const error = await response.json();
-          setFiles((prev) =>
-            prev.map((f, idx) =>
-              idx === i
-                ? {
-                    ...f,
-                    status: 'error',
-                    error: error.error || 'Error al procesar el archivo',
-                  }
-                : f
-            )
-          );
-        }
       } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : 'Error desconocido';
+        const errorMsg = errorMessage(error);
         setFiles((prev) =>
           prev.map((f, idx) =>
             idx === i ? { ...f, status: 'error', error: errorMsg } : f
@@ -126,7 +96,7 @@ function OcrUploadPageInner() {
 
     // Redirigir a la bandeja después de 2 segundos
     setTimeout(() => {
-      router.push(`/dashboard/ocr?companyId=${companyId}`);
+      router.push('/dashboard/ocr');
     }, 2000);
   };
 

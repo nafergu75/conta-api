@@ -452,8 +452,7 @@ export default function DashboardPage() {
         </section>
         {error && (
           <div className="rounded-xl border border-rose-200 bg-rose-50 text-rose-700 p-4 text-sm">
-            <strong>No se pudo cargar el dashboard:</strong> {error}. Comprueba
-            que la API está corriendo en el puerto 3000.
+            <strong>No se pudo cargar el dashboard.</strong> {error}
           </div>
         )}
 
