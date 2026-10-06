@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { List, X } from '@phosphor-icons/react';
 import Sidebar from '@/components/dashboard/Sidebar';
-import { actualizarPermisos, getToken, getUser, tieneAlgunPermiso } from '@/lib/auth';
+import { actualizarPermisos, getCompanyId, getToken, getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { apiFetch, companyPath } from '@/lib/api';
 
 export default function DashboardLayout({
@@ -36,15 +36,31 @@ export default function DashboardLayout({
       });
   }, [autorizado]);
 
-  // Empresa sin sus datos (NIF, domicilio, Registro Mercantil...): primero se
-  // completan, porque salen en todas las facturas. Solo a quien puede editarlos.
+  // Empresa sin sus datos (NIF, domicilio, Registro Mercantil...): salen en
+  // todas las facturas. Se lleva a completarlos UNA vez por sesion y empresa;
+  // despues queda un aviso fijo arriba y se puede trabajar con normalidad
+  // (antes se volvia a la pantalla de datos en cada cambio de pagina).
   const pathname = usePathname();
+  const [faltanDatos, setFaltanDatos] = useState<string[]>([]);
   useEffect(() => {
-    if (!autorizado || pathname.startsWith('/dashboard/empresa')) return;
+    if (!autorizado) return;
     if (!tieneAlgunPermiso(getUser(), ['contabilidad:write'])) return;
-    apiFetch<{ completo?: boolean }>(companyPath('/legal-config'))
+    apiFetch<{ completo?: boolean; pendientes?: string[] }>(companyPath('/legal-config'))
       .then((cfg) => {
-        if (cfg.completo === false) router.replace('/dashboard/empresa?primera=1');
+        if (cfg.completo !== false) {
+          setFaltanDatos([]);
+          return;
+        }
+        setFaltanDatos(cfg.pendientes ?? []);
+        if (pathname.startsWith('/dashboard/empresa')) return;
+        const clave = `conta_datos_empresa_avisado_${getCompanyId()}`;
+        try {
+          if (sessionStorage.getItem(clave)) return;
+          sessionStorage.setItem(clave, '1');
+        } catch {
+          return; // Sin sessionStorage: solo el aviso, sin redirigir.
+        }
+        router.replace('/dashboard/empresa?primera=1');
       })
       .catch(() => {
         // Sin backend (demo) o sin permiso: no se fuerza nada.
@@ -100,6 +116,15 @@ export default function DashboardLayout({
       )}
 
       <div className="min-w-0">
+        {faltanDatos.length > 0 && !pathname.startsWith('/dashboard/empresa') && (
+          <div role="status" className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 md:px-6">
+            <span className="font-medium">Faltan datos de la empresa:</span>
+            <span className="min-w-0 flex-1 truncate">{faltanDatos.join(', ')}</span>
+            <Link href="/dashboard/empresa" className="rounded-md bg-amber-600 px-3 py-1 text-xs font-semibold text-white hover:bg-amber-700">
+              Completar datos
+            </Link>
+          </div>
+        )}
         {/* Botón menú móvil */}
         <button
           onClick={() => setOpen(true)}
