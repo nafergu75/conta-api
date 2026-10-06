@@ -7,6 +7,7 @@ import { getUser } from '@/lib/auth';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { proximosVencimientos } from '@/lib/aeatCalendar';
 import { AlertCard } from '@/components/dashboard/AlertCard';
+import { CobrosClientes } from '@/components/dashboard/CobrosClientes';
 import { getQuartersForYear, getCurrentQuarter, isDateInQuarter } from '@/lib/quarters';
 import NewMovementModal from '@/components/dashboard/NewMovementModal';
 import { IncomeExpenseChart } from '@/components/charts/IncomeExpenseChart';
@@ -65,18 +66,6 @@ interface Cliente {
   email?: string;
 }
 
-interface MaturityData {
-  period: string;
-  toCollect: number;
-  toPay: number;
-  balance: number;
-}
-
-interface MaturitySummary {
-  averageDaysToCollect: number;
-  data: MaturityData[];
-}
-
 const eur = (n: number) =>
   n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 
@@ -108,9 +97,7 @@ export default function DashboardPage() {
   const [availableYears, setAvailableYears] = useState<number[]>([]);
   const [availableQuarters, setAvailableQuarters] = useState<Array<{ value: string; label: string }>>([]);
   const [availableMonths, setAvailableMonths] = useState<Array<{ value: string; label: string }>>([]);
-  const [maturityData, setMaturityData] = useState<MaturitySummary | null>(null);
   const [fiscal, setFiscal] = useState<ResumenFiscal | null>(null);
-  const [maturityViewType, setMaturityViewType] = useState<'months' | 'days'>('months');
   const [incomeExpenseViewType, setIncomeExpenseViewType] = useState<'income-expense' | 'result'>('income-expense');
   const [selectedAnalysisPeriod, setSelectedAnalysisPeriod] = useState<string>(''); // Período único para análisis
   const [vencimientosAeat] = useState(() => proximosVencimientos());
@@ -133,14 +120,6 @@ export default function DashboardPage() {
         setFiscal(await get<ResumenFiscal>(`/movements/stats/fiscal?anio=${selectedYear}`));
       } catch {
         setFiscal(null);
-      }
-
-      // Vencimientos de cobro/pago: solo si el backend los ofrece. Sin datos
-      // reales la seccion no se muestra (antes se rellenaba con cifras inventadas).
-      try {
-        setMaturityData(await get<MaturitySummary>('/invoices/stats/maturity'));
-      } catch {
-        setMaturityData(null);
       }
 
       setSummary(sum);
@@ -577,6 +556,9 @@ export default function DashboardPage() {
           )}
         </section>
 
+        {/* Cobros de clientes: pendiente (de cualquier año) y cobrado del año elegido */}
+        <CobrosClientes anio={selectedYear} />
+
         {/* Gráfico de Ingresos y Gastos */}
         <section className="rounded-xl bg-white border border-slate-200 p-8">
           <div className="flex items-center justify-between mb-6">
@@ -783,83 +765,6 @@ export default function DashboardPage() {
             </div>
           )}
         </section>
-
-        {/* Sección de Vencimiento Mejorada */}
-        {maturityData && (
-          <section className="rounded-xl bg-white border border-slate-200 p-8">
-            <div className="flex items-start justify-between mb-8">
-              <div>
-                <h2 className="text-base font-semibold text-slate-900 mb-3">Vencimiento</h2>
-                <div>
-                  <p className="text-4xl font-bold text-slate-900">{maturityData.averageDaysToCollect}</p>
-                  <p className="text-sm text-slate-600">Tiempo medio para cobrar</p>
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setMaturityViewType('months')}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    maturityViewType === 'months'
-                      ? 'bg-accent-600 text-white'
-                      : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'
-                  }`}
-                >
-                  Por meses
-                </button>
-                <button
-                  onClick={() => setMaturityViewType('days')}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    maturityViewType === 'days'
-                      ? 'bg-accent-600 text-white'
-                      : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'
-                  }`}
-                >
-                  Por rango de días
-                </button>
-              </div>
-            </div>
-
-            {/* Tabla de Vencimiento - 3 Columnas */}
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b-2 border-slate-300">
-                    <th className="text-left py-4 px-6 font-semibold text-slate-900 w-32">Período</th>
-                    <th className="text-center py-4 px-6 font-semibold text-slate-900">
-                      <div className="text-xs uppercase tracking-wide text-slate-600">A cobrar</div>
-                    </th>
-                    <th className="text-center py-4 px-6 font-semibold text-slate-900">
-                      <div className="text-xs uppercase tracking-wide text-slate-600">A pagar</div>
-                    </th>
-                    <th className="text-center py-4 px-6 font-semibold text-slate-900">
-                      <div className="text-xs uppercase tracking-wide text-slate-600">Resultado</div>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {maturityData.data.map((row, idx) => (
-                    <tr key={idx} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
-                      <td className="py-4 px-6 text-slate-700 font-medium">{row.period}</td>
-                      <td className="py-4 px-6 text-center font-mono text-slate-900">
-                        {eur(row.toCollect)}
-                      </td>
-                      <td className="py-4 px-6 text-center font-mono text-slate-900">
-                        {eur(row.toPay)}
-                      </td>
-                      <td
-                        className={`py-4 px-6 text-center font-mono font-semibold ${
-                          row.balance >= 0 ? 'text-emerald-600' : 'text-rose-600'
-                        }`}
-                      >
-                        {eur(row.balance)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        )}
 
         <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <div className="rounded-xl bg-white border border-slate-200 p-6">
