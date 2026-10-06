@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Copy, FilePdf, PencilSimple, Receipt, Trash, X } from '@phosphor-icons/react';
 import ContabilizarButton from '@/components/ContabilizarButton';
+import { AvisosFactura } from './AvisosFactura';
 import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getCompanyId, getUser, tieneAlgunPermiso } from '@/lib/auth';
 
@@ -228,6 +229,8 @@ export default function FacturaDetallePage() {
           </>
         )}
       </div>
+
+      <AvisosFactura facturaId={id} />
 
       {esBorrador && (
         <p className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
