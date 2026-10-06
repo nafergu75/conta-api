@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { CheckCircle, WarningCircle } from '@phosphor-icons/react';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
+import { LogoEmpresa } from './LogoEmpresa';
 
 /**
  * Datos que la memoria necesita y que no salen de la contabilidad: los de la
@@ -172,6 +173,7 @@ export function DatosMemoria({ fyId, ejercicio, puedeEditar }: { fyId: string; e
       <fieldset className="space-y-4">
         <legend className="text-sm font-semibold text-slate-900">Datos de la sociedad</legend>
         <p className="text-xs text-slate-500">Se guardan una sola vez y sirven para todos los ejercicios.</p>
+        <LogoEmpresa puedeEditar={puedeEditar} />
         <div className="grid grid-cols-1 gap-4 md:grid-cols-6">
           <Campo id="m-denominacion" label="Denominación social" valor={sociedad.denominacion} onChange={s('denominacion')} disabled={off} ancho="md:col-span-4" />
           <Campo id="m-nif" label="NIF" valor={sociedad.nif} onChange={s('nif')} disabled={off} ancho="md:col-span-2" />

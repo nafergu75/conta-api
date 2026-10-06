@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
+  CaretDown,
   ChartPieSlice,
   Users,
   Package,
@@ -60,6 +61,8 @@ const ICONS: Record<string, Icon> = {
   configuracion: Gear,
 };
 
+const CLAVE_GRUPOS = 'menu-grupos-abiertos';
+
 export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -70,6 +73,28 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   // de modo que el primer render coincide en ambos lados.
   const [user, setUser] = useState<SessionUser | null>(null);
   const [mounted, setMounted] = useState(false);
+  // Grupos del menu desplegados (se recuerda por navegador).
+  const [abiertos, setAbiertos] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    try {
+      const guardado = localStorage.getItem(CLAVE_GRUPOS);
+      if (guardado) setAbiertos(JSON.parse(guardado));
+    } catch {
+      // Sin almacenamiento: todos plegados salvo el de la pagina actual.
+    }
+  }, []);
+
+  const alternar = (titulo: string, abierto: boolean) =>
+    setAbiertos((a) => {
+      const nuevo = { ...a, [titulo]: !abierto };
+      try {
+        localStorage.setItem(CLAVE_GRUPOS, JSON.stringify(nuevo));
+      } catch {
+        // No pasa nada si no se puede guardar.
+      }
+      return nuevo;
+    });
 
   useEffect(() => {
     setUser(getUser());
@@ -87,7 +112,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   }
 
   return (
-    <nav className="flex flex-col gap-6 p-4">
+    <nav className="flex flex-col gap-2 p-4">
       {user && <EmpresaSelector user={user} />}
       {NAV_GROUPS.map((group) => {
         // Filtrar items por permiso (requiredRoles contiene codigos de permiso)
@@ -98,12 +123,28 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         // No mostrar grupo si no tiene items visibles
         if (visibleItems.length === 0) return null;
 
+        // El grupo de la pagina actual se abre solo; el resto, como lo dejo el usuario.
+        const contieneActual = visibleItems.some((item) => {
+          const href = item.slug ? `/dashboard/${item.slug}` : '/dashboard';
+          return pathname === href || (item.subItems ?? []).some((s) => pathname === `/dashboard/${s.slug}`);
+        });
+        const abierto = abiertos[group.title] ?? contieneActual;
+        const idLista = `grupo-${group.title.replace(/\W+/g, '-')}`;
+
         return (
           <div key={group.title}>
-            <p className="px-3 mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-              {group.title}
-            </p>
-            <ul className="flex flex-col gap-0.5">
+            <button
+              type="button"
+              onClick={() => alternar(group.title, abierto)}
+              aria-expanded={abierto}
+              aria-controls={idLista}
+              className="mb-1 flex w-full items-center justify-between rounded-md px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+            >
+              <span>{group.title}</span>
+              <CaretDown size={12} weight="bold" className={`transition-transform ${abierto ? 'rotate-180' : ''}`} />
+            </button>
+            {abierto && (
+            <ul id={idLista} className="flex flex-col gap-0.5">
               {visibleItems.map((item) => {
                 const href = item.slug ? `/dashboard/${item.slug}` : '/dashboard';
                 const active = pathname === href;
@@ -181,6 +222,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                 );
               })}
             </ul>
+            )}
           </div>
         );
       })}
