@@ -136,10 +136,10 @@ export const NAV_GROUPS: NavGroup[] = [
         label: 'Plan contable',
         slug: 'plan-contable',
         description: 'Cuentas y subcuentas del PGC de la empresa.',
-        implemented: false,
+        implemented: true,
         endpoints: [
-          'GET /companies/:id/plan-contable/cuentas',
-          'GET /companies/:id/plan-contable/subcuentas',
+          'GET /companies/:id/accounting/chart-of-accounts',
+          'POST /companies/:id/accounting/chart-of-accounts',
         ],
       },
       {
@@ -190,6 +190,22 @@ export const NAV_GROUPS: NavGroup[] = [
           'POST /companies/:id/treasury/bank-accounts',
           'GET /companies/:id/treasury/bank-accounts/:accountId',
         ],
+        requiredRoles: ['tesoreria:read', 'tesoreria:write'],
+      },
+      {
+        label: 'Cobros y pagos',
+        slug: 'tesoreria/movimientos',
+        description: 'Movimientos del banco con su categoría de tesorería.',
+        implemented: true,
+        endpoints: ['GET /companies/:id/treasury/movimientos', 'PUT /companies/:id/treasury/movimientos/:id/categoria'],
+        requiredRoles: ['tesoreria:read', 'tesoreria:write'],
+      },
+      {
+        label: 'Categorías',
+        slug: 'tesoreria/categorias',
+        description: 'Categorías analíticas de cobros y pagos.',
+        implemented: true,
+        endpoints: ['GET /companies/:id/treasury/categorias'],
         requiredRoles: ['tesoreria:read', 'tesoreria:write'],
       },
       {
