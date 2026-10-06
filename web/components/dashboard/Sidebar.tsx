@@ -28,6 +28,8 @@ import {
   FolderOpen,
   Eye,
   SignOut,
+  RocketLaunch,
+  CalendarCheck,
 } from '@phosphor-icons/react';
 import type { Icon } from '@phosphor-icons/react';
 import { NAV_GROUPS } from './nav';
@@ -46,6 +48,8 @@ const ICONS: Record<string, Icon> = {
   'plan-contable': ListNumbers,
   'motor-contable': Cpu,
   cierre: LockKey,
+  'contabilidad/puesta-en-marcha': RocketLaunch,
+  'contabilidad/cierre-ejercicio': CalendarCheck,
   extractos: Bank,
   conciliacion: ArrowsClockwise,
   'cuadre-bancos': Scales,

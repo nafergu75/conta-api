@@ -164,9 +164,34 @@ export const NAV_GROUPS: NavGroup[] = [
         requiredRoles: ['contabilidad:read', 'contabilidad:write'],
       },
       {
-        label: 'Cierre contable',
+        label: 'Puesta en marcha',
+        slug: 'contabilidad/puesta-en-marcha',
+        description: 'Importar el balance de apertura, el diario del año y los saldos de ejercicios anteriores desde otro programa.',
+        implemented: true,
+        endpoints: [
+          'GET /companies/:id/puesta-en-marcha',
+          'POST /companies/:id/puesta-en-marcha/apertura',
+          'POST /companies/:id/puesta-en-marcha/diario',
+          'POST /companies/:id/puesta-en-marcha/comparativo',
+        ],
+        requiredRoles: ['contabilidad:write'],
+      },
+      {
+        label: 'Cierre y traspaso de saldos',
+        slug: 'contabilidad/cierre-ejercicio',
+        description: 'Regularización, cierre del ejercicio y apertura del siguiente.',
+        implemented: true,
+        endpoints: [
+          'GET /companies/:id/periodos/cierre',
+          'POST /companies/:id/periodos/cierre',
+          'DELETE /companies/:id/periodos/cierre',
+        ],
+        requiredRoles: ['contabilidad:read', 'contabilidad:write'],
+      },
+      {
+        label: 'Archivo de cierres',
         slug: 'cierre-contable',
-        description: 'Cierre de ejercicio y apertura del siguiente.',
+        description: 'Estado de los cierres y documentos (balance, cuentas, memoria) de cada ejercicio.',
         implemented: true,
         endpoints: [
           'POST /companies/:id/accounting/closures/generar-asiento',
