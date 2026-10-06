@@ -259,6 +259,7 @@ export default function DashboardPage() {
   void incomeMovements;
   void summary;
   const sinDato = '—';
+  const beneficio = fiscal ? Math.round((fiscal.ventas.base - fiscal.gastos.base) * 100) / 100 : null;
 
   // Calcular ingresos por cliente (usando nombres de clientes reales) - usando analysisMovements
   const incomeByClientName = new Map<string, number>();
@@ -533,20 +534,21 @@ export default function DashboardPage() {
 
               {/* Total / Balance */}
               <div className="rounded-xl bg-white border-2 border-emerald-300 p-8 shadow-sm shadow-emerald-100">
-                <p className="text-sm font-semibold text-slate-500 mb-2">Total</p>
+                <p className="text-sm font-semibold text-slate-500 mb-2">Beneficio antes de impuestos</p>
                 <p
-                  className={`text-4xl font-bold mb-6 ${
-                    quarterSummary.balance >= 0
-                      ? 'text-emerald-700'
-                      : 'text-rose-600'
+                  className={`text-4xl font-bold mb-1 ${
+                    beneficio === null || beneficio >= 0 ? 'text-emerald-700' : 'text-rose-600'
                   }`}
                 >
-                  {eur(quarterSummary.balance)}
+                  {beneficio === null ? sinDato : eur(beneficio)}
                 </p>
+                <p className="mb-5 text-xs text-slate-400">Base de las ventas − base de los gastos de {selectedYear}, según las facturas</p>
                 <div className="space-y-3 border-t border-slate-100 pt-4">
                   <div className="flex justify-between text-sm text-slate-600">
-                    <span>Movimientos</span>
-                    <span className="font-mono font-medium text-slate-900">{filteredMovements.length}</span>
+                    <span>Cobros − pagos (caja)</span>
+                    <span className={`font-mono font-medium ${quarterSummary.balance >= 0 ? 'text-slate-900' : 'text-rose-600'}`}>
+                      {eur(quarterSummary.balance)}
+                    </span>
                   </div>
                 </div>
               </div>
