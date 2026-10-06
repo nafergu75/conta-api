@@ -123,7 +123,6 @@ export default function LoginPage() {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="demo1234"
               className="rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-accent-600 focus:border-accent-600"
             />
           </div>
@@ -159,9 +158,12 @@ export default function LoginPage() {
           </div>
         )}
 
-        <p className="text-xs text-slate-400 mt-6 text-center">
-          Demo: demo@empresa.com / demo1234
-        </p>
+        {/* Credenciales de la base local de desarrollo; en produccion no se muestran. */}
+        {DEMO_MODE && (
+          <p className="text-xs text-slate-400 mt-6 text-center">
+            Demo local: demo@empresa.com / demo1234
+          </p>
+        )}
       </div>
     </div>
   );
