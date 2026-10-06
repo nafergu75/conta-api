@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus, FunnelSimple, X } from '@phosphor-icons/react';
-import { getToken, clearSession } from '@/lib/auth';
+import { getToken, clearSession, getCompanyId } from '@/lib/auth';
 import NewMovementModal, {
   CATEGORIES,
   STATUSES,
@@ -64,7 +64,7 @@ export default function MovimientosPage() {
       if (type) params.set('type', type);
       if (category) params.set('category', category);
 
-      const r = await fetch(`${API}/companies/1/movements?${params}`, {
+      const r = await fetch(`${API}/companies/${getCompanyId()}/movements?${params}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (r.status === 401) {

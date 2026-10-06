@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { X } from '@phosphor-icons/react';
-import { getToken } from '@/lib/auth';
+import { getToken, getCompanyId } from '@/lib/auth';
 
 const API = '/api/conta';
 
@@ -45,7 +45,7 @@ export default function NewMovementModal({
     setError(null);
     setSaving(true);
     try {
-      const res = await fetch(`${API}/companies/1/movements`, {
+      const res = await fetch(`${API}/companies/${getCompanyId()}/movements`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

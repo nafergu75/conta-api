@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { getToken, clearSession } from '@/lib/auth';
+import { getToken, clearSession, getCompanyId } from '@/lib/auth';
 import { CheckCircle, XCircle, Clock, Eye, ArrowRight } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { Tooltip } from '@/app/dashboard/components/Tooltip';
@@ -53,18 +53,8 @@ const ESTADO_CONFIG = {
 export default function MotorContablePage() {
   const router = useRouter();
 
-  // Obtener companyId del token JWT (usar useMemo para evitar re-cálculos)
-  const companyId = useMemo(() => {
-    const token = getToken();
-    if (!token) return null;
-    try {
-      const parts = token.split('.');
-      const payload = JSON.parse(atob(parts[1]));
-      return payload.companies?.[0] || payload.empresaSeleccionada || '1';
-    } catch {
-      return '1';
-    }
-  }, []);
+  // Empresa activa de la sesion (la que devolvio el login).
+  const companyId = getCompanyId();
 
   const [asientos, setAsientos] = useState<JournalEntry[]>([]);
   const [loading, setLoading] = useState(true);

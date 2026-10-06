@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus, MagnifyingGlass, X, Trash } from '@phosphor-icons/react';
-import { getToken, clearSession } from '@/lib/auth';
+import { getToken, clearSession, getCompanyId } from '@/lib/auth';
 
 const API = '/api/conta';
 
@@ -33,7 +33,7 @@ export default function ProveedoresPage() {
     }
     setLoading(true);
     try {
-      const r = await fetch(`${API}/companies/1/proveedores?limit=100`, {
+      const r = await fetch(`${API}/companies/${getCompanyId()}/proveedores?limit=100`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (r.status === 401) {
@@ -218,7 +218,7 @@ function NuevoProveedorModal({
     setError(null);
     setSaving(true);
     try {
-      const res = await fetch(`${API}/companies/1/proveedores`, {
+      const res = await fetch(`${API}/companies/${getCompanyId()}/proveedores`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

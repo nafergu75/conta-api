@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { getToken, clearSession } from '@/lib/auth';
+import { getToken, clearSession, getCompanyId } from '@/lib/auth';
 import { ArrowLeft } from '@phosphor-icons/react';
 import Link from 'next/link';
 import ContabilizarButton from '@/components/ContabilizarButton';
@@ -44,17 +44,8 @@ export default function FacturaDetailPage() {
   const params = useParams();
   const facturaId = params.id as string;
 
-  const companyId = useMemo(() => {
-    const token = getToken();
-    if (!token) return null;
-    try {
-      const parts = token.split('.');
-      const payload = JSON.parse(atob(parts[1]));
-      return payload.companies?.[0] || payload.empresaSeleccionada || '1';
-    } catch {
-      return '1';
-    }
-  }, []);
+  // Empresa activa de la sesion (la que devolvio el login).
+  const companyId = getCompanyId();
 
   const [factura, setFactura] = useState<FacturaIngreso | null>(null);
   const [loading, setLoading] = useState(true);

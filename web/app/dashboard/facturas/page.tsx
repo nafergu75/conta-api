@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Plus, MagnifyingGlass, X } from '@phosphor-icons/react';
-import { getToken, clearSession } from '@/lib/auth';
+import { getToken, clearSession, getCompanyId } from '@/lib/auth';
 
 const API = '/api/conta';
 
@@ -56,10 +56,10 @@ export default function FacturasPage() {
     setLoading(true);
     try {
       const [factRes, clientRes] = await Promise.all([
-        fetch(`${API}/companies/1/income-invoices?limit=100`, {
+        fetch(`${API}/companies/${getCompanyId()}/income-invoices?limit=100`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
-        fetch(`${API}/companies/1/clientes?limit=100`, {
+        fetch(`${API}/companies/${getCompanyId()}/clientes?limit=100`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
       ]);

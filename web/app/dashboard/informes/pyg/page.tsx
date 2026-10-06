@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { getToken, clearSession } from '@/lib/auth';
+import { getToken, clearSession, getCompanyId } from '@/lib/auth';
 import { TrendUp, TrendDown } from '@phosphor-icons/react';
 import { SelectRango } from '../components/SelectRango';
 import { TotalCard } from '../components/TotalCard';
@@ -22,17 +22,8 @@ const API = '/api/conta';
 export default function PyGPage() {
   const router = useRouter();
 
-  const companyId = useMemo(() => {
-    const token = getToken();
-    if (!token) return null;
-    try {
-      const parts = token.split('.');
-      const payload = JSON.parse(atob(parts[1]));
-      return payload.companies?.[0] || payload.empresaSeleccionada || '1';
-    } catch {
-      return '1';
-    }
-  }, []);
+  // Empresa activa de la sesion (la que devolvio el login).
+  const companyId = getCompanyId();
 
   const [pyg, setPyG] = useState<PyGData | null>(null);
   const [loading, setLoading] = useState(false);

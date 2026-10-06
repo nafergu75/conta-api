@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, Download } from '@phosphor-icons/react';
-import { getToken, clearSession } from '@/lib/auth';
+import { getToken, clearSession, getCompanyId } from '@/lib/auth';
 
 import { SupplierTabs } from '@/components/suppliers/SupplierTabs';
 import { SupplierDatosTab } from '@/components/suppliers/SupplierDatosTab';
@@ -34,7 +34,8 @@ export default function DetalleProveedorPage() {
   const router = useRouter();
   const params = useParams();
   const proveedorId = params.id as string;
-  const companyId = '1'; // Hardcodeado por ahora (TODO: obtener del contexto)
+  // Empresa activa de la sesion (antes estaba fijada a '1').
+  const companyId = getCompanyId();
 
   const [proveedor, setProveedor] = useState<Proveedor | null>(null);
   const [loading, setLoading] = useState(true);

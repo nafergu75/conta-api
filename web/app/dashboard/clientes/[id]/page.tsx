@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft } from '@phosphor-icons/react';
-import { getToken, clearSession } from '@/lib/auth';
+import { getToken, clearSession, getCompanyId } from '@/lib/auth';
 
 const API = '/api/conta';
 
@@ -49,7 +49,7 @@ export default function ClienteDetailPage() {
       setLoading(true);
       try {
         const [clienteRes, facturasRes] = await Promise.all([
-          fetch(`${API}/companies/1/clientes/${clienteId}`, {
+          fetch(`${API}/companies/${getCompanyId()}/clientes/${clienteId}`, {
             headers: { Authorization: `Bearer ${token}` },
           }),
           fetch(`${API}/income-invoices?customerId=${clienteId}`, {

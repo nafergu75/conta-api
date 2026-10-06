@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { X } from '@phosphor-icons/react';
-import { getToken } from '@/lib/auth';
+import { getToken, getCompanyId } from '@/lib/auth';
 
 const API = '/api/conta';
 
@@ -59,7 +59,7 @@ export function ClienteLedgerModal({
           fetch(`${API}/income-invoices?customerId=${cliente.id}`, {
             headers: { Authorization: `Bearer ${token}` },
           }),
-          fetch(`${API}/companies/1/movements?type=income&customerId=${cliente.id}`, {
+          fetch(`${API}/companies/${getCompanyId()}/movements?type=income&customerId=${cliente.id}`, {
             headers: { Authorization: `Bearer ${token}` },
           }),
         ]);

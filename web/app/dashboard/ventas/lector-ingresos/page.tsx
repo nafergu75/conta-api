@@ -4,7 +4,7 @@
 import { useState, useCallback , Suspense} from 'react';
 import { useRouter } from 'next/navigation';
 import { Upload, Plus, ArrowLeft, Check } from '@phosphor-icons/react';
-import { getToken } from '@/lib/auth';
+import { getToken, getCompanyId } from '@/lib/auth';
 import { useOcrSession } from '@/lib/useOcrSession';
 import { OcrSessionPanel } from '@/components/dashboard/OcrSessionPanel';
 
@@ -76,7 +76,7 @@ function LectorIngresosPageInner() {
         const base64 = event.target?.result as string;
         const base64Data = base64.split(',')[1];
 
-        const response = await fetch(`${API}/companies/1/ingresos/extraer-ia`, {
+        const response = await fetch(`${API}/companies/${getCompanyId()}/ingresos/extraer-ia`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -114,7 +114,7 @@ function LectorIngresosPageInner() {
 
     setLoading(true);
     try {
-      const response = await fetch(`${API}/companies/1/ingresos/confirmar`, {
+      const response = await fetch(`${API}/companies/${getCompanyId()}/ingresos/confirmar`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

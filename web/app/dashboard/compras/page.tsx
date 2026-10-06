@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { getToken, clearSession } from '@/lib/auth';
+import { getToken, clearSession, getCompanyId } from '@/lib/auth';
 import { Plus, MagnifyingGlass, Eye, ArrowRight } from '@phosphor-icons/react';
 import Link from 'next/link';
 
@@ -52,7 +52,7 @@ export default function ComprasPage() {
         }
 
         // Cargar facturas de compra desde la API
-        const res = await fetch('/api/conta/companies/1/compras', {
+        const res = await fetch(`/api/conta/companies/${getCompanyId()}/compras`, {
           headers: {
             Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json'

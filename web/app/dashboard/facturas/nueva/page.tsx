@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft } from '@phosphor-icons/react';
-import { getToken, clearSession } from '@/lib/auth';
+import { getToken, clearSession, getCompanyId } from '@/lib/auth';
 
 const API = '/api/conta';
 
@@ -38,7 +38,7 @@ export default function NuevaFacturaPage() {
 
       setLoading(true);
       try {
-        const res = await fetch(`${API}/companies/1/clientes?limit=1000`, {
+        const res = await fetch(`${API}/companies/${getCompanyId()}/clientes?limit=1000`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (res.status === 401) {
@@ -79,7 +79,7 @@ export default function NuevaFacturaPage() {
       const ivaAmount = base * (iva / 100);
       const total = base + ivaAmount;
 
-      const res = await fetch(`${API}/companies/1/income-invoices`, {
+      const res = await fetch(`${API}/companies/${getCompanyId()}/income-invoices`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

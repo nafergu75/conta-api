@@ -4,7 +4,7 @@
 import { useState, useCallback , Suspense} from 'react';
 import { useRouter } from 'next/navigation';
 import { Upload, Plus, ArrowLeft, Check, X } from '@phosphor-icons/react';
-import { getToken, clearSession } from '@/lib/auth';
+import { getToken, clearSession, getCompanyId } from '@/lib/auth';
 import { useOcrSession } from '@/lib/useOcrSession';
 import { OcrSessionPanel } from '@/components/dashboard/OcrSessionPanel';
 
@@ -76,7 +76,7 @@ function LectorGastosPageInner() {
         const base64 = event.target?.result as string;
         const base64Data = base64.split(',')[1];
 
-        const response = await fetch(`${API}/companies/1/gastos/extraer-ia`, {
+        const response = await fetch(`${API}/companies/${getCompanyId()}/gastos-extractor/extraer-ia`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -114,7 +114,7 @@ function LectorGastosPageInner() {
 
     setLoading(true);
     try {
-      const response = await fetch(`${API}/companies/1/gastos/confirmar`, {
+      const response = await fetch(`${API}/companies/${getCompanyId()}/gastos-extractor/confirmar`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
