@@ -44,6 +44,7 @@ import { NAV_GROUPS } from './nav';
 import { EmpresaSelector } from './EmpresaSelector';
 import { clearSession, EVENTO_SESION, getUser, rolEnEmpresaActiva, tieneAlgunPermiso, type SessionUser } from '@/lib/auth';
 import { aplicarTema, temaActual, type Tema } from '@/lib/tema';
+import { useEmpresaEspanola } from '@/lib/fiscal';
 
 const ICONS: Record<string, Icon> = {
   '': ChartPieSlice,
@@ -97,6 +98,8 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const [abiertos, setAbiertos] = useState<Record<string, boolean>>({});
   const [tema, setTema] = useState<Tema>('claro');
   useEffect(() => setTema(temaActual()), []);
+  // false: empresa no establecida en Espana; sin modelos de la AEAT ni nominas de la gestoria.
+  const empresaEspanola = useEmpresaEspanola();
   const cambiarTema = () => {
     const nuevo: Tema = tema === 'oscuro' ? 'claro' : 'oscuro';
     aplicarTema(nuevo);
@@ -146,9 +149,10 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     <nav className="flex flex-col gap-2 p-4">
       {user && <EmpresaSelector user={user} />}
       {NAV_GROUPS.map((group) => {
-        // Filtrar items por permiso (requiredRoles contiene codigos de permiso)
-        const visibleItems = group.items.filter((item) =>
-          tieneAlgunPermiso(user, item.requiredRoles)
+        // Filtrar items por permiso (requiredRoles contiene codigos de permiso) y,
+        // en una empresa no establecida en Espana, quitar lo que solo vale aqui.
+        const visibleItems = group.items.filter(
+          (item) => tieneAlgunPermiso(user, item.requiredRoles) && !(item.soloEspana && empresaEspanola === false),
         );
 
         // No mostrar grupo si no tiene items visibles

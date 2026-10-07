@@ -11,6 +11,8 @@ export interface NavItem {
   implemented: boolean;
   endpoints: string[];
   requiredRoles?: string[]; // Codigos de PERMISO (no nombres de rol); sin especificar, accesible a todos
+  /** Solo para empresas establecidas en Espana (modelos de la AEAT, nominas de la gestoria): el menu lo oculta en las demas. */
+  soloEspana?: boolean;
   subItems?: NavSubItem[];
 }
 
@@ -306,6 +308,8 @@ export const NAV_GROUPS: NavGroup[] = [
       {
         label: 'Modelos Fiscales',
         slug: 'fiscal',
+        // Modelos de la AEAT: el servidor los rechaza (400) si la empresa no esta en Espana.
+        soloEspana: true,
         description: 'Gestión centralizada de declaraciones fiscales (IVA, Retenciones, IS).',
         implemented: true,
         endpoints: [
@@ -384,6 +388,7 @@ export const NAV_GROUPS: NavGroup[] = [
       {
         label: 'Nóminas del mes',
         slug: 'nominas',
+        soloEspana: true,
         description: 'Nóminas por trabajador: contabilizar (un asiento por trabajador), pagar líquidos y seguros sociales, PDF de la gestoría.',
         implemented: true,
         endpoints: [
@@ -397,6 +402,7 @@ export const NAV_GROUPS: NavGroup[] = [
       {
         label: 'Importar Excel',
         slug: 'nominas/importar',
+        soloEspana: true,
         description: 'El Excel de nóminas de la gestoría, con mapeo de columnas y cuadre por trabajador.',
         implemented: true,
         endpoints: ['POST /companies/:id/nominas/importar/vista-previa', 'POST /companies/:id/nominas/importar'],
@@ -405,6 +411,7 @@ export const NAV_GROUPS: NavGroup[] = [
       {
         label: 'Empleados',
         slug: 'nominas/empleados',
+        soloEspana: true,
         description: 'Alta, edición y baja de los trabajadores.',
         implemented: true,
         endpoints: ['GET /companies/:id/empleados', 'POST /companies/:id/empleados', 'PUT /companies/:id/empleados/:id'],
@@ -413,6 +420,7 @@ export const NAV_GROUPS: NavGroup[] = [
       {
         label: 'Coste de personal',
         slug: 'nominas/coste',
+        soloEspana: true,
         description: 'Coste de la plantilla por mes o por trabajador, descargable en Excel.',
         implemented: true,
         endpoints: ['GET /companies/:id/nominas/informes/coste'],

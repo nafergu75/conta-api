@@ -13,7 +13,7 @@ import {
   type ErroresEmpresa,
 } from '@/components/empresa/CamposEmpresa';
 import { LogoEmpresa } from '../registro-mercantil/LogoEmpresa';
-import { PAISES_UE } from '@/lib/fiscal';
+import { EVENTO_DATOS_EMPRESA, PAISES_UE } from '@/lib/fiscal';
 import { NOMBRE_MONEDA } from '@/lib/moneda';
 
 /**
@@ -136,6 +136,8 @@ function DatosEmpresa() {
       setMonedaCorregida(null);
       setPendientes(cfg.pendientes ?? []);
       setPaisGuardado(datos.pais);
+      // El menu oculta o enseña lo fiscal y las nominas segun el pais.
+      if (datos.pais !== paisGuardado) window.dispatchEvent(new Event(EVENTO_DATOS_EMPRESA));
       if (cfg.completo) {
         setMensaje({ ok: true, texto: 'Datos guardados. Ya salen en tus facturas.' });
         if (primera) router.push('/dashboard');
