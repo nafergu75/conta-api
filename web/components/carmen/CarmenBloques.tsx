@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { ArrowRight, DownloadSimple, Info } from '@phosphor-icons/react';
 import { apiDownload, companyPath, errorMessage } from '@/lib/api';
 import { esEnlaceInterno, type Descarga, type RespuestaVista } from '@/lib/carmen';
-import { esRutaSoloEspana } from '@/components/dashboard/nav';
+import { esRutaDesactivada, esRutaSoloEspana } from '@/components/dashboard/nav';
 import { TablaInforme } from '@/app/dashboard/informes/TablaInforme';
 import { useCarmen } from './CarmenProvider';
 import type { Variante } from './CarmenConversacion';
@@ -27,7 +27,10 @@ export function CarmenBloques({ r, variante }: { r: RespuestaVista; variante: Va
   const [errorDescarga, setErrorDescarga] = useState<string | null>(null);
 
   // A una empresa no establecida en España no se le lleva a modelos fiscales ni a nóminas: su menú no los tiene.
-  const enlaces = (r.enlaces ?? []).filter((e) => esEnlaceInterno(e.href) && !(empresaEspanola === false && esRutaSoloEspana(e.href)));
+  // Tampoco a las pantallas retiradas del menú (Bandeja OCR, lector de gastos).
+  const enlaces = (r.enlaces ?? []).filter(
+    (e) => esEnlaceInterno(e.href) && !esRutaDesactivada(e.href) && !(empresaEspanola === false && esRutaSoloEspana(e.href)),
+  );
   const descargas = (r.descargas ?? []).filter((d) => d.ruta.startsWith('/') && !d.ruta.includes('..'));
   const tabla = r.tabla;
   const filas = tabla ? tabla.filas.slice(0, FILAS_VISIBLES) : [];
