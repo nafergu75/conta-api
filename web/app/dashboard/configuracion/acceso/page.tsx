@@ -122,6 +122,9 @@ export default function AccesoPage() {
             </ul>
           )}
           <p className="border-t border-slate-100 px-4 py-3 text-sm text-slate-600 md:px-5">
+            Además, los administradores de la plataforma pueden entrar en todas las empresas, aunque no salgan en esta lista.
+          </p>
+          <p className="border-t border-slate-100 px-4 py-3 text-sm text-slate-600 md:px-5">
             {user?.esAdminGlobal ? (
               <Link href="/dashboard/admin" className="inline-flex items-center gap-1 font-medium text-emerald-700 hover:underline">
                 Gestionar usuarios en Administración <ArrowRight size={14} />
