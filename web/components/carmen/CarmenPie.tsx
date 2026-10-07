@@ -7,7 +7,7 @@ import type { Variante } from './CarmenConversacion';
 
 /** Aviso que exige el art. 50 del Reglamento de IA: siempre visible en la ventana. */
 export const AVISO_CARMEN =
-  'Carmen es un asistente automático. Las cifras salen de tu contabilidad; la IA solo responde dudas generales y no ve tus datos.';
+  'Carmen es un asistente automático. Las cifras salen de tu contabilidad; si la IA está activada, solo responde dudas generales y no ve tus datos.';
 
 export const RUTA_AJUSTES_CARMEN = '/dashboard/empresa#carmen-ia';
 
@@ -40,7 +40,9 @@ export function CarmenPie({ variante }: { variante: Variante }) {
         )}
         {motivo && !sinSaldo && (
           <p>
-            {motivo === 'desactivada_empresa' ? 'La IA para dudas generales no está activada en esta empresa. ' : ''}
+            {motivo === 'desactivada_empresa' && 'La IA para dudas generales no está activada en esta empresa. '}
+            {/* Apagada en toda la plataforma (o sin configurar): se dice sin hablar de configuración. */}
+            {(motivo === 'apagada' || motivo === 'sin_clave') && 'Ahora mismo no hay IA para dudas generales: te respondo con tus datos y con las fichas. '}
             Para dudas que no estén en mis fichas, consulta a tu asesor.
           </p>
         )}
