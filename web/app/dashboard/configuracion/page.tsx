@@ -62,6 +62,7 @@ export default function ConfiguracionPortada() {
 
   const verContabilidad = tieneAlgunPermiso(user, ['contabilidad:read']);
   const verTesoreria = tieneAlgunPermiso(user, ['tesoreria:read']);
+  const altaCuentas = tieneAlgunPermiso(user, ['tesoreria:write']);
   const verSeries = puedeVer(user, 'series');
   const verEjercicios = puedeVer(user, 'ejercicios');
   const verImpuestos = puedeVer(user, 'impuestos');
@@ -144,9 +145,11 @@ export default function ConfiguracionPortada() {
               ? noComprobado
               : hay
                 ? 'Tus clientes ya tienen a dónde pagarte: sale en las facturas.'
-                : `Da de alta la cuenta del banco en ${moneda} para que salga en tus facturas.`,
+                : altaCuentas
+                  ? `Da de alta la cuenta del banco en ${moneda} para que salga en tus facturas.`
+                  : `Pide al administrador de la empresa que dé de alta la cuenta del banco en ${moneda} para que salga en tus facturas.`,
           href: '/dashboard/tesoreria/cuentas',
-          enlace: 'Cuentas bancarias',
+          enlace: hay || altaCuentas ? 'Cuentas bancarias' : 'Ver cuentas bancarias',
         });
       }
 
@@ -183,7 +186,7 @@ export default function ConfiguracionPortada() {
     return () => {
       vivo = false;
     };
-  }, [listo, empresaLeida, empresa, espanola, verEjercicios, verSeries, verTesoreria, verContabilidad, verImpuestos]);
+  }, [listo, empresaLeida, empresa, espanola, verEjercicios, verSeries, verTesoreria, altaCuentas, verContabilidad, verImpuestos]);
 
   const pendientes = puntos?.filter((p) => p.estado !== 'ok').length ?? 0;
   const moneda = String(empresa?.monedaCuenta ?? 'EUR');
