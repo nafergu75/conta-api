@@ -392,7 +392,15 @@ export const NAV_GROUPS: NavGroup[] = [
         slug: 'nominas',
         description: 'Registro contable de nóminas y seguros sociales.',
         implemented: false,
-        endpoints: ['GET /companies/:id/nominas', 'POST /companies/:id/nominas'],
+        endpoints: [
+          'GET /companies/:id/nominas/periodos/:ejercicio/:mes',
+          'POST /companies/:id/nominas/importar/vista-previa',
+          'POST /companies/:id/nominas/importar',
+          'POST /companies/:id/nominas/periodos/:ejercicio/:mes/contabilizar',
+          'GET /companies/:id/empleados',
+        ],
+        // Datos salariales y personales: solo admin y contable.
+        requiredRoles: ['nominas:read'],
       },
       {
         label: 'Asistente Carmen',
