@@ -15,6 +15,7 @@ import {
 import { LogoEmpresa } from '../registro-mercantil/LogoEmpresa';
 import { EVENTO_DATOS_EMPRESA, PAISES_UE } from '@/lib/fiscal';
 import { NOMBRE_MONEDA } from '@/lib/moneda';
+import { CarmenAjustesEmpresa } from '@/components/carmen/CarmenAjustes';
 
 /**
  * Datos de la empresa: los que salen en las facturas (emisor, contacto e
@@ -45,6 +46,8 @@ export default function DatosEmpresaPage() {
   return (
     <Suspense fallback={<p className="p-6 text-slate-500">Cargando…</p>}>
       <DatosEmpresa />
+      {/* Solo el administrador de la empresa: interruptor de la IA de Carmen y gasto del mes. */}
+      <CarmenAjustesEmpresa />
     </Suspense>
   );
 }

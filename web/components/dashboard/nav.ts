@@ -441,9 +441,14 @@ export const NAV_GROUPS: NavGroup[] = [
       {
         label: 'Asistente Carmen',
         slug: 'carmen',
-        description: 'Chat contable con IA sobre los datos de tu empresa.',
-        implemented: false,
-        endpoints: ['POST /companies/:id/chat-assistant'],
+        description: 'Pregunta por tus datos y tus dudas contables y fiscales.',
+        implemented: true,
+        endpoints: [
+          'POST /companies/:id/chat-assistant',
+          'GET /companies/:id/chat-assistant/sesiones',
+          'GET /companies/:id/chat-assistant/:sessionId/messages',
+          'DELETE /companies/:id/chat-assistant/:sessionId',
+        ],
       },
       {
         label: 'Archivo',

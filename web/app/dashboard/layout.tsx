@@ -7,6 +7,9 @@ import { List, X } from '@phosphor-icons/react';
 import Sidebar from '@/components/dashboard/Sidebar';
 import { actualizarPermisos, getCompanyId, getToken, getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { apiFetch, companyPath } from '@/lib/api';
+import { CarmenProvider } from '@/components/carmen/CarmenProvider';
+import { CarmenBoton } from '@/components/carmen/CarmenBoton';
+import { CarmenPanel } from '@/components/carmen/CarmenPanel';
 
 export default function DashboardLayout({
   children,
@@ -135,7 +138,12 @@ export default function DashboardLayout({
         >
           <List size={22} weight="bold" />
         </button>
-        {children}
+        {/* Carmen: botón flotante (encima del de menú en el móvil) y ventana, en todo el panel. */}
+        <CarmenProvider>
+          {children}
+          <CarmenBoton />
+          <CarmenPanel />
+        </CarmenProvider>
       </div>
     </div>
   );
