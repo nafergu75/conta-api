@@ -506,7 +506,9 @@ export function CarmenProvider({ children }: { children: React.ReactNode }) {
       if (abiertoRef.current) {
         setAbierto(false);
         requestAnimationFrame(() => botonRef.current?.focus());
-      } else {
+      } else if (!document.querySelector('[aria-modal="true"]:not(#carmen-ventana)')) {
+        // Con otro diálogo abierto (una nómina a medias, una empresa nueva...) no se
+        // abre encima: taparía el diálogo y, al cerrar, el foco volvería a un botón tapado.
         setAbierto(true);
       }
     };

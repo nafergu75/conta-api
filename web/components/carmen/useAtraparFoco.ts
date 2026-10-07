@@ -17,6 +17,9 @@ export function useAtraparFoco(ref: React.RefObject<HTMLElement>, activo: boolea
       if (!nodo) return;
       if (e.key === 'Escape') {
         e.preventDefault();
+        // Los modales de las pantallas (nóminas, administración...) escuchan Esc en
+        // window: sin esto, cerrar Carmen cerraría también el que haya debajo.
+        e.stopPropagation();
         alEscape();
         return;
       }
