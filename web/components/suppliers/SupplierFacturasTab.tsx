@@ -146,7 +146,8 @@ export function SupplierFacturasTab({ supplierId, companyId }: SupplierFacturasT
         <p className="rounded-lg border border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-600">Ninguna factura cumple el filtro.</p>
       ) : (
         <>
-          <table className="hidden md:table w-full text-sm">
+          <div className="relative hidden overflow-x-auto lg:block">
+          <table className="w-full text-sm">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
                 <th className="px-4 py-3 text-left font-semibold text-slate-700">Registro</th>
@@ -173,15 +174,16 @@ export function SupplierFacturasTab({ supplierId, companyId }: SupplierFacturasT
                     </td>
                     <td className="px-4 py-3 font-mono text-slate-700 max-w-[10rem] truncate">{f.numeroFacturaProveedor ?? '—'}</td>
                     <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{fechaCorta(f.fechaEmision)}</td>
-                    <td className="px-4 py-3 text-right font-mono font-semibold whitespace-nowrap">{fmt(f.totalFactura)}</td>
-                    <td className="px-4 py-3 text-right font-mono whitespace-nowrap">{anulada ? '—' : fmt(f.importePendiente)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums font-semibold whitespace-nowrap">{fmt(f.totalFactura)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums whitespace-nowrap">{anulada ? '—' : fmt(f.importePendiente)}</td>
                     <td className="px-4 py-3">
                       <span className={claseEstadoGasto(f.estado)}>{f.estadoTexto ?? f.estado}</span>
                     </td>
                     <td className="px-4 py-3">{!anulada && f.estadoPago && <span className={claseEstadoPago(f.estadoPago, !!f.vencida)}>{f.estadoPagoTexto ?? f.estadoPago}</span>}</td>
                     <td className="px-4 py-3 text-right">
                       <Link href={`/dashboard/compras/${f.id}`} className="inline-flex items-center gap-1 font-medium text-blue-600 hover:underline">
-                        Ver <ArrowRight size={14} />
+                        <span className="sr-only">Ver</span>
+                        <ArrowRight size={16} />
                       </Link>
                     </td>
                   </tr>
@@ -189,7 +191,8 @@ export function SupplierFacturasTab({ supplierId, companyId }: SupplierFacturasT
               })}
             </tbody>
           </table>
-          <ul className="md:hidden divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white">
+          </div>
+          <ul className="lg:hidden divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white">
             {filtradas.map((f) => {
               const anulada = f.estado === 'ANULADA';
               return (

@@ -127,7 +127,7 @@ export default function ComprasPage() {
         </div>
       </header>
 
-      <main className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-6 md:px-8 md:py-8">
+      <main className="mx-auto flex max-w-6xl flex-col gap-6 px-4 pt-6 pb-24 md:px-8 md:py-8">
         {/* Contadores (tambien filtran) */}
         <section className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-7">
           {contadores.map((k) => (
@@ -277,20 +277,21 @@ export default function ComprasPage() {
             </div>
           ) : (
             <div className={cargando ? 'opacity-60' : ''}>
-              {/* Escritorio */}
-              <table className="hidden w-full text-sm md:table">
+              {/* Pantallas anchas: tabla (sin scroll de pagina; si no cabe, se desplaza dentro de la tarjeta) */}
+              <div className="relative hidden overflow-x-auto xl:block">
+              <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-                    <th className="px-4 py-3 font-medium">Registro</th>
-                    <th className="px-4 py-3 font-medium">Nº proveedor</th>
-                    <th className="px-4 py-3 font-medium">Proveedor</th>
-                    <th className="px-4 py-3 font-medium">Fecha</th>
-                    <th className="px-4 py-3 text-right font-medium">Base</th>
-                    <th className="px-4 py-3 text-right font-medium">IVA</th>
-                    <th className="px-4 py-3 text-right font-medium">Total</th>
-                    <th className="px-4 py-3 font-medium">Estado</th>
-                    <th className="px-4 py-3 font-medium">Pago</th>
-                    <th className="px-4 py-3">
+                    <th className="px-2.5 py-3 font-medium">Registro</th>
+                    <th className="px-2.5 py-3 font-medium">Nº proveedor</th>
+                    <th className="px-2.5 py-3 font-medium">Proveedor</th>
+                    <th className="px-2.5 py-3 font-medium">Fecha</th>
+                    <th className="px-2.5 py-3 text-right font-medium">Base</th>
+                    <th className="px-2.5 py-3 text-right font-medium">IVA</th>
+                    <th className="px-2.5 py-3 text-right font-medium">Total</th>
+                    <th className="px-2.5 py-3 font-medium">Estado</th>
+                    <th className="px-2.5 py-3 font-medium">Pago</th>
+                    <th className="px-2.5 py-3">
                       <span className="sr-only">Ver</span>
                     </th>
                   </tr>
@@ -300,28 +301,29 @@ export default function ComprasPage() {
                     const anulada = f.estado === 'ANULADA';
                     return (
                       <tr key={f.id} className={`border-b border-slate-100 last:border-0 hover:bg-slate-50 ${anulada ? 'text-slate-400 line-through' : ''}`}>
-                        <td className="px-4 py-3 font-mono font-medium">
+                        <td className="px-2.5 py-3 font-mono font-medium">
                           <Link href={`/dashboard/compras/${f.id}`} className={anulada ? '' : 'text-blue-600 hover:underline'}>
                             {f.numeroCompleto}
                           </Link>
                         </td>
-                        <td className="max-w-[10rem] truncate px-4 py-3 font-mono text-slate-700" title={f.numeroFacturaProveedor ?? ''}>
+                        <td className="max-w-[7rem] truncate px-2.5 py-3 font-mono text-slate-700" title={f.numeroFacturaProveedor ?? ''}>
                           {f.numeroFacturaProveedor ?? '—'}
                         </td>
-                        <td className="max-w-[14rem] truncate px-4 py-3 text-slate-900" title={f.supplierNombre}>
+                        <td className="max-w-[11rem] truncate px-2.5 py-3 text-slate-900" title={f.supplierNombre}>
                           {f.supplierNombre}
                         </td>
-                        <td className="whitespace-nowrap px-4 py-3 text-slate-600">{fechaCorta(f.fechaEmision)}</td>
-                        <td className="whitespace-nowrap px-4 py-3 text-right font-mono">{fmt(f.baseTotal)}</td>
-                        <td className="whitespace-nowrap px-4 py-3 text-right font-mono">{fmt(f.ivaTotal)}</td>
-                        <td className="whitespace-nowrap px-4 py-3 text-right font-mono font-semibold">{fmt(f.totalFactura)}</td>
-                        <td className="px-4 py-3">
+                        <td className="whitespace-nowrap px-2.5 py-3 text-slate-600">{fechaCorta(f.fechaEmision)}</td>
+                        <td className="whitespace-nowrap px-2.5 py-3 text-right tabular-nums">{fmt(f.baseTotal)}</td>
+                        <td className="whitespace-nowrap px-2.5 py-3 text-right tabular-nums">{fmt(f.ivaTotal)}</td>
+                        <td className="whitespace-nowrap px-2.5 py-3 text-right tabular-nums font-semibold">{fmt(f.totalFactura)}</td>
+                        <td className="px-2.5 py-3">
                           <span className={claseEstadoGasto(f.estado)}>{f.estadoTexto}</span>
                         </td>
-                        <td className="px-4 py-3">{!anulada && <span className={claseEstadoPago(f.estadoPago, f.vencida)}>{f.estadoPagoTexto}</span>}</td>
-                        <td className="px-4 py-3 text-right">
+                        <td className="px-2.5 py-3">{!anulada && <span className={claseEstadoPago(f.estadoPago, f.vencida)}>{f.estadoPagoTexto}</span>}</td>
+                        <td className="px-2.5 py-3 text-right">
                           <Link href={`/dashboard/compras/${f.id}`} className="inline-flex items-center gap-1 font-medium text-blue-600 hover:underline">
-                            Ver <ArrowRight size={14} />
+                            <span className="sr-only">Ver</span>
+                            <ArrowRight size={16} />
                           </Link>
                         </td>
                       </tr>
@@ -329,9 +331,10 @@ export default function ComprasPage() {
                   })}
                 </tbody>
               </table>
+              </div>
 
               {/* Movil: tarjetas */}
-              <ul className="divide-y divide-slate-100 md:hidden">
+              <ul className="divide-y divide-slate-100 xl:hidden">
                 {datos.items.map((f) => {
                   const anulada = f.estado === 'ANULADA';
                   return (

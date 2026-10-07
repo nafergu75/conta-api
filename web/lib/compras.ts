@@ -174,7 +174,7 @@ export interface GastoRegistrado {
 // Textos y estilos
 // ---------------------------------------------------------------------------
 
-const INSIGNIA = 'inline-block whitespace-nowrap rounded-full border px-2.5 py-0.5 text-xs font-medium';
+const INSIGNIA = 'inline-block rounded-full border px-2.5 py-0.5 text-xs font-medium';
 
 /** Clases de la insignia del estado de la factura (no el de pago). */
 export function claseEstadoGasto(estado: string): string {
