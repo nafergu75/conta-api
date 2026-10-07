@@ -61,7 +61,8 @@ export function CarmenSugerencias({ variante }: { variante: Variante }) {
 
       {catalogo && catalogo.chips.length > 0 && (
         <div className="space-y-2">
-          <p className={subtitulo}>{variante === 'pagina' ? 'Puedes empezar por' : 'Para esta pantalla'}</p>
+          {/* No «Para esta pantalla»: el servidor mezcla las de la pantalla con las generales del panel. */}
+          <p className={subtitulo}>Puedes empezar por</p>
           <div className="flex flex-wrap gap-1.5">
             {catalogo.chips.map((b, i) => (
               <button key={i} type="button" onClick={() => pulsarBoton(b)} disabled={enviando} className={chipCarmen}>
