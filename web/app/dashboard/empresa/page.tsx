@@ -62,17 +62,28 @@ function DatosEmpresa() {
   const [guardando, setGuardando] = useState(false);
   const [mensaje, setMensaje] = useState<{ ok: boolean; texto: string } | null>(null);
   const [errores, setErrores] = useState<ErroresEmpresa>({});
+  // Moneda guardada que no admite el pais y que se corrige al guardar (ver la carga).
+  const [monedaCorregida, setMonedaCorregida] = useState<string | null>(null);
 
   useEffect(() => {
     apiFetch<Record<string, unknown>>(companyPath('/legal-config'))
       .then((cfg) => {
-        setDatos(
-          Object.fromEntries(
-            Object.keys(VACIO).map((k) => [k, cfg[k] == null ? VACIO[k as keyof Datos] : String(cfg[k])]),
-          ) as unknown as Datos,
-        );
+        const leidos = Object.fromEntries(
+          Object.keys(VACIO).map((k) => [k, cfg[k] == null ? VACIO[k as keyof Datos] : String(cfg[k])]),
+        ) as unknown as Datos;
+        const editable = cfg.monedaCuentaEditable !== false;
+        // Una empresa de EE. UU. o Hong Kong anterior a las divisas (o dada de alta
+        // antes de que el alta fijara la moneda) puede tener la contabilidad en EUR,
+        // el valor por defecto de la columna. Mientras no tenga facturas ni asientos,
+        // se le pone la de su pais; si no, el servidor rechazaria cualquier guardado
+        // y el selector, con una sola opcion, no dejaria corregirla.
+        if (editable && !monedasDelPais(leidos.pais).includes(leidos.monedaCuenta)) {
+          setMonedaCorregida(leidos.monedaCuenta);
+          leidos.monedaCuenta = monedaDelPais(leidos.pais);
+        }
+        setDatos(leidos);
         setPendientes((cfg.pendientes as string[]) ?? []);
-        setMonedaEditable(cfg.monedaCuentaEditable !== false);
+        setMonedaEditable(editable);
         setPaisGuardado(String(cfg.pais ?? 'ES'));
       })
       .catch((e) => setMensaje({ ok: false, texto: errorMessage(e) }))
@@ -122,6 +133,7 @@ function DatosEmpresa() {
       );
       if (cfg.monedaCuenta) setDatos((d) => ({ ...d, monedaCuenta: cfg.monedaCuenta as string }));
       setMonedaEditable(cfg.monedaCuentaEditable !== false);
+      setMonedaCorregida(null);
       setPendientes(cfg.pendientes ?? []);
       setPaisGuardado(datos.pais);
       if (cfg.completo) {
@@ -180,9 +192,9 @@ function DatosEmpresa() {
               className={claseSelect}
               disabled={off || !monedaEditable || monedasDelPais(datos.pais).length < 2}
             >
-              {/* La guardada se muestra aunque el pais ya no la admita (empresa antigua con facturas). */}
+              {/* La actual se muestra aunque el pais ya no la admita (empresa antigua con facturas): el selector enseña lo que se envia. */}
               {monedasDelPais(datos.pais)
-                .concat(!monedaEditable && !monedasDelPais(datos.pais).includes(datos.monedaCuenta) ? [datos.monedaCuenta] : [])
+                .concat(!monedasDelPais(datos.pais).includes(datos.monedaCuenta) ? [datos.monedaCuenta] : [])
                 .map((m) => (
                   <option key={m} value={m}>
                     {m} — {NOMBRE_MONEDA[m] ?? m}
@@ -197,6 +209,12 @@ function DatosEmpresa() {
             {!monedaEditable && 'Ya hay facturas o asientos: la moneda de la contabilidad no se puede cambiar.'}
           </p>
         </div>
+        {monedaCorregida && monedaCorregida !== datos.monedaCuenta && (
+          <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            La contabilidad estaba en {monedaCorregida}, que no corresponde a este país. Como aún no hay facturas ni asientos, al guardar pasará a{' '}
+            {datos.monedaCuenta}.
+          </p>
+        )}
         {!espana && (
           <p className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
             Tus facturas saldrán sin IVA ni IRPF, en inglés y con el formato de fecha de tu país, y no se usan los modelos 303, 349, 390 ni 347. Si tienes
