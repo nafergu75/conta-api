@@ -7,6 +7,8 @@ interface CasillasViewerProps {
   titulo: string;
   descripcion?: string;
   estado?: 'vigente' | 'presentado';
+  /** Casillas que son numeros de personas (p. ej. perceptores del 111), no euros. */
+  casillasConteo?: string[];
 }
 
 export function CasillasViewer({
@@ -14,6 +16,7 @@ export function CasillasViewer({
   titulo,
   descripcion,
   estado = 'vigente',
+  casillasConteo = [],
 }: CasillasViewerProps) {
   const eur = new Intl.NumberFormat('es-ES', {
     style: 'currency',
@@ -42,7 +45,10 @@ export function CasillasViewer({
       return numA - numB;
     });
 
-  const formatValue = (value: any) => {
+  const formatValue = (key: string, value: any) => {
+    if (casillasConteo.includes(key) && typeof value === 'number') {
+      return value.toLocaleString('es-ES', { maximumFractionDigits: 0 });
+    }
     if (typeof value === 'number') {
       return eur.format(value);
     }
@@ -93,7 +99,7 @@ export function CasillasViewer({
               )}
             </div>
             <div className="text-sm text-slate-600">{getDescription(key, value)}</div>
-            <div className="mt-2 text-lg font-bold text-slate-900">{formatValue(value)}</div>
+            <div className="mt-2 text-lg font-bold text-slate-900">{formatValue(key, value)}</div>
             {typeof value === 'object' && value?.formula && (
               <div className="mt-2 border-t border-slate-100 pt-2 text-xs text-slate-500">
                 Fórmula: <code>{value.formula}</code>
@@ -111,7 +117,7 @@ export function CasillasViewer({
             {Object.entries(casillas.resumen).map(([key, value]) => (
               <div key={key} className="flex justify-between">
                 <span className="text-sm text-blue-800">{key.replace(/([A-Z])/g, ' $1')}</span>
-                <span className="font-medium text-blue-900">{formatValue(value)}</span>
+                <span className="font-medium text-blue-900">{formatValue(key, value)}</span>
               </div>
             ))}
           </div>

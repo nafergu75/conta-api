@@ -378,6 +378,49 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    // Datos salariales y personales de los trabajadores: solo admin y contable.
+    title: 'Nóminas',
+    items: [
+      {
+        label: 'Nóminas del mes',
+        slug: 'nominas',
+        description: 'Nóminas por trabajador: contabilizar (un asiento por trabajador), pagar líquidos y seguros sociales, PDF de la gestoría.',
+        implemented: true,
+        endpoints: [
+          'GET /companies/:id/nominas/periodos/:ejercicio/:mes',
+          'POST /companies/:id/nominas/periodos/:ejercicio/:mes/contabilizar',
+          'POST /companies/:id/nominas/periodos/:ejercicio/:mes/pago',
+          'GET /companies/:id/nominas/seguros-sociales/:ejercicio/:mes',
+        ],
+        requiredRoles: ['nominas:read'],
+      },
+      {
+        label: 'Importar Excel',
+        slug: 'nominas/importar',
+        description: 'El Excel de nóminas de la gestoría, con mapeo de columnas y cuadre por trabajador.',
+        implemented: true,
+        endpoints: ['POST /companies/:id/nominas/importar/vista-previa', 'POST /companies/:id/nominas/importar'],
+        requiredRoles: ['nominas:write'],
+      },
+      {
+        label: 'Empleados',
+        slug: 'nominas/empleados',
+        description: 'Alta, edición y baja de los trabajadores.',
+        implemented: true,
+        endpoints: ['GET /companies/:id/empleados', 'POST /companies/:id/empleados', 'PUT /companies/:id/empleados/:id'],
+        requiredRoles: ['nominas:read'],
+      },
+      {
+        label: 'Coste de personal',
+        slug: 'nominas/coste',
+        description: 'Coste de la plantilla por mes o por trabajador, descargable en Excel.',
+        implemented: true,
+        endpoints: ['GET /companies/:id/nominas/informes/coste'],
+        requiredRoles: ['nominas:read'],
+      },
+    ],
+  },
+  {
     title: 'Más',
     items: [
       {
@@ -386,13 +429,6 @@ export const NAV_GROUPS: NavGroup[] = [
         description: 'Datos fiscales, contacto, Registro Mercantil y logo que salen en las facturas.',
         implemented: true,
         endpoints: ['GET /companies/:id/legal-config', 'PUT /companies/:id/legal-config'],
-      },
-      {
-        label: 'Nóminas',
-        slug: 'nominas',
-        description: 'Registro contable de nóminas y seguros sociales.',
-        implemented: false,
-        endpoints: ['GET /companies/:id/nominas', 'POST /companies/:id/nominas'],
       },
       {
         label: 'Asistente Carmen',

@@ -2,6 +2,7 @@
 
 
 import { useState, useCallback , Suspense} from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Upload, Plus, ArrowLeft, Check, X } from '@phosphor-icons/react';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
@@ -21,6 +22,8 @@ interface GastoExtraido {
   total: number | null;
   confianza: number;
   errores: string[];
+  /** Una nomina o un recibo de la SS no es una factura: se registra en Nominas. */
+  tipoDocumento?: 'factura' | 'nomina' | 'seguros_sociales';
 }
 
 function LectorGastosPageInner() {
@@ -209,6 +212,29 @@ function LectorGastosPageInner() {
                 </div>
               )}
 
+              {(gasto.tipoDocumento === 'nomina' || gasto.tipoDocumento === 'seguros_sociales') && (
+                <div className="mb-6 space-y-2 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
+                  <p>
+                    {gasto.tipoDocumento === 'nomina' ? 'Parece una nómina' : 'Parecen unos seguros sociales'}: si la empresa lleva sus nóminas en la app, no se registra como factura de gasto.{' '}
+                    <Link href="/dashboard/nominas" className="font-semibold underline">
+                      Ve a Nóminas
+                    </Link>
+                    , importa el Excel de la gestoría y guarda allí este PDF.
+                  </p>
+                  <p>
+                    Si no lo es (por ejemplo, la cuota de autónomos del administrador, o una empresa sin trabajadores),{' '}
+                    <button
+                      type="button"
+                      onClick={() => setGasto({ ...gasto, tipoDocumento: 'factura' })}
+                      className="font-semibold underline"
+                    >
+                      es una factura de gasto
+                    </button>
+                    .
+                  </p>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Proveedor */}
                 <div>
@@ -297,7 +323,7 @@ function LectorGastosPageInner() {
               </button>
               <button
                 onClick={handleConfirmar}
-                disabled={loading}
+                disabled={loading || gasto.tipoDocumento === 'nomina' || gasto.tipoDocumento === 'seguros_sociales'}
                 className="flex-1 px-4 py-3 bg-accent-600 text-white font-semibold rounded-lg hover:bg-accent-700 active:scale-[0.98] transition-all disabled:opacity-60 disabled:pointer-events-none inline-flex items-center justify-center gap-2"
               >
                 <Check size={18} />
