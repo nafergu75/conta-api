@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Trash, Plus, Check, X, Star } from '@phosphor-icons/react';
 import { getToken } from '@/lib/auth';
+import { errorDeRespuesta } from '@/lib/api';
 
 const API = '/api/conta';
 
@@ -49,7 +50,7 @@ export function SupplierCuentasTab({ supplierId, companyId }: SupplierCuentasTab
         headers: { Authorization: `Bearer ${getToken()}` },
       });
 
-      if (!res.ok) throw new Error(`Error ${res.status}`);
+      if (!res.ok) throw await errorDeRespuesta(res);
 
       const data = await res.json();
       setCuentas(data.data || data || []);
@@ -109,7 +110,7 @@ export function SupplierCuentasTab({ supplierId, companyId }: SupplierCuentasTab
         headers: { Authorization: `Bearer ${getToken()}` },
       });
 
-      if (!res.ok) throw new Error(`Error ${res.status}`);
+      if (!res.ok) throw await errorDeRespuesta(res);
 
       await loadCuentas();
     } catch (err) {
@@ -124,7 +125,7 @@ export function SupplierCuentasTab({ supplierId, companyId }: SupplierCuentasTab
         headers: { Authorization: `Bearer ${getToken()}` },
       });
 
-      if (!res.ok) throw new Error(`Error ${res.status}`);
+      if (!res.ok) throw await errorDeRespuesta(res);
 
       await loadCuentas();
     } catch (err) {

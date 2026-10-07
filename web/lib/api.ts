@@ -134,6 +134,22 @@ export async function apiDownload(path: string, nombreFichero: string): Promise<
   URL.revokeObjectURL(url);
 }
 
+/**
+ * Para las pantallas que todavia llaman a fetch directamente: el error de una
+ * respuesta no ok con el mensaje del servidor (en castellano), en vez de
+ * «Error 403». Si es el 403 de la contrasena provisional, lleva a cambiarla.
+ */
+export async function errorDeRespuesta(res: Response): Promise<ApiError> {
+  const esJson = (res.headers.get('content-type') ?? '').includes('application/json');
+  const cuerpo = esJson ? await res.json().catch(() => null) : null;
+  if (esCambioObligatorio(res.status, cuerpo)) {
+    llevarACambioContrasena();
+    return new ApiError(MENSAJE_CAMBIO_CONTRASENA, 403, cuerpo.details);
+  }
+  const mensaje = cuerpo && (cuerpo.message || cuerpo.error);
+  return new ApiError(mensaje ? String(mensaje) : `Error ${res.status}`, res.status, cuerpo?.details);
+}
+
 /** Mensaje para mostrar al usuario a partir de cualquier error. */
 export function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : 'Error desconocido';

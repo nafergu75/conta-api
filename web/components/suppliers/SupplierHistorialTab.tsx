@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { getToken } from '@/lib/auth';
+import { errorDeRespuesta } from '@/lib/api';
 
 const API = '/api/conta';
 
@@ -40,7 +41,7 @@ export function SupplierHistorialTab({ supplierId, companyId }: SupplierHistoria
         headers: { Authorization: `Bearer ${getToken()}` },
       });
 
-      if (!res.ok) throw new Error(`Error ${res.status}`);
+      if (!res.ok) throw await errorDeRespuesta(res);
 
       const data = await res.json();
       setHistorial(data.data || data || []);
