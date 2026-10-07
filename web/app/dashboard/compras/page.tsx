@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { getToken, clearSession, getCompanyId } from '@/lib/auth';
+import { getToken, clearSession } from '@/lib/auth';
+import { apiFetch, companyPath } from '@/lib/api';
+import { mensajeSinAcceso, PantallaSinAcceso } from '@/components/dashboard/SinAcceso';
 import { Plus, MagnifyingGlass, Eye, ArrowRight } from '@phosphor-icons/react';
 import Link from 'next/link';
 
@@ -40,6 +42,8 @@ export default function ComprasPage() {
   const [error, setError] = useState<string>('');
   const [filtroEstado, setFiltroEstado] = useState<string>('todos');
   const [busqueda, setBusqueda] = useState('');
+  // Texto del 403 si su acceso no incluye compras (null = si lo incluye).
+  const [sinAcceso, setSinAcceso] = useState<string | null>(null);
 
   useEffect(() => {
     const loadCompras = async () => {
@@ -51,35 +55,18 @@ export default function ComprasPage() {
           return;
         }
 
-        // Cargar facturas de compra desde la API
-        const res = await fetch(`/api/conta/companies/${getCompanyId()}/compras`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
-        });
-
-        if (res.status === 401) {
-          clearSession();
-          router.push('/login');
-          return;
-        }
-
-        if (!res.ok) {
-          throw new Error(`Error ${res.status}`);
-        }
-
-        const data = await res.json();
-        if (data.ok && data.data && data.data.items) {
-          setCompras(data.data.items);
-        } else if (Array.isArray(data)) {
-          setCompras(data);
-        } else {
-          setCompras([]);
-        }
+        // Facturas de compra. apiFetch: un 401 lleva al login y la contraseña
+        // provisional, a cambiarla.
+        const d = await apiFetch<{ items?: Compra[] } | Compra[]>(companyPath('/compras'));
+        setCompras((Array.isArray(d) ? d : d?.items) ?? []);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Error al cargar compras');
-        console.error('Error loading compras:', err);
+        const sinPermiso = mensajeSinAcceso(err);
+        if (sinPermiso) {
+          setSinAcceso(sinPermiso);
+        } else {
+          setError(err instanceof Error ? err.message : 'Error al cargar compras');
+          console.error('Error loading compras:', err);
+        }
       } finally {
         setLoading(false);
       }
@@ -119,6 +106,8 @@ export default function ComprasPage() {
         return 'bg-gray-100 text-gray-800';
     }
   };
+
+  if (sinAcceso) return <PantallaSinAcceso titulo="Compras" mensaje={sinAcceso} />;
 
   return (
     <div className="space-y-6">

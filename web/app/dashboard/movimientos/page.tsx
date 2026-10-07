@@ -3,13 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus, FunnelSimple, X } from '@phosphor-icons/react';
-import { getToken, clearSession, getCompanyId } from '@/lib/auth';
+import { getToken } from '@/lib/auth';
+import { apiFetch, companyPath } from '@/lib/api';
+import { mensajeSinAcceso, PantallaSinAcceso } from '@/components/dashboard/SinAcceso';
 import NewMovementModal, {
   CATEGORIES,
   STATUSES,
 } from '@/components/dashboard/NewMovementModal';
-
-const API = '/api/conta';
 
 interface Movement {
   id: string;
@@ -43,6 +43,8 @@ export default function MovimientosPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
+  // Texto del 403 si su acceso no incluye movimientos (null = si lo incluye).
+  const [sinAcceso, setSinAcceso] = useState<string | null>(null);
 
   // Filtros servidor (la API los soporta como query params)
   const [type, setType] = useState('');
@@ -64,20 +66,15 @@ export default function MovimientosPage() {
       if (type) params.set('type', type);
       if (category) params.set('category', category);
 
-      const r = await fetch(`${API}/companies/${getCompanyId()}/movements?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (r.status === 401) {
-        clearSession();
-        router.replace('/login');
-        return;
-      }
-      if (!r.ok) throw new Error(`Error ${r.status}`);
-      const j = await r.json();
-      setMovements(j.data);
+      // apiFetch: un 401 lleva al login y la contraseña provisional, a cambiarla.
+      const d = await apiFetch<Movement[]>(companyPath(`/movements?${params}`));
+      setMovements(Array.isArray(d) ? d : []);
       setError(null);
+      setSinAcceso(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error desconocido');
+      const sinPermiso = mensajeSinAcceso(e);
+      if (sinPermiso) setSinAcceso(sinPermiso);
+      else setError(e instanceof Error ? e.message : 'Error desconocido');
     } finally {
       setLoading(false);
     }
@@ -119,6 +116,8 @@ export default function MovimientosPage() {
 
   const selectClass =
     'rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-accent-600 focus:border-accent-600';
+
+  if (sinAcceso) return <PantallaSinAcceso titulo="Movimientos" mensaje={sinAcceso} />;
 
   return (
     <div>
