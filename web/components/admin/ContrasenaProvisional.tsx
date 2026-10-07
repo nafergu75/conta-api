@@ -21,6 +21,13 @@ export default function ContrasenaProvisional({ contrasena, email, onHecho }: Pr
   const texto = useRef<HTMLElement>(null);
   const [copiada, setCopiada] = useState(false);
   const [aMano, setAMano] = useState(false);
+  const botonCopiar = useRef<HTMLButtonElement>(null);
+
+  // Al aparecer, el boton que la genero (o el de «Crear usuario») ya no existe y
+  // el foco se iria al cuerpo de la pagina: se lleva a «Copiar».
+  useEffect(() => {
+    botonCopiar.current?.focus();
+  }, []);
 
   useEffect(() => {
     if (!copiada) return;
@@ -62,6 +69,7 @@ export default function ContrasenaProvisional({ contrasena, email, onHecho }: Pr
           {contrasena}
         </code>
         <button
+          ref={botonCopiar}
           type="button"
           onClick={copiar}
           className="inline-flex min-h-[44px] shrink-0 items-center justify-center gap-1.5 rounded-lg bg-accent-600 px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-accent-700 active:scale-[0.98]"
@@ -70,10 +78,10 @@ export default function ContrasenaProvisional({ contrasena, email, onHecho }: Pr
           {copiada ? 'Copiada' : 'Copiar'}
         </button>
       </div>
-      <p className="sr-only" role="status">
-        {copiada ? 'Contraseña copiada.' : ''}
+      {/* Una sola region que se anuncia: «copiada» solo para el lector; «a mano», tambien a la vista. */}
+      <p role="status" className={aMano && !copiada ? 'text-sm text-slate-600' : 'sr-only'}>
+        {copiada ? 'Contraseña copiada.' : aMano ? 'No se ha podido copiar. Selecciónala y cópiala a mano.' : ''}
       </p>
-      {aMano && <p className="text-sm text-slate-600">Selecciónala y cópiala a mano.</p>}
 
       <p className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
         <WarningCircle size={18} className="mt-0.5 shrink-0" aria-hidden />
