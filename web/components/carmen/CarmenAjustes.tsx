@@ -2,8 +2,8 @@
 
 import { useEffect, useId, useState } from 'react';
 import { CheckCircle, Robot, WarningCircle } from '@phosphor-icons/react';
-import { errorMessage } from '@/lib/api';
-import { getToken, getUser, tieneAlgunPermiso } from '@/lib/auth';
+import { ApiError, errorMessage } from '@/lib/api';
+import { EVENTO_SESION, getToken, getUser, tieneAlgunPermiso } from '@/lib/auth';
 import {
   EVENTO_AJUSTES_CARMEN,
   estadoCarmen,
@@ -29,17 +29,28 @@ const campo =
  */
 export function CarmenAjustesEmpresa() {
   const [admin, setAdmin] = useState(false);
+  const [sinPermiso, setSinPermiso] = useState(false);
 
   // La sesión vive en localStorage: se mira tras montar (si no, desajuste de hidratación).
+  // Y se vuelve a mirar cuando el layout trae los permisos actuales de /auth/me
+  // (EVENTO_SESION): la sesión guardada puede ser de antes de un cambio de rol
+  // hecho en Administración, y este efecto corre antes que el del layout.
   useEffect(() => {
-    setAdmin(getToken() !== 'demo-local-sin-backend' && tieneAlgunPermiso(getUser(), ['admin:empresa']));
+    const leer = () => {
+      setAdmin(getToken() !== 'demo-local-sin-backend' && tieneAlgunPermiso(getUser(), ['admin:empresa']));
+      setSinPermiso(false);
+    };
+    leer();
+    window.addEventListener(EVENTO_SESION, leer);
+    return () => window.removeEventListener(EVENTO_SESION, leer);
   }, []);
 
-  if (!admin) return null;
-  return <Ajustes />;
+  // Si el servidor dice que no es administrador (403), la sección no se enseña.
+  if (!admin || sinPermiso) return null;
+  return <Ajustes alSinPermiso={() => setSinPermiso(true)} />;
 }
 
-function Ajustes() {
+function Ajustes({ alSinPermiso }: { alSinPermiso: () => void }) {
   const id = useId();
   const [ajustes, setAjustes] = useState<AjustesCarmen | null>(null);
   const [uso, setUso] = useState<UsoCarmen | null>(null);
@@ -67,8 +78,12 @@ function Ajustes() {
         setTope(a.topeConsultasDia ? String(a.topeConsultasDia) : '');
         setDias(String(a.conservarDias));
       })
-      .catch((e) => setError(errorMessage(e)));
+      .catch((e) => {
+        if (e instanceof ApiError && e.status === 403) alSinPermiso();
+        else setError(errorMessage(e));
+      });
     cargarUso();
+    // Solo al montar: alSinPermiso cambia en cada pintado del padre.
   }, []);
 
   // Si se llega desde el enlace de Carmen (#carmen-ia), se baja hasta aquí cuando ya está pintado.
