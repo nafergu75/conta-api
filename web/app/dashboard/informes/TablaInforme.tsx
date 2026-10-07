@@ -32,16 +32,30 @@ function celda(v: string | number | null, tipo: TipoColumna, estilo: EstiloFila)
   return String(v);
 }
 
-export function TablaInforme({ tabla, maxFilas }: { tabla: Tabla; maxFilas?: number }) {
+/** Lo que hace falta para pintarla (Carmen la manda sin los datos de la empresa). */
+export type TablaPintable = Pick<Tabla, 'columnas' | 'filas' | 'notas'>;
+
+/**
+ * `compacta`: letra y márgenes más pequeños y menos ancho mínimo, para la
+ * ventana de Carmen (420 px); lo que no cabe se desplaza dentro de la tabla.
+ */
+export function TablaInforme({ tabla, maxFilas, compacta = false }: { tabla: TablaPintable; maxFilas?: number; compacta?: boolean }) {
   const filas = maxFilas ? tabla.filas.slice(0, maxFilas) : tabla.filas;
   const pesoTotal = tabla.columnas.reduce((s, c) => s + c.ancho, 0);
-  const minAncho = tabla.columnas.length > 4 ? 'min-w-[860px]' : 'min-w-[520px]';
+  const minAncho = compacta
+    ? tabla.columnas.length > 4
+      ? 'min-w-[520px]'
+      : 'min-w-[320px]'
+    : tabla.columnas.length > 4
+      ? 'min-w-[860px]'
+      : 'min-w-[520px]';
+  const celdaX = compacta ? 'px-2' : 'px-3';
   const primeraTexto = tabla.columnas.findIndex((c) => c.tipo === 'texto');
 
   return (
     <div className="space-y-3">
       <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-        <table className={`w-full ${minAncho} text-sm`}>
+        <table className={`w-full ${minAncho} ${compacta ? 'text-xs' : 'text-sm'}`}>
           <colgroup>
             {tabla.columnas.map((c, k) => (
               <col key={k} style={{ width: `${(c.ancho / pesoTotal) * 100}%` }} />
@@ -50,7 +64,7 @@ export function TablaInforme({ tabla, maxFilas }: { tabla: Tabla; maxFilas?: num
           <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
             <tr>
               {tabla.columnas.map((c, k) => (
-                <th key={k} className={`px-3 py-2.5 font-medium ${c.tipo === 'importe' ? 'text-right' : ''}`}>
+                <th key={k} scope="col" className={`${celdaX} ${compacta ? 'py-2' : 'py-2.5'} font-medium ${c.tipo === 'importe' ? 'text-right' : ''}`}>
                   {c.titulo}
                 </th>
               ))}
@@ -70,7 +84,7 @@ export function TablaInforme({ tabla, maxFilas }: { tabla: Tabla; maxFilas?: num
                 const texto = f.celdas.map((v, k) => celda(v, tabla.columnas[k]?.tipo ?? 'texto', estilo)).filter(Boolean).join(' · ');
                 return (
                   <tr key={i} className="border-t border-slate-200 bg-slate-50">
-                    <td colSpan={tabla.columnas.length} className="px-3 py-2 font-semibold text-slate-900">
+                    <td colSpan={tabla.columnas.length} className={`${celdaX} py-2 font-semibold text-slate-900`}>
                       {texto}
                     </td>
                   </tr>
@@ -88,12 +102,12 @@ export function TablaInforme({ tabla, maxFilas }: { tabla: Tabla; maxFilas?: num
                 <tr key={i} className={clase}>
                   {tabla.columnas.map((c, k) => {
                     const v = celda(f.celdas[k] ?? null, c.tipo, estilo);
-                    const sangria = k === primeraTexto && f.sangria ? { paddingLeft: 12 + f.sangria * 16 } : undefined;
+                    const sangria = k === primeraTexto && f.sangria ? { paddingLeft: (compacta ? 8 : 12) + f.sangria * (compacta ? 12 : 16) } : undefined;
                     return (
                       <td
                         key={k}
                         style={sangria}
-                        className={`px-3 py-1.5 align-top ${c.tipo === 'importe' ? 'whitespace-nowrap text-right font-mono tabular-nums' : ''} ${c.tipo === 'codigo' || c.tipo === 'fecha' ? 'whitespace-nowrap font-mono text-[13px]' : ''}`}
+                        className={`${celdaX} py-1.5 align-top ${c.tipo === 'importe' ? 'whitespace-nowrap text-right font-mono tabular-nums' : ''} ${c.tipo === 'codigo' || c.tipo === 'fecha' ? `whitespace-nowrap font-mono ${compacta ? 'text-[11px]' : 'text-[13px]'}` : ''}`}
                       >
                         {v}
                       </td>

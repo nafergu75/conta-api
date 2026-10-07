@@ -6,6 +6,7 @@ import { Buildings, CheckCircle, WarningCircle } from '@phosphor-icons/react';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { LogoEmpresa } from '../registro-mercantil/LogoEmpresa';
+import { CarmenAjustesEmpresa } from '@/components/carmen/CarmenAjustes';
 
 /**
  * Datos de la empresa: los que salen en las facturas (emisor, contacto e
@@ -120,6 +121,8 @@ export default function DatosEmpresaPage() {
   return (
     <Suspense fallback={<p className="p-6 text-slate-500">Cargando…</p>}>
       <DatosEmpresa />
+      {/* Solo el administrador de la empresa: interruptor de la IA de Carmen y gasto del mes. */}
+      <CarmenAjustesEmpresa />
     </Suspense>
   );
 }
