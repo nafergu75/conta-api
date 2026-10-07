@@ -49,6 +49,14 @@ const anioActual = new Date().getFullYear();
 export default function CierreEjercicioPage() {
   const puedeEditar = tieneAlgunPermiso(getUser(), ['contabilidad:write']);
   const [ejercicio, setEjercicio] = useState(anioActual - 1);
+  // Desde Configuración o Registro Mercantil se llega con ?ejercicio=AAAA. Hasta
+  // leerlo no se carga nada (si no, llegarían dos vistas y podría quedar la otra).
+  const [urlLeida, setUrlLeida] = useState(false);
+  useEffect(() => {
+    const pedido = Number(new URLSearchParams(window.location.search).get('ejercicio'));
+    if (Number.isInteger(pedido) && pedido >= 1990 && pedido <= anioActual + 1) setEjercicio(pedido);
+    setUrlLeida(true);
+  }, []);
   const [reemplazarApertura, setReemplazarApertura] = useState(false);
   const [vista, setVista] = useState<VistaCierre | null>(null);
   const [cargando, setCargando] = useState(false);
@@ -71,8 +79,8 @@ export default function CierreEjercicioPage() {
   }, [ejercicio, reemplazarApertura]);
 
   useEffect(() => {
-    cargar();
-  }, [cargar]);
+    if (urlLeida) cargar();
+  }, [cargar, urlLeida]);
 
   const cerrar = async () => {
     setOcupado(true);
@@ -113,6 +121,7 @@ export default function CierreEjercicioPage() {
   };
 
   const anios = Array.from({ length: 8 }, (_, i) => anioActual + 1 - i);
+  if (!anios.includes(ejercicio)) anios.push(ejercicio);
 
   return (
     <div className="space-y-6">
