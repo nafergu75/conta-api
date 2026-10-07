@@ -15,6 +15,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { usePathname } from 'next/navigation';
 import { ApiError, errorMessage } from '@/lib/api';
 import { EVENTO_SESION, getCompanyId, getToken, getUser } from '@/lib/auth';
+import { useEmpresaEspanola } from '@/lib/fiscal';
 import {
   EVENTO_AJUSTES_CARMEN,
   MAX_PREGUNTA,
@@ -112,6 +113,12 @@ interface ContextoCarmen {
   estado: EstadoCarmen | null;
   catalogo: CatalogoCarmen | null;
   errorCatalogo: boolean;
+  /**
+   * ¿La empresa activa está establecida en España? (null mientras se lee o si
+   * falla). Con false no se ofrecen impuestos de la AEAT ni enlaces a modelos
+   * fiscales o nóminas, igual que en el menú.
+   */
+  empresaEspanola: boolean | null;
   entradaRef: React.MutableRefObject<HTMLTextAreaElement | null>;
   botonRef: React.MutableRefObject<HTMLButtonElement | null>;
 }
@@ -189,6 +196,7 @@ export function CarmenProvider({ children }: { children: React.ReactNode }) {
   const [estado, setEstado] = useState<EstadoCarmen | null>(null);
   const [catalogo, setCatalogo] = useState<CatalogoCarmen | null>(null);
   const [errorCatalogo, setErrorCatalogo] = useState(false);
+  const empresaEspanola = useEmpresaEspanola();
   /** Conversación guardada en sessionStorage que falta por cargar. */
   const [pendiente, setPendiente] = useState<string | undefined>(undefined);
   /** Sube cuando hay que volver a pedir las sugerencias (han cambiado los permisos). */
@@ -545,6 +553,7 @@ export function CarmenProvider({ children }: { children: React.ReactNode }) {
       estado,
       catalogo,
       errorCatalogo,
+      empresaEspanola,
       entradaRef,
       botonRef,
     }),
@@ -576,6 +585,7 @@ export function CarmenProvider({ children }: { children: React.ReactNode }) {
       estado,
       catalogo,
       errorCatalogo,
+      empresaEspanola,
     ],
   );
 

@@ -1,13 +1,24 @@
 'use client';
 
-import { useId, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { BookOpenText, CaretDown } from '@phosphor-icons/react';
-import { NOMBRE_AREA } from '@/lib/carmen';
+import { NOMBRE_AREA, type CatalogoCarmen } from '@/lib/carmen';
 import { useCarmen } from './CarmenProvider';
 import { chipCarmen } from './CarmenAclaracion';
 import type { Variante } from './CarmenConversacion';
 
 const subtitulo = 'text-[11px] font-semibold uppercase tracking-wide text-slate-500';
+
+/** El catálogo sin el área de impuestos ni sus chips (para empresas no establecidas en España). */
+function sinImpuestos(c: CatalogoCarmen | null): CatalogoCarmen | null {
+  if (!c) return c;
+  const ids = new Set(c.areas.filter((a) => a.area === 'impuestos').flatMap((a) => a.intenciones.map((i) => i.id)));
+  return {
+    ...c,
+    areas: c.areas.filter((a) => a.area !== 'impuestos'),
+    chips: c.chips.filter((b) => !(b.accion.tipo === 'intencion' && ids.has(b.accion.id))),
+  };
+}
 
 /**
  * Bienvenida: sugerencias de la pantalla en la que está el usuario, dudas
@@ -15,10 +26,13 @@ const subtitulo = 'text-[11px] font-semibold uppercase tracking-wide text-slate-
  * permisos, por áreas.
  */
 export function CarmenSugerencias({ variante }: { variante: Variante }) {
-  const { catalogo, errorCatalogo, pulsarBoton, enviando } = useCarmen();
+  const { catalogo: catalogoServidor, errorCatalogo, pulsarBoton, enviando, empresaEspanola } = useCarmen();
   const [verTodo, setVerTodo] = useState(false);
   const idCatalogo = useId();
 
+  // Empresa no establecida en España: ni IVA ni modelos de la AEAT, como en el menú.
+  const extranjera = empresaEspanola === false;
+  const catalogo = useMemo(() => (extranjera ? sinImpuestos(catalogoServidor) : catalogoServidor), [extranjera, catalogoServidor]);
   const sinDatos = catalogo !== null && catalogo.areas.length === 0;
 
   return (
@@ -26,8 +40,10 @@ export function CarmenSugerencias({ variante }: { variante: Variante }) {
       <div>
         <p className="text-base font-semibold text-slate-900">Hola, soy Carmen</p>
         <p className="mt-1 text-sm leading-relaxed text-slate-600">
-          Te digo las cifras de tu contabilidad (cobros, bancos, IVA, asientos…) y te resuelvo dudas de la app y de impuestos con fichas
-          revisadas. No cambio nada: si hay que hacer algo, te llevo a la pantalla donde se hace.
+          {extranjera
+            ? 'Te digo las cifras de tu contabilidad (cobros, bancos, asientos…) y te resuelvo dudas de la app con fichas revisadas.'
+            : 'Te digo las cifras de tu contabilidad (cobros, bancos, IVA, asientos…) y te resuelvo dudas de la app y de impuestos con fichas revisadas.'}{' '}
+          No cambio nada: si hay que hacer algo, te llevo a la pantalla donde se hace.
         </p>
         {sinDatos && (
           <p className="mt-2 text-sm text-slate-600">Con tus permisos en esta empresa no puedo consultar datos, pero sí resolver dudas.</p>

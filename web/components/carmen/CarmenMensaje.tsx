@@ -16,6 +16,7 @@ import { useCarmen, type MensajeCarmen, type MensajeVista } from './CarmenProvid
 import { CarmenBloques } from './CarmenBloques';
 import { CarmenAclaracion } from './CarmenAclaracion';
 import type { Variante } from './CarmenConversacion';
+import { esRutaSoloEspana } from '@/components/dashboard/nav';
 
 const accionPequena =
   'inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 disabled:opacity-50';
@@ -64,6 +65,7 @@ function MensajeError({ m }: { m: Extract<MensajeVista, { rol: 'error' }> }) {
 
 /** «Tus datos», «Pregunta frecuente» o «Respuesta orientativa de IA»: de dónde sale la respuesta. */
 function Origen({ r }: { r: RespuestaVista }) {
+  const { empresaEspanola } = useCarmen();
   const chip = 'inline-flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-lg border px-2.5 py-0.5 text-[11px] font-medium';
   if (r.origen === 'datos') {
     return (
@@ -88,7 +90,7 @@ function Origen({ r }: { r: RespuestaVista }) {
                 {f.titulo}
                 <span className="sr-only"> (se abre en otra pestaña)</span>
               </a>
-            ) : esEnlaceInterno(f.url) ? (
+            ) : esEnlaceInterno(f.url) && !(empresaEspanola === false && esRutaSoloEspana(f.url)) ? (
               <Link href={f.url} className="underline underline-offset-2 hover:no-underline">
                 {f.titulo}
               </Link>

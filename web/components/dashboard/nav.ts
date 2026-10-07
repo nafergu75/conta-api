@@ -502,3 +502,18 @@ export function findNavItem(slug: string): NavItem | undefined {
   }
   return undefined;
 }
+
+/** Rutas de las entradas soloEspana (/dashboard/fiscal, /dashboard/nominas): sus subpantallas cuelgan de ellas. */
+const RUTAS_SOLO_ESPANA = NAV_GROUPS.flatMap((g) => g.items)
+  .filter((i) => i.soloEspana)
+  .map((i) => `/dashboard/${i.slug}`);
+
+/**
+ * ¿El enlace lleva a una pantalla que solo tienen las empresas establecidas en
+ * España (modelos de la AEAT, nóminas)? Para no ofrecerlo a las demás, como hace
+ * el menú.
+ */
+export function esRutaSoloEspana(href: string): boolean {
+  const ruta = href.split(/[?#]/)[0].replace(/\/+$/, '');
+  return RUTAS_SOLO_ESPANA.some((r) => ruta === r || ruta.startsWith(`${r}/`));
+}
