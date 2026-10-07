@@ -4,10 +4,18 @@ import { clearSession, getCompanyId, getToken } from './auth';
 export const API_BASE = '/api/conta';
 
 export class ApiError extends Error {
-  constructor(message: string, readonly status: number) {
+  /** `detalles`: los `details` del backend, si los manda (p. ej. { campo: 'nif' } en un error de validacion). */
+  constructor(message: string, readonly status: number, readonly detalles?: unknown) {
     super(message);
     this.name = 'ApiError';
   }
+}
+
+/** Campo del formulario al que se refiere un error del backend (details.campo), si lo dice. */
+export function campoDelError(e: unknown): string | undefined {
+  const d = e instanceof ApiError ? e.detalles : undefined;
+  const campo = d && typeof d === 'object' ? (d as { campo?: unknown }).campo : undefined;
+  return typeof campo === 'string' ? campo : undefined;
 }
 
 /** Ruta bajo la empresa activa: companyPath('/clientes') -> '/companies/<id>/clientes'. */
@@ -57,7 +65,7 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
     const mensaje =
       (cuerpo && (cuerpo.message || cuerpo.error)) ||
       (esJson ? `Error ${res.status}` : `El servidor no responde (HTTP ${res.status}).`);
-    throw new ApiError(String(mensaje), res.status);
+    throw new ApiError(String(mensaje), res.status, cuerpo?.details);
   }
   if (!esJson) {
     throw new ApiError(`Respuesta inesperada del servidor (HTTP ${res.status}).`, res.status);

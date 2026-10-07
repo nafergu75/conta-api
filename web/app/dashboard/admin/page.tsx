@@ -5,6 +5,7 @@ import Link from 'next/link';
 import {
   ArrowRight,
   Buildings,
+  CheckCircle,
   Key,
   MagnifyingGlass,
   PencilSimple,
@@ -14,9 +15,10 @@ import {
   Trash,
   UserPlus,
   Users,
+  WarningCircle,
   X,
 } from '@phosphor-icons/react';
-import { apiFetch, errorMessage } from '@/lib/api';
+import { apiFetch, campoDelError, errorMessage } from '@/lib/api';
 import {
   cambiarEmpresa,
   EVENTO_SESION,
@@ -26,6 +28,19 @@ import {
   ROLES_EMPRESA,
   type SessionUser,
 } from '@/lib/auth';
+import {
+  CAMPOS_EMPRESA,
+  Campo,
+  CamposEmpresa,
+  DATOS_EMPRESA_VACIOS,
+  datosParaGuardar,
+  nombrePais,
+  primerCampoConError,
+  revisarDatosEmpresa,
+  type CampoEmpresa,
+  type DatosEmpresa,
+  type ErroresEmpresa,
+} from '@/components/empresa/CamposEmpresa';
 
 /**
  * Administracion de la plataforma (modo administrador global): todas las
@@ -47,6 +62,9 @@ interface EmpresaAdmin {
   nif: string | null;
   pais: string | null;
   usuarios: number;
+  /** Solo en la respuesta del alta: si ya tiene todo para facturar y lo que falta. */
+  completo?: boolean;
+  pendientes?: string[];
 }
 
 interface AccesoEmpresa {
@@ -534,16 +552,13 @@ export default function AdministracionPage() {
         <ModalNuevaEmpresa
           onClose={() => setModal(null)}
           onCreada={async (e) => {
-            setModal(null);
+            // El modal se queda abierto con el resultado y el boton para entrar.
             setError('');
             setAviso(`Empresa «${e.nombre}» creada. Eres su administrador.`);
             await cargar();
             avisarMenu();
-            if (window.confirm(`Empresa «${e.nombre}» creada. ¿Entrar ahora para completar sus datos fiscales?`)) {
-              cambiarEmpresa(e.id, e.nombre);
-              window.location.assign('/dashboard');
-            }
           }}
+          onEntrar={entrar}
         />
       )}
 
@@ -573,75 +588,209 @@ export default function AdministracionPage() {
   );
 }
 
-function ModalNuevaEmpresa({ onClose, onCreada }: { onClose: () => void; onCreada: (e: EmpresaAdmin) => void }) {
+/** Errores del alta: los de los datos de la empresa y los del nombre corto y el codigo. */
+type ErroresAlta = ErroresEmpresa & { nombre?: string; codigo?: string };
+
+const DEL_REGISTRO = ['Registro Mercantil (provincia)', 'Tomo', 'Folio', 'Hoja', 'Inscripción'];
+
+/** "Tomo, Folio, Hoja..." del backend dicho en una frase: "la inscripción en el Registro Mercantil". */
+function textoPendientes(pendientes: string[]): string {
+  const otros = pendientes.filter((p) => !DEL_REGISTRO.includes(p));
+  const faltaRegistro = otros.length < pendientes.length;
+  return [...otros, ...(faltaRegistro ? ['la inscripción en el Registro Mercantil'] : [])].join(', ');
+}
+
+/**
+ * Alta de una empresa con sus datos completos (los de sus facturas), con los
+ * mismos campos que "Datos de la empresa". El Registro Mercantil se puede dejar
+ * para despues: la app lo pide al entrar. Al crearla ofrece entrar en ella.
+ */
+function ModalNuevaEmpresa({
+  onClose,
+  onCreada,
+  onEntrar,
+}: {
+  onClose: () => void;
+  onCreada: (e: EmpresaAdmin) => Promise<void>;
+  onEntrar: (e: EmpresaAdmin) => void;
+}) {
+  const [datos, setDatos] = useState<DatosEmpresa>(DATOS_EMPRESA_VACIOS);
   const [nombre, setNombre] = useState('');
   const [codigo, setCodigo] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState('');
+  const [errores, setErrores] = useState<ErroresAlta>({});
+  const [creada, setCreada] = useState<EmpresaAdmin | null>(null);
+  // Campo al que llevar el foco cuando ya este pintado (y habilitado) el error.
+  const [foco, setFoco] = useState<string | null>('denominacion');
+
+  useEffect(() => {
+    if (!foco || guardando) return;
+    const el = document.getElementById(`alta-${foco}`);
+    if (el) {
+      el.focus({ preventScroll: true });
+      // Al centro: el pie fijo del modal no lo tapa.
+      el.scrollIntoView({ block: 'center' });
+    }
+    setFoco(null);
+  }, [foco, guardando]);
+
+  const conCambios = !!nombre.trim() || !!codigo.trim() || CAMPOS_EMPRESA.some((k) => datos[k] !== DATOS_EMPRESA_VACIOS[k]);
+
+  // Escape, la X o un clic fuera no tiran un formulario a medias sin preguntar.
+  const cerrar = () => {
+    if (guardando) return;
+    if (!creada && conCambios && !window.confirm('¿Descartar los datos de la nueva empresa?')) return;
+    onClose();
+  };
+
+  const quitarError = (k: keyof ErroresAlta) => setErrores((e) => (e[k] ? { ...e, [k]: undefined } : e));
+  const cambiar = (k: CampoEmpresa, v: string) => {
+    setDatos((d) => ({ ...d, [k]: v }));
+    quitarError(k);
+  };
+  const enfocar = (campo: string) => setFoco(campo);
 
   const enviar = async (ev: React.FormEvent) => {
     ev.preventDefault();
     setError('');
-    setGuardando(true);
-    try {
-      const e = await apiFetch<EmpresaAdmin>('/admin/empresas', {
-        method: 'POST',
-        body: JSON.stringify({ nombre: nombre.trim(), codigo: codigo.trim() || undefined }),
-      });
-      onCreada(e);
-    } catch (e) {
-      setError(errorMessage(e));
-      setGuardando(false);
+    const fallos = revisarDatosEmpresa(datos);
+    const primero = primerCampoConError(fallos);
+    if (primero) {
+      setErrores(fallos);
+      setError('Faltan datos o hay alguno mal: revisa los campos marcados en rojo.');
+      enfocar(primero);
+      return;
     }
+    setErrores({});
+    setGuardando(true);
+    let empresa: EmpresaAdmin;
+    try {
+      empresa = await apiFetch<EmpresaAdmin>('/admin/empresas', {
+        method: 'POST',
+        body: JSON.stringify({ nombre: nombre.trim() || undefined, codigo: codigo.trim() || undefined, datos: datosParaGuardar(datos) }),
+      });
+    } catch (e) {
+      // El servidor dice que campo falla (details.campo): se marca y se lleva el foco alli.
+      const campo = campoDelError(e);
+      setError(errorMessage(e));
+      if (campo) {
+        setErrores({ [campo]: errorMessage(e) });
+        enfocar(campo);
+      }
+      setGuardando(false);
+      return;
+    }
+    setCreada(empresa);
+    setGuardando(false);
+    await onCreada(empresa);
   };
 
+  if (creada) {
+    const pendientes = creada.pendientes ?? [];
+    return (
+      <Modal titulo="Empresa creada" onClose={onClose} ancho="max-w-lg">
+        <div className="flex flex-col gap-4">
+          <div role="status" className="flex items-start gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4">
+            <CheckCircle size={22} weight="fill" className="mt-0.5 shrink-0 text-emerald-600" />
+            <div className="min-w-0">
+              <p className="break-words font-medium text-emerald-800">«{creada.nombre}» ya está dada de alta.</p>
+              <p className="mt-1 text-sm text-emerald-800">
+                Eres su administrador.
+                {creada.nif && ` NIF ${creada.nif}`}
+                {creada.pais && ` · ${nombrePais(creada.pais)}`}
+              </p>
+            </div>
+          </div>
+          {pendientes.length > 0 ? (
+            <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              <WarningCircle size={18} className="mt-0.5 shrink-0" />
+              <p>
+                Queda pendiente {textoPendientes(pendientes)}. Al entrar, la app te lo pedirá; puedes completarlo cuando lo tengas desde «Datos de
+                la empresa».
+              </p>
+            </div>
+          ) : (
+            <p className="text-sm text-slate-600">Tiene todos los datos que necesita para facturar.</p>
+          )}
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button type="button" onClick={onClose} className={BOTON_SECUNDARIO_ALTO}>
+              Seguir en Administración
+            </button>
+            <button type="button" onClick={() => onEntrar(creada)} className={BOTON_PRIMARIO} autoFocus>
+              Entrar en la empresa <ArrowRight size={16} />
+            </button>
+          </div>
+        </div>
+      </Modal>
+    );
+  }
+
   return (
-    <Modal titulo="Nueva empresa" onClose={onClose}>
-      <form onSubmit={enviar} className="flex flex-col gap-4">
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor="empresa-nombre" className="text-sm font-medium text-slate-700">
-            Nombre *
-          </label>
-          <input
-            id="empresa-nombre"
-            required
-            minLength={2}
-            maxLength={120}
-            value={nombre}
-            onChange={(e) => setNombre(e.target.value)}
-            placeholder="Talleres López SL"
-            className={CLASE_INPUT}
-            autoFocus
-          />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor="empresa-codigo" className="text-sm font-medium text-slate-700">
-            Código <span className="font-normal text-slate-400">(opcional)</span>
-          </label>
-          <input
-            id="empresa-codigo"
-            value={codigo}
-            onChange={(e) => setCodigo(e.target.value)}
-            maxLength={30}
-            pattern="[A-Za-z0-9][A-Za-z0-9_\-]{1,29}"
-            title="Letras, números, guiones y guiones bajos (de 2 a 30)"
-            placeholder="TALLERES"
-            className={`${CLASE_INPUT} font-mono`}
-          />
-          <p className="text-xs text-slate-500">Código corto y único. Sirve para elegir la empresa al entrar.</p>
-        </div>
-        <p className="rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
-          Quedarás como administrador de la empresa. El NIF, el domicilio y el resto de datos fiscales se completan después, entrando en
-          ella.
+    <Modal titulo="Nueva empresa" onClose={cerrar} ancho="max-w-3xl">
+      <form onSubmit={enviar} noValidate className="flex flex-col gap-5">
+        <p className="text-sm text-slate-600">
+          Los datos que saldrán en sus facturas. Los marcados con <span className="text-red-600">*</span> son obligatorios. Quedarás como
+          administrador de la empresa.
         </p>
-        {error && <p className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</p>}
-        <div className="flex justify-end gap-2">
-          <button type="button" onClick={onClose} className={BOTON_SECUNDARIO}>
-            Cancelar
-          </button>
-          <button type="submit" disabled={guardando || nombre.trim().length < 2} className={BOTON_PRIMARIO}>
-            {guardando ? 'Creando…' : 'Crear empresa'}
-          </button>
+
+        <div className="flex flex-col gap-5">
+          <CamposEmpresa datos={datos} onCambio={cambiar} errores={errores} disabled={guardando} alta variante="llano" prefijoId="alta-" />
+
+          <section className="space-y-3 border-t border-slate-200 pt-4">
+            <h3 className="font-semibold text-slate-900">
+              En la app <span className="text-xs font-normal text-slate-500">(opcional)</span>
+            </h3>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Campo
+                id="alta-nombre"
+                label="Nombre corto"
+                valor={nombre}
+                onChange={(v) => {
+                  setNombre(v);
+                  quitarError('nombre');
+                }}
+                error={errores.nombre}
+                disabled={guardando}
+                maxLength={120}
+                placeholder={datos.denominacion.trim() || 'Igual que la denominación'}
+                ayuda="Como aparece en el selector de empresas. Si lo dejas vacío, se usa la denominación."
+              />
+              <Campo
+                id="alta-codigo"
+                label="Código"
+                valor={codigo}
+                onChange={(v) => {
+                  setCodigo(v);
+                  quitarError('codigo');
+                }}
+                error={errores.codigo}
+                disabled={guardando}
+                maxLength={30}
+                placeholder="IFBIO"
+                ayuda="Corto y único (letras, números, - y _). Sirve para elegir la empresa al entrar."
+              />
+            </div>
+          </section>
+        </div>
+
+        {/* Pie fijo: el error del servidor y los botones siempre a la vista, tambien en el movil.
+            El bottom negativo compensa el relleno del modal para que el pie llegue al borde. */}
+        <div className="sticky -bottom-5 -mx-5 -mb-5 flex flex-col gap-2 border-t border-slate-200 bg-white px-5 py-3 sm:-bottom-6 sm:-mx-6 sm:-mb-6 sm:px-6">
+          {error && (
+            <p role="alert" className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-2.5 text-sm text-rose-700">
+              <WarningCircle size={18} className="mt-0.5 shrink-0" />
+              <span className="min-w-0 break-words">{error}</span>
+            </p>
+          )}
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={cerrar} disabled={guardando} className={BOTON_SECUNDARIO_ALTO}>
+              Cancelar
+            </button>
+            <button type="submit" disabled={guardando} className={BOTON_PRIMARIO}>
+              {guardando ? 'Creando…' : 'Crear empresa'}
+            </button>
+          </div>
         </div>
       </form>
     </Modal>
