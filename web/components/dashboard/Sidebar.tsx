@@ -34,6 +34,9 @@ import {
   SignOut,
   RocketLaunch,
   CalendarCheck,
+  FileArrowUp,
+  UsersThree,
+  Coins,
 } from '@phosphor-icons/react';
 import type { Icon } from '@phosphor-icons/react';
 import { NAV_GROUPS } from './nav';
@@ -65,6 +68,9 @@ const ICONS: Record<string, Icon> = {
   sociedades: Buildings,
   'registro-mercantil': BookBookmark,
   nominas: IdentificationBadge,
+  'nominas/importar': FileArrowUp,
+  'nominas/empleados': UsersThree,
+  'nominas/coste': Coins,
   informes: ChartLineUp,
   'mayor-terceros': AddressBook,
   archivo: FolderOpen,

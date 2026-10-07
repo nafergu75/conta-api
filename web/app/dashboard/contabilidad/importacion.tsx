@@ -98,7 +98,12 @@ async function sha256(b: Blob): Promise<string | undefined> {
  * subida (lo que despues se manda en lugar del fichero). Cada trozo se
  * reintenta hasta 3 veces si falla la conexion o el servidor.
  */
-export async function subirPorTrozos(archivo: File, onProgreso: (porcentaje: number) => void): Promise<string> {
+export async function subirPorTrozos(
+  archivo: File,
+  onProgreso: (porcentaje: number) => void,
+  /** Ruta de subidas de cada importacion (puesta en marcha, nominas...). */
+  ruta = '/puesta-en-marcha/subidas',
+): Promise<string> {
   if (archivo.size > TAM_MAXIMO) throw new Error(`El fichero pesa demasiado (máximo ${TAM_MAXIMO / 1024 / 1024} MB).`);
   const total = Math.max(1, Math.ceil(archivo.size / TAM_TROZO));
   let subidaId: string | undefined;
@@ -117,7 +122,7 @@ export async function subirPorTrozos(archivo: File, onProgreso: (porcentaje: num
       } else d.append('subidaId', subidaId!);
       if (hash) d.append('hash', hash);
       try {
-        const r = await apiFetch<{ subidaId: string }>(companyPath('/puesta-en-marcha/subidas'), { method: 'POST', body: d });
+        const r = await apiFetch<{ subidaId: string }>(companyPath(ruta), { method: 'POST', body: d });
         subidaId = r.subidaId;
         break;
       } catch (e) {
