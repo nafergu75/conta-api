@@ -14,9 +14,11 @@ import {
   NOMBRE_MONEDA,
   pareceInvertido,
   parseImporte,
+  parseTipo,
   redondear2,
   simboloMoneda,
   textoTipo,
+  tipoParaEditar,
 } from '@/lib/moneda';
 import { calcularFactura } from '@/lib/divisas';
 import { useContextoFiscal, type AvisoFiscal } from '@/lib/fiscal';
@@ -205,6 +207,9 @@ function FormularioFactura() {
   const [bceError, setBceError] = useState('');
   // Borrador guardado con tipo manual que se quiere volver a dejar en el del BCE.
   const [volverAlBce, setVolverAlBce] = useState(false);
+  // Borrador creado en esta pantalla al "Pasar a factura": si emitirlo falla, el
+  // reintento lo modifica (PUT) en vez de crear otro.
+  const [idCreado, setIdCreado] = useState<string | null>(null);
 
   // Tipo de operacion de IVA.
   const [tipoOperacion, setTipoOperacion] = useState('');
@@ -258,7 +263,8 @@ function FormularioFactura() {
             setMoneda(invoice.moneda);
             setMonedaTocada(true);
           }
-          if (invoice.fuenteTipoCambio === 'MANUAL' && invoice.tipoCambio) setTipoManual(formatoTipo(invoice.tipoCambio));
+          // Con todos sus decimales: guardar sin tocarlo no cambia el tipo (formatoTipo lo redondea a 4).
+          if (invoice.fuenteTipoCambio === 'MANUAL' && invoice.tipoCambio) setTipoManual(tipoParaEditar(invoice.tipoCambio));
           // Un borrador ya guardado no cambia de tipo solo: si hay sugerencia, se ofrece.
           setTipoOperacion(invoice.tipoOperacion ?? '');
           setTipoTocado(true);
@@ -295,11 +301,17 @@ function FormularioFactura() {
     setSupuesto(s ? s.codigo : 'OTRO');
   }, [contexto, supuesto, tipoOperacion, referenciaLegal]);
 
-  // Cliente nuevo en una factura nueva: su moneda preferida y el tipo de operacion sugerido.
+  // Cliente nuevo en una factura nueva, mientras la moneda no se haya tocado a
+  // mano: la que prefiere el cliente o, si no tiene, la de la contabilidad (asi
+  // corregir el cliente no deja la factura en la moneda del anterior). Con
+  // precios ya escritos se pregunta si se convierten.
   useEffect(() => {
-    if (!clienteElegido || monedaTocada || borradorId) return;
+    if (!clienteElegido || monedaTocada || borradorId || !contexto || !contexto.empresaEspanola) return;
     const pref = clienteElegido.monedaPreferida;
-    if (pref && contexto?.monedasFactura.some((m) => m.codigo === pref)) setMoneda(pref);
+    const nueva = pref && contexto.monedasFactura.some((m) => m.codigo === pref) ? pref : contexto.monedaCuenta;
+    if (nueva !== monedaDoc) void cambiarMoneda(nueva, false);
+    // cambiarMoneda y monedaDoc se leen al cambiar de cliente; no hay que repetirlo al cambiar ellos.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clienteElegido, monedaTocada, borradorId, contexto]);
   const sugerido = contexto?.sugerencia?.tipoOperacion ?? null;
   useEffect(() => {
@@ -344,7 +356,8 @@ function FormularioFactura() {
     };
   }, [enDivisa, monedaDoc, devengo]);
 
-  const manual = tipoManual.trim() ? parseImporte(tipoManual) : NaN;
+  // Un tipo no lleva separador de miles: '1.149' es 1,149 (parseImporte lo leeria como 1149).
+  const manual = tipoManual.trim() ? parseTipo(tipoManual) : NaN;
   const tipoAplicado = enDivisa ? (Number.isFinite(manual) && manual > 0 ? manual : bce?.tipoCambio ?? null) : 1;
   const avisoTipo = (() => {
     if (!enDivisa || !tipoManual.trim()) return '';
@@ -394,29 +407,48 @@ function FormularioFactura() {
     if (r.tiposFacturaProhibidos.includes(tipoFactura)) setTipoFactura('F1');
   }
 
-  /** Cambio de moneda con precios ya escritos: se pregunta si se convierten. */
-  const cambiarMoneda = (nueva: string) => {
+  /**
+   * Cambio de moneda con precios ya escritos: se pregunta si se convierten.
+   *  - De la moneda de la contabilidad a otra: al tipo del BCE de la nueva para
+   *    la fecha de la operacion (se pide al servidor; mientras la factura va en
+   *    la de la contabilidad no hay tipo cargado). Sin tipo, se avisa de que los
+   *    precios no se convierten.
+   *  - De otra a la de la contabilidad: al tipo aplicado (el escrito a mano, si lo hay).
+   * `aMano` = false cuando la cambia el cliente elegido: la moneda sigue "sin tocar".
+   */
+  const cambiarMoneda = async (nueva: string, aMano = true) => {
     if (nueva === monedaDoc) return;
+    if (aMano) setMonedaTocada(true);
     const conPrecios = lineas.some((l) => l.precioUnitario.trim() !== '');
-    const tc = bce?.tipoCambio ?? null;
-    setMonedaTocada(true);
-    setTipoManual('');
-    if (conPrecios && tc && (nueva === monedaCuenta || monedaDoc === monedaCuenta)) {
-      const aDivisa = monedaDoc === monedaCuenta;
-      const ok = window.confirm(
-        `¿Convertir los precios a ${nueva} al tipo ${textoTipo(monedaCuenta, aDivisa ? nueva : monedaDoc, tc)}?\n\n` +
-          'Aceptar: se convierten. Cancelar: se quedan como están (solo cambia la moneda).',
-      );
-      if (ok) {
-        setLineas((ls) =>
-          ls.map((l) => {
-            const p = parseImporte(l.precioUnitario);
-            if (!Number.isFinite(p)) return l;
-            return { ...l, precioUnitario: String(redondear2(aDivisa ? p * tc : p / tc)) };
-          }),
+    const aDivisa = monedaDoc === monedaCuenta && nueva !== monedaCuenta;
+    const aCuenta = monedaDoc !== monedaCuenta && nueva === monedaCuenta;
+    if (conPrecios && (aDivisa || aCuenta)) {
+      let tc: number | null = aCuenta ? tipoAplicado : null;
+      if (aDivisa && devengo) {
+        tc = await apiFetch<TipoCambioApi>(companyPath(`/tipos-cambio?moneda=${encodeURIComponent(nueva)}&fecha=${devengo}`))
+          .then((r) => r.tipoCambio)
+          .catch(() => null);
+      }
+      if (tc && tc > 0) {
+        const ok = window.confirm(
+          `¿Convertir los precios a ${nueva} al tipo ${textoTipo(monedaCuenta, aDivisa ? nueva : monedaDoc, tc)}?\n\n` +
+            'Aceptar: se convierten. Cancelar: se quedan como están (solo cambia la moneda).',
         );
+        if (ok) {
+          const t = tc;
+          setLineas((ls) =>
+            ls.map((l) => {
+              const p = parseImporte(l.precioUnitario);
+              if (!Number.isFinite(p)) return l;
+              return { ...l, precioUnitario: String(redondear2(aDivisa ? p * t : p / t)) };
+            }),
+          );
+        }
+      } else {
+        window.alert(`No hay tipo de cambio para convertir los precios: se quedan como están, ahora en ${nueva}. Revísalos.`);
       }
     }
+    setTipoManual('');
     setMoneda(nueva);
   };
 
@@ -532,6 +564,10 @@ function FormularioFactura() {
     if (emitir && !esProforma) {
       if (espanola && !tipoOperacion) return 'Elige el tipo de operación de la factura.';
       if (enDivisa && !tipoAplicado) return `Sin tipo de cambio del BCE: indica el tipo a mano (1 ${monedaCuenta} = … ${monedaDoc}).`;
+      // Al emitir nunca vale un tipo viejo: el que se ve es orientativo (de dias anteriores).
+      if (enDivisa && !tipoManual.trim() && bce?.provisional) {
+        return `Aún no está el tipo del BCE de la fecha de la operación (el que se ve es orientativo, del ${fechaES(bce.fechaTipoCambio)}): indica el tipo a mano o guarda el borrador y pásalo a factura más tarde.`;
+      }
       const errores = revision?.revision?.errores ?? [];
       if (errores.length > 0) return errores.map((e) => e.mensaje).join(' ');
     }
@@ -555,15 +591,17 @@ function FormularioFactura() {
     setGuardando(true);
     setError('');
     try {
-      let id = borradorId;
-      if (borradorId) {
-        await apiFetch(companyPath(`/income-invoices/${borradorId}`), { method: 'PUT', body: JSON.stringify(cuerpo()) });
+      let id = borradorId ?? idCreado;
+      if (id) {
+        await apiFetch(companyPath(`/income-invoices/${id}`), { method: 'PUT', body: JSON.stringify(cuerpo()) });
       } else {
         const { invoice } = await apiFetch<{ invoice: { id: string } }>(companyPath('/income-invoices'), {
           method: 'POST',
           body: JSON.stringify(esProforma ? { ...cuerpo(), proforma: true } : { ...cuerpo(), borrador: true }),
         });
         id = invoice.id;
+        // Si pasarlo a factura falla, el siguiente intento modifica este borrador (no crea otro).
+        setIdCreado(invoice.id);
       }
       if (emitir && !esProforma) {
         const { invoice } = await apiFetch<{ invoice: { contabilizada?: boolean; motivoSinAsiento?: string | null } }>(
@@ -756,7 +794,7 @@ function FormularioFactura() {
             className={campo}
             value={monedaDoc}
             disabled={!contexto || !espanola || (contexto.monedasFactura?.length ?? 0) < 2}
-            onChange={(e) => cambiarMoneda(e.target.value)}
+            onChange={(e) => void cambiarMoneda(e.target.value)}
           >
             {(contexto?.monedasFactura ?? [{ codigo: monedaCuenta, nombre: monedaCuenta, simbolo: monedaCuenta }]).map((m) => (
               <option key={m.codigo} value={m.codigo}>

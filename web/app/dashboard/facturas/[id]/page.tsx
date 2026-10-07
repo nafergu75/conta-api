@@ -9,7 +9,7 @@ import { AvisosFactura } from './AvisosFactura';
 import CobrosFactura from '@/components/CobrosFactura';
 import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getCompanyId, getUser, tieneAlgunPermiso } from '@/lib/auth';
-import { formatoImporte, formatoTipo, NOMBRE_MONEDA, parseImporte, textoTipo } from '@/lib/moneda';
+import { formatoImporte, NOMBRE_MONEDA, parseTipo, textoTipo, tipoParaEditar } from '@/lib/moneda';
 import { ETIQUETA_CORTA, ETIQUETA_LARGA, nombrePais } from '@/lib/fiscal';
 
 interface Linea {
@@ -222,7 +222,9 @@ export default function FacturaDetallePage() {
   const fmtDoc = (n: number) => formatoImporte(n, moneda);
   const fmtCuenta = (n: number) => formatoImporte(n, monedaCuenta);
   const totalDoc = factura.totalFacturaDoc ?? factura.totalFactura;
-  const tipoOp = factura.tipoOperacionEfectivo ?? factura.tipoOperacion ?? null;
+  // El tipo guardado; en un borrador o proforma, el que se deduce. Una factura
+  // emitida antes de los tipos de operacion no tiene: no se muestra (su PDF no lleva mencion).
+  const tipoOp = factura.tipoOperacion ?? (factura.estadoDocumento === 'FINAL' ? null : (factura.tipoOperacionEfectivo ?? null));
   const sinIva = tipoOp === 'EMPRESA_EXTRANJERA';
   // Tipos sin cuota: la linea al 0 % se nombra por su tipo (Exenta, Intracom....).
   const etiquetaIva = (t: number) => (t === 0 && tipoOp && tipoOp !== 'NACIONAL' ? ETIQUETA_CORTA[tipoOp] ?? '0 %' : `${t} %`);
@@ -249,10 +251,12 @@ export default function FacturaDetallePage() {
       : `${factura.esRectificativa ? 'Rectificativa' : 'Factura'} ${factura.numeroCompleto}`;
 
   const emitir = () => {
-    let tipoCambio: number | undefined;
+    // undefined: lo decide el servidor; null: volver al del BCE.
+    let tipoCambio: number | null | undefined;
     if (enDivisa) {
       // En divisa se aplica el tipo del BCE de la fecha de la operacion, salvo que se indique otro.
-      const actual = factura.fuenteTipoCambio === 'MANUAL' && factura.tipoCambio ? formatoTipo(factura.tipoCambio) : '';
+      // El manual del borrador se propone con todos sus decimales (aceptarlo no lo cambia).
+      const actual = factura.fuenteTipoCambio === 'MANUAL' && factura.tipoCambio ? tipoParaEditar(factura.tipoCambio) : '';
       const respuesta = window.prompt(
         `Vas a pasar a factura por ${fmtDoc(totalDoc)} con fecha de hoy.\n\n` +
           `Tipo de cambio: déjalo vacío para aplicar el de referencia del BCE de la fecha de la operación, o escribe el tuyo (1 ${monedaCuenta} = … ${moneda}).\n\n` +
@@ -261,12 +265,15 @@ export default function FacturaDetallePage() {
       );
       if (respuesta === null) return;
       if (respuesta.trim()) {
-        const t = parseImporte(respuesta);
+        const t = parseTipo(respuesta);
         if (!(t > 0)) {
-          setError('El tipo de cambio tiene que ser un número mayor que cero.');
+          setError('El tipo de cambio tiene que ser un número mayor que cero, con coma o punto decimal (por ejemplo 1,1490).');
           return;
         }
         tipoCambio = t;
+      } else if (factura.fuenteTipoCambio === 'MANUAL') {
+        // Vacio con un tipo manual guardado: se pide el del BCE (si no, se mantendria el manual).
+        tipoCambio = null;
       }
     } else if (!window.confirm(`Vas a pasar a factura por ${fmtDoc(totalDoc)} con fecha de hoy.\n\n${CONFIRMAR_PASAR_A_FACTURA}`)) {
       return;
@@ -274,7 +281,7 @@ export default function FacturaDetallePage() {
     accion(async () => {
       const { invoice } = await apiFetch<{ invoice: { contabilizada?: boolean; motivoSinAsiento?: string | null } }>(
         companyPath(`/income-invoices/${id}/finalizar`),
-        { method: 'POST', body: JSON.stringify(tipoCambio ? { tipoCambio } : {}) },
+        { method: 'POST', body: JSON.stringify(tipoCambio !== undefined ? { tipoCambio } : {}) },
       );
       if (invoice.contabilizada === false) setSinAsiento(invoice.motivoSinAsiento || 'No se pudo contabilizar.');
       await cargar();

@@ -114,6 +114,29 @@ export function parseImporte(texto: string): number {
 }
 
 /**
+ * Lee un tipo de cambio escrito a mano: '1,1490', '1.149', '1,15237'. Un tipo
+ * no lleva separador de miles: un solo punto o coma, y siempre es el DECIMAL
+ * ('1.149' es 1,149, no 1149 como leeria parseImporte). NaN si no es un numero
+ * o lleva mas de un separador.
+ */
+export function parseTipo(texto: string): number {
+  const s = String(texto ?? '').replace(/[\s  ]/g, '');
+  if (!/^\d+([.,]\d+)?$/.test(s)) return NaN;
+  const n = Number(s.replace(',', '.'));
+  return Number.isFinite(n) ? n : NaN;
+}
+
+/**
+ * Tipo para un campo editable, con TODOS sus decimales (hasta 8, como guarda el
+ * servidor) y al menos 4: 1.15237 -> '1,15237'; 1.2 -> '1,2000'. Asi, al volver
+ * a guardar sin tocarlo, no cambia (formatoTipo redondea a 4).
+ */
+export function tipoParaEditar(tipoCambio: number): string {
+  const [ent, dec = ''] = tipoCambio.toFixed(8).replace(/0+$/, '').split('.');
+  return `${ent},${dec.padEnd(4, '0')}`;
+}
+
+/**
  * Validacion del tipo manual frente al del BCE (la misma del backend): un tipo
  * casi igual al inverso del BCE esta escrito al reves (0,87 en vez de 1,149).
  */

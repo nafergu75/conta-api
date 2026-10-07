@@ -61,6 +61,13 @@ const VACIO: Datos = {
 /** Moneda de la contabilidad que corresponde a un pais: euros en Espana y en la UE; dolares en el resto. */
 const monedaDelPais = (pais: string) => (pais === 'ES' || PAISES_UE.has(pais) ? 'EUR' : 'USD');
 
+/**
+ * Monedas de la contabilidad que admite el pais (las mismas que el servidor):
+ * Espana y la UE, solo EUR; EE. UU. y Hong Kong, solo USD; el resto, las dos.
+ */
+const monedasDelPais = (pais: string): string[] =>
+  pais === 'ES' || PAISES_UE.has(pais) ? ['EUR'] : pais === 'US' || pais === 'HK' ? ['USD'] : ['EUR', 'USD'];
+
 const FORMAS = [
   ['SL', 'Sociedad limitada (S.L.)'],
   ['SLU', 'Sociedad limitada unipersonal (S.L.U.)'],
@@ -155,6 +162,17 @@ function DatosEmpresa() {
 
   const guardar = async (e: React.FormEvent) => {
     e.preventDefault();
+    // Con facturas o asientos no se pasa de Espana a otro pais ni al reves (el servidor tambien lo impide).
+    if (!monedaEditable && (datos.pais === 'ES') !== (paisGuardado === 'ES')) {
+      setMensaje({
+        ok: false,
+        texto:
+          paisGuardado === 'ES'
+            ? 'La empresa ya tiene facturas o asientos como empresa establecida en España: no se puede cambiar a otro país. Si va a operar desde otro país, dala de alta como empresa nueva.'
+            : 'La empresa ya tiene facturas o asientos como empresa no establecida en España: no se puede cambiar a España. Si tiene establecimiento permanente en España, dala de alta como empresa nueva con país España.',
+      });
+      return;
+    }
     if (datos.pais !== paisGuardado) {
       const aviso =
         datos.pais === 'ES'
@@ -278,13 +296,16 @@ function DatosEmpresa() {
               value={datos.monedaCuenta}
               onChange={(e) => s('monedaCuenta')(e.target.value)}
               className={campo}
-              disabled={off || espana || !monedaEditable}
+              disabled={off || !monedaEditable || monedasDelPais(datos.pais).length < 2}
             >
-              {(espana ? ['EUR'] : ['EUR', 'USD']).map((m) => (
-                <option key={m} value={m}>
-                  {m} — {NOMBRE_MONEDA[m] ?? m}
-                </option>
-              ))}
+              {/* La guardada se muestra aunque el pais ya no la admita (empresa antigua con facturas). */}
+              {monedasDelPais(datos.pais)
+                .concat(!monedaEditable && !monedasDelPais(datos.pais).includes(datos.monedaCuenta) ? [datos.monedaCuenta] : [])
+                .map((m) => (
+                  <option key={m} value={m}>
+                    {m} — {NOMBRE_MONEDA[m] ?? m}
+                  </option>
+                ))}
             </select>
           </div>
           <p className="text-xs text-slate-500 md:col-span-2 md:self-end">

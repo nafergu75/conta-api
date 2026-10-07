@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Money, X } from '@phosphor-icons/react';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
-import { formatoImporte, formatoTipo, parseImporte, redondear2, textoTipo } from '@/lib/moneda';
+import { formatoImporte, formatoTipo, parseImporte, parseTipo, redondear2, textoTipo } from '@/lib/moneda';
 
 /**
  * Cobros de una factura de venta o pagos de una factura de gasto: lo pendiente,
@@ -314,7 +314,8 @@ function ModalCobro({
 
   // Vista previa del cobro en divisa (el servidor hace el calculo definitivo).
   const valor = parseImporte(importe);
-  const tcDia = modoTipo === 'TIPO' ? parseImporte(tipoDia) : bce?.tipoCambio ?? NaN;
+  // El tipo se lee con parseTipo: '1.085' es 1,085 (no 1085, como lo leeria un importe).
+  const tcDia = modoTipo === 'TIPO' ? parseTipo(tipoDia) : bce?.tipoCambio ?? NaN;
   const com = comision.trim() ? parseImporte(comision) : 0;
   const previa = (() => {
     if (!enDivisa || !(valor > 0)) return null;

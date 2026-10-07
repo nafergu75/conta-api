@@ -18,7 +18,6 @@ const TEXTOS: Record<string, { texto: string; href: string; enlace: string }> = 
   CLIENTE_DIRECCION: { texto: 'El cliente no tiene dirección completa.', href: '/dashboard/clientes', enlace: 'Ficha del cliente' },
   CUENTA_BANCARIA: { texto: 'Para cobrar por transferencia, da de alta tu cuenta bancaria y saldrá el IBAN.', href: '/dashboard/tesoreria/cuentas', enlace: 'Cuentas bancarias' },
   // Divisas
-  CUENTA_BANCARIA_MONEDA: { texto: 'No tienes ninguna cuenta bancaria en la moneda de la factura: en el PDF sale la primera que tengas.', href: '/dashboard/tesoreria/cuentas', enlace: 'Cuentas bancarias' },
   TIPO_CAMBIO_PROVISIONAL: { texto: 'El tipo de cambio es provisional: el definitivo se fija al pasarla a factura.', href: '', enlace: '' },
   TIPO_CAMBIO_PENDIENTE: { texto: 'Todavía no hay tipo de cambio: indícalo a mano al pasarla a factura si el BCE no responde.', href: '', enlace: '' },
   // Tipo de operacion de IVA (impiden emitirla)
@@ -28,7 +27,7 @@ const TEXTOS: Record<string, { texto: string; href: string; enlace: string }> = 
   CLIENTE_ESPANOL: { texto: 'El cliente es de España: una exportación o un servicio no sujeto no se le puede facturar sin IVA.', href: '/dashboard/clientes', enlace: 'Ficha del cliente' },
   EXENCION_SIN_SUPUESTO: { texto: 'Indica el supuesto de exención (causa y precepto legal).', href: '', enlace: '' },
   ISP_CLIENTE: { texto: 'La inversión del sujeto pasivo exige un cliente español con NIF.', href: '/dashboard/clientes', enlace: 'Ficha del cliente' },
-  LINEA_SIN_IVA: { texto: 'Hay líneas al 0 % en una factura nacional: elige el tipo de operación que corresponda o separa la venta en dos facturas.', href: '', enlace: '' },
+  LINEA_SIN_IVA: { texto: 'Todas las líneas van al 0 % en una factura nacional: elige el tipo de operación que corresponda o pon el IVA.', href: '', enlace: '' },
   LINEA_CON_IVA: { texto: 'El tipo de operación no lleva IVA: pon todas las líneas al 0 %.', href: '', enlace: '' },
   RETENCION_NO_RESIDENTE: { texto: 'A un cliente no residente no se le aplica retención de IRPF.', href: '', enlace: '' },
   F2_NO_PERMITIDA: { texto: 'Este tipo de operación no admite factura simplificada: usa la completa (F1).', href: '', enlace: '' },
