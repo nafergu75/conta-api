@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { List, X } from '@phosphor-icons/react';
 import Sidebar from '@/components/dashboard/Sidebar';
-import { actualizarPermisos, getCompanyId, getToken, getUser, tieneAlgunPermiso } from '@/lib/auth';
+import { actualizarPermisos, getCompanyId, getToken, getUser, RUTA_CAMBIAR_CONTRASENA, tieneAlgunPermiso } from '@/lib/auth';
 import { apiFetch, companyPath } from '@/lib/api';
 import { CarmenProvider } from '@/components/carmen/CarmenProvider';
 import { CarmenBoton } from '@/components/carmen/CarmenBoton';
@@ -23,8 +23,11 @@ export default function DashboardLayout({
   const [autorizado, setAutorizado] = useState(false);
 
   useEffect(() => {
-    if (getToken()) setAutorizado(true);
-    else router.replace('/login');
+    if (!getToken()) router.replace('/login');
+    // Contrasena provisional: el servidor no deja usar nada mas. Ni menu, ni
+    // Carmen, ni datos hasta que ponga una suya.
+    else if (getUser()?.debeCambiarContrasena) router.replace(RUTA_CAMBIAR_CONTRASENA);
+    else setAutorizado(true);
   }, [router]);
 
   // Permisos actuales del servidor: la sesion guardada puede ser de antes de un
@@ -33,11 +36,17 @@ export default function DashboardLayout({
     // La demo sin backend no tiene sesion real: un 401 la echaria al login.
     if (!autorizado || getToken() === 'demo-local-sin-backend') return;
     apiFetch<Parameters<typeof actualizarPermisos>[0]>('/auth/me')
-      .then(actualizarPermisos)
+      .then((d) => {
+        actualizarPermisos(d);
+        if (d.user?.debeCambiarContrasena) {
+          setAutorizado(false);
+          router.replace(RUTA_CAMBIAR_CONTRASENA);
+        }
+      })
       .catch(() => {
         // Sin backend (demo): se queda la sesion guardada.
       });
-  }, [autorizado]);
+  }, [autorizado, router]);
 
   // Empresa sin sus datos (NIF, domicilio, Registro Mercantil...): salen en
   // todas las facturas. Se lleva a completarlos UNA vez por sesion y empresa;

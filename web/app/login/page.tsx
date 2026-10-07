@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { empresaInicial, saveSession } from '@/lib/auth';
+import { empresaInicial, RUTA_CAMBIAR_CONTRASENA, saveSession } from '@/lib/auth';
 
 const API = '/api/conta';
 
@@ -60,9 +60,12 @@ export default function LoginPage() {
         permisos: data.user?.permisos ?? [],
         permisosPorEmpresa: data.user?.permisosPorEmpresa ?? {},
         rolesPorEmpresa: data.user?.rolesPorEmpresa ?? {},
+        personalizadoPorEmpresa: data.user?.personalizadoPorEmpresa ?? {},
         esAdminGlobal,
+        debeCambiarContrasena: data.user?.debeCambiarContrasena === true,
       });
-      router.push('/dashboard');
+      // Con la contrasena provisional, antes de nada hay que poner una propia.
+      router.push(data.user?.debeCambiarContrasena ? RUTA_CAMBIAR_CONTRASENA : '/dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error de conexión');
       setLoading(false);
