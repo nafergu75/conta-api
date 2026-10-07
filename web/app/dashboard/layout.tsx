@@ -55,17 +55,21 @@ export default function DashboardLayout({
           return;
         }
         setFaltanDatos(cfg.pendientes ?? []);
+        const clave = `conta_datos_empresa_avisado_${getCompanyId()}`;
         // Ni en datos de la empresa ni en Administracion: el administrador tiene que
-        // poder llegar aunque la empresa en la que esta no tenga aun sus datos. Ni en
-        // Configuracion: su portada ya lleva a completarlos.
-        if (
-          pathname.startsWith('/dashboard/empresa') ||
-          pathname.startsWith('/dashboard/admin') ||
-          pathname.startsWith('/dashboard/configuracion')
-        ) {
+        // poder llegar aunque la empresa en la que esta no tenga aun sus datos.
+        if (pathname.startsWith('/dashboard/empresa') || pathname.startsWith('/dashboard/admin')) return;
+        // Ni en Configuracion, cuya portada ya dice que faltan. Ademas se da por
+        // avisado: si no, el primer enlace de Configuracion a otra pantalla (el
+        // cierre, el plan contable...) acababa en los datos de la empresa.
+        if (pathname.startsWith('/dashboard/configuracion')) {
+          try {
+            sessionStorage.setItem(clave, '1');
+          } catch {
+            // Sin sessionStorage tampoco se redirige nunca: no hay nada que marcar.
+          }
           return;
         }
-        const clave = `conta_datos_empresa_avisado_${getCompanyId()}`;
         try {
           if (sessionStorage.getItem(clave)) return;
           sessionStorage.setItem(clave, '1');
