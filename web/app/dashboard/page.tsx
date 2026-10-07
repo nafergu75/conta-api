@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Plus } from '@phosphor-icons/react';
-import { getUser } from '@/lib/auth';
+import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { ApiError, apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { proximosVencimientos } from '@/lib/aeatCalendar';
 import { AlertCard } from '@/components/dashboard/AlertCard';
@@ -102,6 +102,8 @@ export default function DashboardPage() {
   const [incomeExpenseViewType, setIncomeExpenseViewType] = useState<'income-expense' | 'result'>('income-expense');
   const [selectedAnalysisPeriod, setSelectedAnalysisPeriod] = useState<string>(''); // Período único para análisis
   const [vencimientosAeat] = useState(() => proximosVencimientos());
+  // Lo que deja ver su acceso en la empresa activa (se lee al montar: la sesion vive en el navegador).
+  const [acceso, setAcceso] = useState<{ cobros: boolean; aeat: boolean; nuevoMovimiento: boolean } | null>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -127,13 +129,16 @@ export default function DashboardPage() {
 
       const fallos = resultados.flatMap((r) => (r.status === 'rejected' ? [r.reason as unknown] : []));
       const esSinPermiso = (e: unknown) => e instanceof ApiError && e.status === 403;
-      // Un 403 es que su acceso no incluye esos datos: se dice sin tono de error.
-      setSinAccesoResumen(fallos.some(esSinPermiso));
+      // Un 403 en el resumen es que su acceso no incluye esos datos (pide
+      // Contabilidad o Tesoreria): no se pintan ceros como si fueran reales y se
+      // dice sin tono de error. Un 403 solo en clientes no oculta el resumen.
+      const resumenSinAcceso = rSum.status === 'rejected' && esSinPermiso(rSum.reason);
+      setSinAccesoResumen(resumenSinAcceso);
       const otroFallo = fallos.find((e) => !esSinPermiso(e));
 
       // IVA y retenciones del año, desde las facturas (no se estiman).
       try {
-        setFiscal(await get<ResumenFiscal>(`/movements/stats/fiscal?anio=${selectedYear}`));
+        setFiscal(resumenSinAcceso ? null : await get<ResumenFiscal>(`/movements/stats/fiscal?anio=${selectedYear}`));
       } catch {
         setFiscal(null);
       }
@@ -181,7 +186,14 @@ export default function DashboardPage() {
   }, [selectedYear]);
 
   useEffect(() => {
-    setUserEmail(getUser()?.email ?? '');
+    const user = getUser();
+    setUserEmail(user?.email ?? '');
+    setAcceso({
+      // Mismos permisos que piden las rutas del servidor.
+      cobros: tieneAlgunPermiso(user, ['ventas:read', 'contabilidad:read']),
+      aeat: tieneAlgunPermiso(user, ['impuestos:read', 'contabilidad:read']),
+      nuevoMovimiento: tieneAlgunPermiso(user, ['contabilidad:write']),
+    });
     loadData();
   }, [loadData]);
 
@@ -380,18 +392,28 @@ export default function DashboardPage() {
             <span className="hidden md:inline text-sm text-slate-500">
               {userEmail}
             </span>
-            <button
-              onClick={() => setShowForm(true)}
-              className="inline-flex items-center gap-1.5 px-4 py-2 bg-accent-600 text-white text-sm font-semibold rounded-lg hover:bg-accent-700 active:scale-[0.98] transition-all"
-            >
-              <Plus size={16} weight="bold" /> Nuevo movimiento
-            </button>
+            {acceso?.nuevoMovimiento && (
+              <button
+                onClick={() => setShowForm(true)}
+                className="inline-flex items-center gap-1.5 px-4 py-2 bg-accent-600 text-white text-sm font-semibold rounded-lg hover:bg-accent-700 active:scale-[0.98] transition-all"
+              >
+                <Plus size={16} weight="bold" /> Nuevo movimiento
+              </button>
+            )}
           </div>
         </div>
       </header>
 
       <main className="max-w-6xl mx-auto px-4 md:px-8 py-8 flex flex-col gap-8">
+        {sinAccesoResumen && (
+          <div role="status" className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
+            Tu acceso a esta empresa no incluye el resumen general (ingresos, gastos y movimientos). En el menú tienes las áreas que sí
+            puedes usar.
+          </div>
+        )}
+
         {/* Plazos AEAT calculados con el calendario real a partir de hoy */}
+        {acceso?.aeat && (
         <section aria-labelledby="vencimientos-aeat">
           <div className="flex items-baseline justify-between gap-4 mb-3">
             <h2 id="vencimientos-aeat" className="font-semibold text-slate-900">
@@ -407,7 +429,10 @@ export default function DashboardPage() {
             ))}
           </div>
         </section>
+        )}
 
+        {!sinAccesoResumen && (
+          <>
         {/* Filtros: Año y Período */}
         <section className="flex items-center gap-4 flex-wrap bg-white rounded-lg border border-slate-200 p-4">
           <div className="flex items-center gap-2">
@@ -466,11 +491,6 @@ export default function DashboardPage() {
         {error && (
           <div className="rounded-xl border border-rose-200 bg-rose-50 text-rose-700 p-4 text-sm">
             <strong>No se pudo cargar el dashboard.</strong> {error}
-          </div>
-        )}
-        {sinAccesoResumen && (
-          <div role="status" className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
-            Tu acceso a esta empresa no incluye el resumen general.
           </div>
         )}
 
@@ -577,9 +597,15 @@ export default function DashboardPage() {
           )}
         </section>
 
-        {/* Cobros de clientes: pendiente (de cualquier año) y cobrado del año elegido */}
-        <CobrosClientes anio={selectedYear} />
+          </>
+        )}
 
+        {/* Cobros de clientes: pendiente (de cualquier año) y cobrado del año elegido.
+            Solo con Ventas o Contabilidad, que es lo que pide su ruta. */}
+        {acceso?.cobros && <CobrosClientes anio={selectedYear} />}
+
+        {!sinAccesoResumen && (
+          <>
         {/* Gráfico de Ingresos y Gastos */}
         <section className="rounded-xl bg-white border border-slate-200 p-8">
           <div className="flex items-center justify-between mb-6">
@@ -921,6 +947,8 @@ export default function DashboardPage() {
             </div>
           )}
         </section>
+          </>
+        )}
 
       </main>
 
