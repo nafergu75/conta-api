@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ArrowLeft } from '@phosphor-icons/react';
 import FormFacturaGasto from '@/components/compras/FormFacturaGasto';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
-import { hoyIso, sumarDias } from '@/lib/compras';
+import { hoyIso } from '@/lib/compras';
 
 /** Alta de una factura de gasto: se guarda con su asiento en firme y su anotación en el libro de IVA. */
 export default function NuevaFacturaGastoPage() {
@@ -24,11 +24,11 @@ export default function NuevaFacturaGastoPage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-4xl px-4 py-6 md:px-8 md:py-8">
+      <main className="mx-auto max-w-4xl px-4 pt-6 pb-24 md:px-8 md:py-8">
         {puedeEscribir ? (
           <FormFacturaGasto
             modo="alta"
-            inicial={{ fechaEmision: hoy, fechaVencimiento: sumarDias(hoy, 30) }}
+            inicial={{ fechaEmision: hoy }}
             onGuardado={({ factura }) => router.push(`/dashboard/compras/${factura.id}?guardada=1`)}
             onCancelar={() => router.push('/dashboard/compras')}
           />

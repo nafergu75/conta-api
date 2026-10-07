@@ -7,7 +7,7 @@ import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { pareceNifIvaUe } from '@/lib/fiscal';
 import FormFacturaGasto, { type FormInicial } from '@/components/compras/FormFacturaGasto';
-import { hoyIso, paisDelPrefijo, sumarDias, TIPO_GASTO_INFO, tipoIvaMasCercano, type GastoExtraido, type GastoRegistrado } from '@/lib/compras';
+import { hoyIso, paisDelPrefijo, TIPO_GASTO_INFO, tipoIvaMasCercano, type GastoExtraido, type GastoRegistrado } from '@/lib/compras';
 
 /**
  * Lector de gastos: se sube el PDF o la foto de una factura de proveedor, la IA
@@ -38,7 +38,6 @@ function inicialDe(g: GastoExtraido, paisExistente: string | null): FormInicial 
     proveedor,
     numeroFacturaProveedor: g.numeroFactura ?? '',
     fechaEmision: fecha,
-    fechaVencimiento: sumarDias(fecha, 30),
     tipoGasto: tipo,
     cuentaGasto: g.cuentaContableBase && /^6\d{2,9}$/.test(g.cuentaContableBase) ? g.cuentaContableBase : null,
     lineas: [
@@ -156,7 +155,7 @@ export default function LectorGastosPage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl px-4 py-6 md:px-8 md:py-8">
+      <main className="mx-auto max-w-7xl px-4 pt-6 pb-24 md:px-8 md:py-8">
         {/* El input esta fuera de cualquier <label>: el boton y la zona lo abren con el ref. */}
         <input ref={inputRef} type="file" accept="application/pdf,image/jpeg,image/png,image/webp" onChange={alElegir} className="hidden" tabIndex={-1} aria-hidden="true" />
 

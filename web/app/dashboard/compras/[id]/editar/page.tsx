@@ -66,7 +66,7 @@ export default function EditarFacturaGastoPage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-4xl px-4 py-6 md:px-8 md:py-8">
+      <main className="mx-auto max-w-4xl px-4 pt-6 pb-24 md:px-8 md:py-8">
         {cargando ? (
           <div className="h-64 animate-pulse rounded-xl bg-slate-100" />
         ) : !gasto ? (

@@ -323,6 +323,7 @@ export default function FormFacturaGasto({
         <h2 className="mb-4 text-base font-semibold text-slate-900">Proveedor</h2>
         <SelectorProveedor
           valor={proveedor}
+          textoNuevo={avisoProveedor}
           onCambio={(p) => {
             setProveedor(p);
             if (campoError?.startsWith('proveedor')) {
@@ -332,7 +333,6 @@ export default function FormFacturaGasto({
           }}
           inv={inv}
         />
-        {avisoProveedor && proveedor?.tipo === 'nuevo' && <p className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">{avisoProveedor}</p>}
         {extranjero && (
           <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
             Proveedor de fuera de España: la factura va sin IVA español y sin retención.
@@ -642,7 +642,8 @@ export default function FormFacturaGasto({
         <div role="alert" className="flex flex-col gap-2 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
           <p className="flex items-start gap-2">
             <WarningCircle size={18} className="mt-0.5 shrink-0" />
-            <span>{facturaRepetidaId ? `Esta factura ya está registrada. ${error}` : proveedorRepetidoId ? `Ya existe ese proveedor. ${error}` : error}</span>
+            {/* El servidor ya lo explica («Esta factura ya está registrada: ...», «Ya existe un proveedor con ese NIF: ...»). */}
+            <span>{error}</span>
           </p>
           {facturaRepetidaId && (
             <Link href={`/dashboard/compras/${facturaRepetidaId}`} className="font-semibold underline">
@@ -687,10 +688,13 @@ export default function FormFacturaGasto({
 
 function SelectorProveedor({
   valor,
+  textoNuevo,
   onCambio,
   inv,
 }: {
   valor: ProveedorElegido | null;
+  /** Texto sobre el proveedor nuevo (el lector: «No está dado de alta: se creará al registrar la factura.»). */
+  textoNuevo?: string;
   onCambio: (p: ProveedorElegido | null) => void;
   inv: (campo: string) => boolean;
 }) {
@@ -752,8 +756,10 @@ function SelectorProveedor({
     const ue = !es && pareceNifIvaUe(valor.nifCif);
     return (
       <div className="flex flex-col gap-4">
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-sm font-medium text-slate-700">Proveedor nuevo: se dará de alta al guardar la factura.</p>
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+          <p className={`text-sm font-medium ${textoNuevo ? 'rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-blue-800' : 'text-slate-700'}`}>
+            {textoNuevo ?? 'Proveedor nuevo: se dará de alta al guardar la factura.'}
+          </p>
           <button type="button" onClick={() => onCambio(null)} className="inline-flex items-center gap-1 text-sm font-semibold text-blue-600 hover:underline">
             <X size={14} /> Buscar uno existente
           </button>
