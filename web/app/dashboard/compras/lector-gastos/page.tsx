@@ -1,221 +1,301 @@
 'use client';
 
-
-import { useState, useCallback , Suspense} from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { Upload, Plus, ArrowLeft, Check, X } from '@phosphor-icons/react';
+import { ArrowLeft, CheckCircle, FileArrowUp, WarningCircle } from '@phosphor-icons/react';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
-import { useOcrSession } from '@/lib/useOcrSession';
-import { OcrSessionPanel } from '@/components/dashboard/OcrSessionPanel';
+import { getUser, tieneAlgunPermiso } from '@/lib/auth';
+import { pareceNifIvaUe } from '@/lib/fiscal';
+import FormFacturaGasto, { type FormInicial } from '@/components/compras/FormFacturaGasto';
+import { hoyIso, paisDelPrefijo, sumarDias, TIPO_GASTO_INFO, tipoIvaMasCercano, type GastoExtraido, type GastoRegistrado } from '@/lib/compras';
 
+/**
+ * Lector de gastos: se sube el PDF o la foto de una factura de proveedor, la IA
+ * la lee, el usuario revisa y corrige todos los datos y, al registrarla, se
+ * crea la factura de gasto con su asiento en borrador (se aprueba en el Motor
+ * contable). El archivo se lee en el servidor; aqui solo se ve la vista previa.
+ */
 
-interface GastoExtraido {
-  numeroFactura: string | null;
-  proveedor: string | null;
-  nifProveedor: string | null;
-  fecha: string | null;
-  conceptoGasto: string | null;
-  cuentaContable: string | null;
-  base: number | null;
-  iva: number | null;
-  total: number | null;
-  confianza: number;
-  errores: string[];
-  /** Una nomina o un recibo de la SS no es una factura: se registra en Nominas. */
-  tipoDocumento?: 'factura' | 'nomina' | 'seguros_sociales';
+const MAX_BYTES = 4 * 1024 * 1024;
+const TIPOS = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+
+/** Lo leido, en la forma del formulario. */
+function inicialDe(g: GastoExtraido, paisExistente: string | null): FormInicial {
+  const tipo = g.tipoGastoSugerido && TIPO_GASTO_INFO[g.tipoGastoSugerido] ? g.tipoGastoSugerido : 'SUMINISTROS';
+  const base = Number(g.base) || 0;
+  const tipoIva = g.tipoIva !== null && g.tipoIva !== undefined ? tipoIvaMasCercano(g.tipoIva) : base > 0 ? tipoIvaMasCercano(((Number(g.iva) || 0) / base) * 100) : 21;
+  const ret = Number(g.tipoRetencion) || 0;
+  const nif = (g.nifProveedor ?? '').trim();
+  let proveedor: FormInicial['proveedor'] = null;
+  if (g.proveedorExistente) {
+    proveedor = { tipo: 'existente', id: g.proveedorExistente.id, nombre: g.proveedorExistente.nombreFiscal, nif: g.proveedorExistente.nifCif, pais: paisExistente || 'ES' };
+  } else if (g.proveedor || nif) {
+    const pais = pareceNifIvaUe(nif) ? (paisDelPrefijo(nif) ?? 'ES') : 'ES';
+    proveedor = { tipo: 'nuevo', nombreFiscal: g.proveedor ?? '', nifCif: nif, pais, direccion: '', cp: '', municipio: '', provincia: '' };
+  }
+  const fecha = g.fecha && /^\d{4}-\d{2}-\d{2}$/.test(g.fecha) ? g.fecha : hoyIso();
+  return {
+    proveedor,
+    numeroFacturaProveedor: g.numeroFactura ?? '',
+    fechaEmision: fecha,
+    fechaVencimiento: sumarDias(fecha, 30),
+    tipoGasto: tipo,
+    cuentaGasto: g.cuentaContableBase && /^6\d{2,9}$/.test(g.cuentaContableBase) ? g.cuentaContableBase : null,
+    lineas: [
+      {
+        descripcion: g.conceptoGasto?.trim() || 'Gasto',
+        cantidad: 1,
+        precioUnitario: base,
+        tipoIva,
+        tipoRetencion: TIPO_GASTO_INFO[tipo].retenciones.includes(ret) ? ret : 0,
+      },
+    ],
+    totalDocumento: Number.isFinite(Number(g.total)) && Number(g.total) !== 0 ? Number(g.total) : undefined,
+  };
 }
 
-function LectorGastosPageInner() {
-  const router = useRouter();
-  const { ocrData, loading: ocrLoading } = useOcrSession();
-  const [file, setFile] = useState<File | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [gasto, setGasto] = useState<GastoExtraido | null>(null);
-  const [exito, setExito] = useState<string | null>(null);
+export default function LectorGastosPage() {
+  const puedeEscribir = tieneAlgunPermiso(getUser(), ['compras:write']);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  const validateAndProcess = async (selectedFile: File) => {
-    const tiposPermitidos = ['application/pdf', 'image/jpeg', 'image/png'];
-    if (!tiposPermitidos.includes(selectedFile.type)) {
-      setError('Solo se permiten PDF e imágenes (JPG, PNG)');
+  const [archivo, setArchivo] = useState<File | null>(null);
+  const [vista, setVista] = useState<string | null>(null);
+  const [leyendo, setLeyendo] = useState(false);
+  const [error, setError] = useState('');
+  const [leido, setLeido] = useState<GastoExtraido | null>(null);
+  const [inicial, setInicial] = useState<FormInicial | null>(null);
+  const [tipoDocumento, setTipoDocumento] = useState<GastoExtraido['tipoDocumento']>('factura');
+  const [registrado, setRegistrado] = useState<GastoRegistrado | null>(null);
+  const [lectura, setLectura] = useState(0);
+
+  // La vista previa usa una URL local del archivo: se libera al cambiar de archivo.
+  useEffect(() => {
+    if (!archivo) {
+      setVista(null);
       return;
     }
+    const url = URL.createObjectURL(archivo);
+    setVista(url);
+    return () => URL.revokeObjectURL(url);
+  }, [archivo]);
 
-    setFile(selectedFile);
-    setError(null);
-    await procesarGasto(selectedFile);
+  const abrirSelector = () => {
+    if (!leyendo) inputRef.current?.click();
   };
 
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = e.target.files?.[0];
-    if (selectedFile) {
-      await validateAndProcess(selectedFile);
+  const reiniciar = () => {
+    setArchivo(null);
+    setLeido(null);
+    setInicial(null);
+    setRegistrado(null);
+    setError('');
+    if (inputRef.current) inputRef.current.value = '';
+  };
+
+  const leer = async (f: File) => {
+    setError('');
+    setRegistrado(null);
+    if (!TIPOS.includes(f.type)) {
+      setError('Solo se pueden leer PDF e imágenes (JPG, PNG o WEBP).');
+      return;
     }
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-  };
-
-  const handleDrop = async (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    const droppedFiles = e.dataTransfer.files;
-    if (droppedFiles.length > 0) {
-      await validateAndProcess(droppedFiles[0]);
+    if (f.size > MAX_BYTES) {
+      setError('El archivo pesa más de 4 MB: redúcelo o haz la foto con menos resolución.');
+      return;
     }
-  };
-
-  /** El fichero en base64 (sin el prefijo data:). */
-  const leerBase64 = (f: File) =>
-    new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '');
-      reader.onerror = () => reject(new Error('No se pudo leer el archivo.'));
-      reader.readAsDataURL(f);
-    });
-
-  const procesarGasto = async (file: File) => {
-    setLoading(true);
-    setError(null);
-    setExito(null);
+    setArchivo(f);
+    setLeido(null);
+    setInicial(null);
+    setLeyendo(true);
     try {
-      // Antes el loading no se apagaba nunca tras una lectura correcta, y los
-      // errores dentro de FileReader.onload no llegaban al catch.
-      const archivoBase64 = await leerBase64(file);
-      const leido = await apiFetch<GastoExtraido>(companyPath('/gastos-extractor/extraer-ia'), {
-        method: 'POST',
-        body: JSON.stringify({ archivoBase64, nombre: file.name, mimeType: file.type }),
-      });
-      setGasto(leido);
+      const datos = new FormData();
+      datos.append('archivo', f, f.name);
+      const g = await apiFetch<GastoExtraido>(companyPath('/gastos-extractor/extraer-ia'), { method: 'POST', body: datos });
+      // El pais del proveedor ya dado de alta (un proveedor extranjero no lleva IVA español).
+      let pais: string | null = null;
+      if (g.proveedorExistente) {
+        pais = await apiFetch<{ pais?: string }>(companyPath(`/proveedores/${encodeURIComponent(g.proveedorExistente.id)}`))
+          .then((p) => p.pais ?? null)
+          .catch(() => null);
+      }
+      setLeido(g);
+      setTipoDocumento(g.tipoDocumento ?? 'factura');
+      setInicial(inicialDe(g, pais));
+      setLectura((n) => n + 1);
     } catch (err) {
       setError(errorMessage(err));
     } finally {
-      setLoading(false);
+      setLeyendo(false);
     }
   };
 
-  const handleConfirmar = async () => {
-    if (!gasto) return;
-
-    setLoading(true);
-    setError(null);
-    try {
-      await apiFetch(companyPath('/gastos-extractor/confirmar'), {
-        method: 'POST',
-        body: JSON.stringify(gasto),
-      });
-      setExito('Gasto registrado.');
-      setGasto(null);
-      setFile(null);
-    } catch (err) {
-      // El mensaje del backend (p. ej. un campo que falta) llega al usuario.
-      setError(errorMessage(err));
-    } finally {
-      setLoading(false);
-    }
+  const alElegir = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (f) leer(f);
   };
+
+  const alSoltar = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const f = e.dataTransfer.files?.[0];
+    if (f) leer(f);
+  };
+
+  const noEsFactura = tipoDocumento === 'nomina' || tipoDocumento === 'seguros_sociales';
+  const confianza = leido ? Math.round((leido.confianza <= 1 ? leido.confianza * 100 : leido.confianza) || 0) : 0;
+  const esImagen = archivo?.type.startsWith('image/');
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
-      {/* Header */}
-      <header className="sticky top-0 z-40 bg-white border-b border-slate-200 shadow-sm">
-        <div className="max-w-6xl mx-auto px-4 md:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => router.push('/dashboard/compras')}
-              className="p-2 text-slate-500 hover:text-slate-900 transition-colors"
-              aria-label="Volver"
-            >
-              <ArrowLeft size={20} />
-            </button>
-            <h1 className="font-semibold text-slate-900">Lector de Gastos (OCR)</h1>
-          </div>
-          <div className="text-sm text-slate-600">
-            Sube facturas y comprobantes para extraer datos automáticamente
-          </div>
+    <div>
+      <header className="sticky top-0 z-40 h-16 border-b border-slate-200 bg-white">
+        <div className="mx-auto flex h-full max-w-7xl items-center gap-3 px-4 md:px-8">
+          <Link href="/dashboard/compras" className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900" aria-label="Volver a Compras">
+            <ArrowLeft size={20} />
+          </Link>
+          <h1 className="font-semibold text-slate-900">Lector de gastos</h1>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 md:px-8 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Columna izquierda: Formulario (2 cols) */}
-          <div className="lg:col-span-2">
-        {!gasto ? (
-          <>
-            {/* Área de carga con drag-and-drop */}
+      <main className="mx-auto max-w-7xl px-4 py-6 md:px-8 md:py-8">
+        {/* El input esta fuera de cualquier <label>: el boton y la zona lo abren con el ref. */}
+        <input ref={inputRef} type="file" accept="application/pdf,image/jpeg,image/png,image/webp" onChange={alElegir} className="hidden" tabIndex={-1} aria-hidden="true" />
+
+        {!puedeEscribir ? (
+          <p className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">Para registrar facturas de gasto hace falta el permiso de escritura en Compras.</p>
+        ) : registrado ? (
+          <div role="status" className="mx-auto flex max-w-2xl flex-col gap-4 rounded-xl border border-emerald-200 bg-emerald-50 p-6 text-emerald-800">
+            <p className="flex items-start gap-2 font-medium">
+              <CheckCircle size={22} weight="fill" className="mt-0.5 shrink-0" />
+              <span>
+                Factura registrada (registro {registrado.factura.numeroCompleto}). Su asiento está en borrador: revísalo y apruébalo en el Motor contable.
+                {registrado.proveedorCreado && ' El proveedor se ha dado de alta.'}
+              </span>
+            </p>
+            <div className="flex flex-wrap gap-3 text-sm">
+              <Link href={`/dashboard/compras/${registrado.factura.id}`} className="rounded-lg border border-emerald-200 bg-white px-4 py-2 font-semibold text-emerald-700 hover:bg-emerald-50">
+                Ver la factura
+              </Link>
+              {registrado.asientoId && tieneAlgunPermiso(getUser(), ['contabilidad:read', 'contabilidad:write']) && (
+                <Link href={`/dashboard/motor-contable/${registrado.asientoId}`} className="rounded-lg border border-emerald-200 bg-white px-4 py-2 font-semibold text-emerald-700 hover:bg-emerald-50">
+                  Ver el asiento
+                </Link>
+              )}
+              <button type="button" onClick={reiniciar} className="rounded-lg bg-accent-600 px-4 py-2 font-semibold text-white hover:bg-accent-700">
+                Leer otra
+              </button>
+            </div>
+          </div>
+        ) : !leido || !inicial ? (
+          <div className="mx-auto max-w-2xl">
             <div
-              onDragOver={handleDragOver}
-              onDrop={handleDrop}
-              className="bg-white rounded-xl border-2 border-dashed border-accent-300 p-12 text-center hover:border-accent-400 transition-colors cursor-pointer"
+              role="button"
+              tabIndex={0}
+              onClick={abrirSelector}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  abrirSelector();
+                }
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              onDrop={alSoltar}
+              aria-label="Seleccionar el archivo de la factura"
+              aria-busy={leyendo}
+              className="cursor-pointer rounded-xl border-2 border-dashed border-emerald-200 bg-white p-8 text-center transition-colors hover:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-accent-600 md:p-12"
             >
-              <Upload size={48} className="text-accent-600 mx-auto mb-4" weight="duotone" />
-              <h2 className="text-xl font-semibold text-slate-900 mb-2">
-                Arrastra una factura aquí o haz clic para seleccionar
-              </h2>
-              <p className="text-slate-600 mb-6">
-                PDF, JPG o PNG. El sistema extraerá automáticamente los datos usando IA.
+              <FileArrowUp size={48} weight="duotone" className="mx-auto mb-4 text-accent-600" />
+              <h2 className="mb-2 text-lg font-semibold text-slate-900">{leyendo ? 'Leyendo la factura...' : 'Sube el PDF o la foto de la factura'}</h2>
+              <p className="mb-6 text-sm text-slate-600">
+                {leyendo ? 'Tarda unos segundos.' : 'Arrástrala aquí o pulsa para elegirla. PDF, JPG, PNG o WEBP de hasta 4 MB. En el móvil puedes hacer la foto directamente.'}
               </p>
-
-              <label className="inline-block">
-                <input
-                  type="file"
-                  accept=".pdf,.jpg,.jpeg,.png"
-                  onChange={handleFileSelect}
-                  disabled={loading}
-                  className="hidden"
-                />
-                <button
-                  className="px-6 py-3 bg-accent-600 text-white font-semibold rounded-lg hover:bg-accent-700 active:scale-[0.98] transition-all disabled:opacity-60 disabled:pointer-events-none cursor-pointer inline-flex items-center gap-2"
-                  disabled={loading}
-                >
-                  <Plus size={18} />
-                  {loading ? 'Procesando...' : 'Seleccionar archivo'}
-                </button>
-              </label>
-
-              {file && (
-                <p className="text-sm text-slate-600 mt-4">
-                  📄 {file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  abrirSelector();
+                }}
+                disabled={leyendo}
+                className="inline-flex items-center gap-2 rounded-lg bg-accent-600 px-6 py-3 font-semibold text-white transition-all hover:bg-accent-700 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-60"
+              >
+                {leyendo ? 'Leyendo...' : 'Seleccionar archivo'}
+              </button>
+              {archivo && (
+                <p className="mt-4 break-all text-sm text-slate-600">
+                  {archivo.name} ({(archivo.size / 1024 / 1024).toFixed(2).replace('.', ',')} MB)
                 </p>
               )}
             </div>
-
-            {exito && (
-              <div role="status" className="mt-6 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800 p-4">
-                {exito}
-              </div>
-            )}
             {error && (
-              <div className="mt-6 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 p-4">
-                ❌ {error}
-              </div>
+              <p role="alert" className="mt-4 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+                <WarningCircle size={18} className="mt-0.5 shrink-0" />
+                {error}
+              </p>
             )}
-          </>
+            <p className="mt-4 text-sm text-slate-500">
+              Revisarás y podrás corregir todos los datos antes de registrarla. La factura quedará pendiente de revisar hasta que apruebes su asiento en el Motor contable.
+            </p>
+          </div>
         ) : (
-          <>
-            {/* Datos extraídos */}
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mb-6">
-              <h2 className="text-lg font-semibold text-slate-900 mb-6">Datos Extraídos</h2>
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            {/* Vista previa */}
+            <section className="flex flex-col gap-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="min-w-0 break-all text-sm text-slate-600">{archivo?.name}</p>
+                <button type="button" onClick={reiniciar} className="text-sm font-semibold text-blue-600 hover:underline">
+                  Leer otra
+                </button>
+              </div>
+              {vista &&
+                (esImagen ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={vista} alt="Factura subida" className="max-h-[70vh] w-full rounded-lg border border-slate-200 bg-white object-contain" />
+                ) : (
+                  <iframe src={vista} title="Factura subida" className="h-[50vh] w-full rounded-lg border border-slate-200 bg-white lg:h-[75vh]" />
+                ))}
+            </section>
 
-              {gasto.errores.length > 0 && (
-                <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-4">
-                  <p className="text-sm font-semibold text-amber-900 mb-2">⚠️ Advertencias:</p>
-                  <ul className="text-sm text-amber-800 space-y-1">
-                    {gasto.errores.map((error, i) => (
-                      <li key={i}>• {error}</li>
+            {/* Datos leidos, editables */}
+            <section className="flex min-w-0 flex-col gap-4">
+              <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm">
+                <p className="text-slate-700">
+                  Confianza de la lectura: <span className={`font-semibold ${confianza >= 80 ? 'text-emerald-700' : confianza >= 60 ? 'text-amber-700' : 'text-rose-700'}`}>{confianza} %</span>
+                  {confianza < 60 && ' · revisa los datos con cuidado'}
+                </p>
+                {leido.cuentaContableBase && (
+                  <p className="mt-1 text-slate-600">
+                    Cuenta sugerida: <span className="font-mono">{leido.cuentaContableBase}</span>
+                    {leido.cuentaContableNombre && ` (${leido.cuentaContableNombre})`}
+                  </p>
+                )}
+              </div>
+
+              {leido.duplicada && (
+                <p className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                  Ya registraste esta factura ({leido.duplicada.numeroCompleto}).{' '}
+                  <Link href={`/dashboard/compras/${leido.duplicada.facturaId}`} className="font-semibold underline">
+                    Ver la factura
+                  </Link>
+                </p>
+              )}
+
+              {leido.errores?.length > 0 && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                  <p className="mb-1 font-semibold">Revisa estos puntos:</p>
+                  <ul className="list-disc space-y-1 pl-5">
+                    {leido.errores.map((e, i) => (
+                      <li key={i}>{e}</li>
                     ))}
                   </ul>
                 </div>
               )}
 
-              {(gasto.tipoDocumento === 'nomina' || gasto.tipoDocumento === 'seguros_sociales') && (
-                <div className="mb-6 space-y-2 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
+              {noEsFactura && (
+                <div className="space-y-2 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
                   <p>
-                    {gasto.tipoDocumento === 'nomina' ? 'Parece una nómina' : 'Parecen unos seguros sociales'}: si la empresa lleva sus nóminas en la app, no se registra como factura de gasto.{' '}
+                    {tipoDocumento === 'nomina' ? 'Parece una nómina' : 'Parecen unos seguros sociales'}: si la empresa lleva sus nóminas en la app, no se registra como factura de gasto.{' '}
                     <Link href="/dashboard/nominas" className="font-semibold underline">
                       Ve a Nóminas
                     </Link>
@@ -223,11 +303,7 @@ function LectorGastosPageInner() {
                   </p>
                   <p>
                     Si no lo es (por ejemplo, la cuota de autónomos del administrador, o una empresa sin trabajadores),{' '}
-                    <button
-                      type="button"
-                      onClick={() => setGasto({ ...gasto, tipoDocumento: 'factura' })}
-                      className="font-semibold underline"
-                    >
+                    <button type="button" onClick={() => setTipoDocumento('factura')} className="font-semibold underline">
                       es una factura de gasto
                     </button>
                     .
@@ -235,125 +311,26 @@ function LectorGastosPageInner() {
                 </div>
               )}
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Proveedor */}
-                <div>
-                  <label className="text-sm font-medium text-slate-700 mb-2 block">
-                    Proveedor
-                  </label>
-                  <div className="text-slate-900 font-semibold">
-                    {gasto.proveedor || '—'}
-                  </div>
-                  {gasto.nifProveedor && (
-                    <div className="text-xs text-slate-600 mt-1 font-mono">
-                      {gasto.nifProveedor}
-                    </div>
-                  )}
-                </div>
-
-                {/* Número de Factura */}
-                <div>
-                  <label className="text-sm font-medium text-slate-700 mb-2 block">
-                    Nº Factura
-                  </label>
-                  <div className="text-slate-900 font-semibold">
-                    {gasto.numeroFactura || '—'}
-                  </div>
-                </div>
-
-                {/* Fecha */}
-                <div>
-                  <label className="text-sm font-medium text-slate-700 mb-2 block">
-                    Fecha
-                  </label>
-                  <div className="text-slate-900 font-semibold">
-                    {gasto.fecha || '—'}
-                  </div>
-                </div>
-
-                {/* Concepto */}
-                <div>
-                  <label className="text-sm font-medium text-slate-700 mb-2 block">
-                    Concepto de Gasto
-                  </label>
-                  <div className="text-slate-900 font-semibold text-sm">
-                    {gasto.conceptoGasto || '—'}
-                  </div>
-                </div>
-
-                {/* Cuenta Contable */}
-                <div>
-                  <label className="text-sm font-medium text-slate-700 mb-2 block">
-                    Cuenta Contable Sugerida
-                  </label>
-                  <div className="text-slate-900 font-semibold">
-                    {gasto.cuentaContable || '—'}
-                  </div>
-                  <div className="text-xs text-slate-600 mt-1">
-                    {gasto.confianza >= 0.8 && <span>✓ Alta confianza</span>}
-                    {gasto.confianza >= 0.6 && gasto.confianza < 0.8 && (
-                      <span>⚠ Confianza media</span>
-                    )}
-                    {gasto.confianza < 0.6 && <span>⚠ Baja confianza - revisar</span>}
-                  </div>
-                </div>
-
-                {/* Totales */}
-                <div>
-                  <label className="text-sm font-medium text-slate-700 mb-2 block">
-                    Total
-                  </label>
-                  <div className="text-lg font-bold text-slate-900">
-                    €{(gasto.total || 0).toFixed(2)}
-                  </div>
-                  <div className="text-xs text-slate-600 mt-1">
-                    Base: €{(gasto.base || 0).toFixed(2)} | IVA: €{(gasto.iva || 0).toFixed(2)}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Acciones */}
-            <div className="flex gap-3">
-              <button
-                onClick={() => setGasto(null)}
-                className="flex-1 px-4 py-3 border border-slate-300 text-slate-700 font-semibold rounded-lg hover:bg-slate-50 transition-colors"
-              >
-                ← Cargar otro
-              </button>
-              <button
-                onClick={handleConfirmar}
-                disabled={loading || gasto.tipoDocumento === 'nomina' || gasto.tipoDocumento === 'seguros_sociales'}
-                className="flex-1 px-4 py-3 bg-accent-600 text-white font-semibold rounded-lg hover:bg-accent-700 active:scale-[0.98] transition-all disabled:opacity-60 disabled:pointer-events-none inline-flex items-center justify-center gap-2"
-              >
-                <Check size={18} />
-                {loading ? 'Guardando...' : 'Confirmar y Registrar'}
-              </button>
-            </div>
-
-            {error && (
-              <div className="mt-4 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 p-4">
-                ❌ {error}
-              </div>
-            )}
-          </>
-        )}
+              <FormFacturaGasto
+                key={lectura}
+                modo="lector"
+                inicial={inicial}
+                extra={{ tipoDocumento, confianza: leido.confianza }}
+                bloqueado={
+                  leido.duplicada
+                    ? `Ya registraste esta factura (${leido.duplicada.numeroCompleto}): no se registra dos veces.`
+                    : noEsFactura
+                      ? 'Confirma antes si es una factura de gasto (aviso de arriba).'
+                      : undefined
+                }
+                avisoProveedor="No está dado de alta: se creará al registrar la factura."
+                onGuardado={(r) => setRegistrado(r)}
+                onCancelar={reiniciar}
+              />
+            </section>
           </div>
-
-          {/* Columna derecha: Panel OCR (1 col) */}
-          {ocrData && (
-            <OcrSessionPanel ocrData={ocrData} loading={ocrLoading} />
-          )}
-        </div>
+        )}
       </main>
     </div>
-  );
-}
-
-export default function LectorGastosPage() {
-  return (
-    <Suspense fallback={<div className="p-8 text-center text-slate-500">Cargando...</div>}>
-      <LectorGastosPageInner />
-    </Suspense>
   );
 }

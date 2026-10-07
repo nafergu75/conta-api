@@ -56,6 +56,7 @@ const ICONS: Record<string, Icon> = {
   lector: ScanSmiley,
   proveedores: Truck,
   compras: ShoppingCart,
+  'compras/lector-gastos': ScanSmiley,
   movimientos: ArrowsLeftRight,
   'plan-contable': ListNumbers,
   'motor-contable': Cpu,
