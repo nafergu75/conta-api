@@ -1,6 +1,6 @@
 'use client';
 
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Eye, EyeSlash } from '@phosphor-icons/react';
 import { ApiError, apiFetch, campoDelError, errorMessage } from '@/lib/api';
 import { clearSession, type EmpresaSesion, type SessionUser } from '@/lib/auth';
@@ -31,6 +31,21 @@ const CLASE_INPUT =
   'w-full min-h-[44px] rounded-lg border border-slate-300 px-3.5 py-2.5 pr-24 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-accent-600 focus:border-accent-600';
 
 type Campo = 'actual' | 'nueva' | 'repetida';
+const ORDEN_CAMPOS: readonly Campo[] = ['actual', 'nueva', 'repetida'];
+
+/**
+ * Texto del error del servidor para un campo. En la pantalla obligatoria el
+ * campo se llama «Contraseña provisional»: el servidor habla de «la actual», y
+ * eso a quien acaba de entrar con la que le dieron no le dice nada.
+ */
+function textoErrorCampo(campo: 'actual' | 'nueva', mensaje: string, obligatorio: boolean): string {
+  if (!obligatorio) return mensaje;
+  if (campo === 'actual') {
+    return 'No coincide con la contraseña provisional que te dio el administrador. Escríbela tal cual: distingue mayúsculas y minúsculas.';
+  }
+  if (/distinta de la actual/i.test(mensaje)) return 'Tiene que ser distinta de la contraseña provisional.';
+  return mensaje;
+}
 
 /**
  * Formulario para poner una contrasena propia. Lo usan la pantalla obligatoria
@@ -45,6 +60,22 @@ export default function FormCambiarContrasena({ obligatorio, email, onHecho }: P
   const [errorGeneral, setErrorGeneral] = useState<string | null>(null);
   const [haCambiadoFuera, setHaCambiadoFuera] = useState(false);
   const [enviando, setEnviando] = useState(false);
+  // Cada envio con errores sube el contador: tras pintarlos, el foco va al
+  // primer campo con error y el lector de pantalla lee su mensaje (aria-describedby).
+  const [fallosEnvio, setFallosEnvio] = useState(0);
+  const refs = {
+    actual: useRef<HTMLInputElement>(null),
+    nueva: useRef<HTMLInputElement>(null),
+    repetida: useRef<HTMLInputElement>(null),
+  };
+
+  useEffect(() => {
+    if (fallosEnvio === 0) return;
+    const primero = ORDEN_CAMPOS.find((c) => errores[c]);
+    if (primero) refs[primero].current?.focus();
+    // Solo tras un envio fallido, no con cada tecla.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fallosEnvio]);
 
   async function enviar(e: React.FormEvent) {
     e.preventDefault();
@@ -56,7 +87,10 @@ export default function FormCambiarContrasena({ obligatorio, email, onHecho }: P
     if (nueva.length < MINIMO) nuevosErrores.nueva = `Tiene que tener al menos ${MINIMO} caracteres.`;
     if (!nuevosErrores.nueva && repetida !== nueva) nuevosErrores.repetida = 'Las dos contraseñas nuevas no coinciden.';
     setErrores(nuevosErrores);
-    if (Object.keys(nuevosErrores).length > 0) return;
+    if (Object.keys(nuevosErrores).length > 0) {
+      setFallosEnvio((n) => n + 1);
+      return;
+    }
 
     setEnviando(true);
     try {
@@ -71,7 +105,8 @@ export default function FormCambiarContrasena({ obligatorio, email, onHecho }: P
     } catch (err) {
       const campo = campoDelError(err);
       if (campo === 'actual' || campo === 'nueva') {
-        setErrores({ [campo]: errorMessage(err) });
+        setErrores({ [campo]: textoErrorCampo(campo, errorMessage(err), obligatorio) });
+        setFallosEnvio((n) => n + 1);
       } else if (err instanceof ApiError && err.status === 409) {
         setHaCambiadoFuera(true);
         setErrorGeneral(errorMessage(err));
@@ -119,6 +154,8 @@ export default function FormCambiarContrasena({ obligatorio, email, onHecho }: P
         onChange={setActual}
         autoComplete="current-password"
         error={errores.actual}
+        inputRef={refs.actual}
+        ayuda={obligatorio ? 'La misma con la que acabas de entrar. Distingue mayúsculas y minúsculas.' : undefined}
       />
       <CampoClave
         id={`${id}-nueva`}
@@ -127,6 +164,7 @@ export default function FormCambiarContrasena({ obligatorio, email, onHecho }: P
         onChange={setNueva}
         autoComplete="new-password"
         error={errores.nueva}
+        inputRef={refs.nueva}
         ayuda={
           <>
             Al menos {MINIMO} caracteres. Una frase que te sea fácil de recordar vale más que una palabra rara. No puede ser
@@ -146,6 +184,7 @@ export default function FormCambiarContrasena({ obligatorio, email, onHecho }: P
         onChange={setRepetida}
         autoComplete="new-password"
         error={errores.repetida}
+        inputRef={refs.repetida}
       />
 
       <button
@@ -167,6 +206,7 @@ function CampoClave({
   autoComplete,
   error,
   ayuda,
+  inputRef,
 }: {
   id: string;
   etiqueta: string;
@@ -175,6 +215,7 @@ function CampoClave({
   autoComplete: 'current-password' | 'new-password';
   error?: string;
   ayuda?: React.ReactNode;
+  inputRef?: React.Ref<HTMLInputElement>;
 }) {
   const [visible, setVisible] = useState(false);
   const idAyuda = `${id}-ayuda`;
@@ -188,6 +229,7 @@ function CampoClave({
       </label>
       <div className="relative">
         <input
+          ref={inputRef}
           id={id}
           type={visible ? 'text' : 'password'}
           value={valor}
@@ -212,7 +254,8 @@ function CampoClave({
         </button>
       </div>
       {error && (
-        <p id={idError} className="text-sm text-rose-600">
+        // role=alert: se anuncia aunque el foco ya estuviera en este campo (Intro dentro de él).
+        <p id={idError} role="alert" className="text-sm text-rose-600">
           {error}
         </p>
       )}
