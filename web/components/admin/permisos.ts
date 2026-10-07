@@ -70,3 +70,33 @@ export function areasParaEnviar(catalogo: CatalogoPermisos | null, rol: string, 
 
 /** null o vacio cuenta como Espana (empresas sin datos todavia). */
 export const esEmpresaEspanola = (pais: string | null | undefined) => !pais || pais.trim().toUpperCase() === 'ES';
+
+/** «a», «a y b», «a, b y c». */
+const enLista = (xs: string[]) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} y ${xs[xs.length - 1]}`);
+
+/** Resumen en una linea de unas areas: «Modifica Compras y Nóminas; ve Tesorería.» */
+export function resumenAreas(catalogo: CatalogoPermisos, areas: Areas): string {
+  const de = (n: Nivel) => catalogo.areas.filter((a) => areas[a.clave] === n).map((a) => a.nombre);
+  const partes: string[] = [];
+  const modifica = de('modificar');
+  const ve = de('ver');
+  if (modifica.length) partes.push(`modifica ${enLista(modifica)}`);
+  if (ve.length) partes.push(`ve ${enLista(ve)}`);
+  if (!partes.length) return 'Sin permisos en ninguna área.';
+  const texto = partes.join('; ');
+  return `${texto[0].toUpperCase()}${texto.slice(1)}.`;
+}
+
+/**
+ * Que incluye un perfil, para ponerlo bajo su desplegable. Con Administrador,
+ * su descripcion del catalogo y que no se recorta. '' si no hay catalogo.
+ */
+export function resumenPerfil(catalogo: CatalogoPermisos | null, rol: string): string {
+  if (!catalogo) return '';
+  if (esAdministrador(rol)) {
+    const descripcion = perfilDe(catalogo, rol)?.descripcion ?? 'Puede hacer todo en la empresa.';
+    return `${descripcion} No se le pueden quitar permisos.`;
+  }
+  const areas = areasDelPerfil(catalogo, rol);
+  return areas ? resumenAreas(catalogo, areas) : '';
+}

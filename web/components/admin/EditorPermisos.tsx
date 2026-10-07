@@ -1,6 +1,6 @@
 'use client';
 
-import { Info, WarningCircle } from '@phosphor-icons/react';
+import { ArrowCounterClockwise, Info, WarningCircle } from '@phosphor-icons/react';
 import type { Area, Areas, CatalogoPermisos } from '@/lib/auth';
 import { nombreRol } from '@/lib/auth';
 import {
@@ -25,6 +25,11 @@ interface Props {
   /** Avisa de que, mientras lo sea, lo marcado aqui no le recorta nada. */
   esAdminGlobal?: boolean;
   deshabilitado?: boolean;
+  /**
+   * Si se pasa, con permisos a medida sale el boton «Volver al perfil» junto a
+   * la etiqueta (alta y «Dar acceso»; la ficha tiene el suyo, que guarda).
+   */
+  onVolverAlPerfil?: () => void;
 }
 
 const AREAS_DE_LIBROS = new Set(['ventas', 'compras']);
@@ -38,7 +43,7 @@ const CLASE_CASILLA_LABEL =
  * "Ver" y "Modificar". Marcar Modificar marca Ver y quitar Ver quita Modificar.
  * El perfil Administrador sale todo marcado y sin poder tocarse.
  */
-export default function EditorPermisos({ catalogo, rol, areas, onChange, empresaEspanola, esAdminGlobal, deshabilitado }: Props) {
+export default function EditorPermisos({ catalogo, rol, areas, onChange, empresaEspanola, esAdminGlobal, deshabilitado, onVolverAlPerfil }: Props) {
   const esAdmin = esAdministrador(rol);
   const perfil = areasDelPerfil(catalogo, rol);
   const actuales = areas ?? perfil;
@@ -63,7 +68,23 @@ export default function EditorPermisos({ catalogo, rol, areas, onChange, empresa
             Personalizado
           </span>
         )}
+        {personalizado && onVolverAlPerfil && (
+          <button
+            type="button"
+            onClick={onVolverAlPerfil}
+            disabled={deshabilitado}
+            className="inline-flex min-h-[44px] items-center gap-1 rounded-lg px-1 text-xs font-medium text-slate-600 hover:text-slate-900 disabled:opacity-50"
+          >
+            <ArrowCounterClockwise size={14} aria-hidden /> Volver al perfil
+          </button>
+        )}
       </div>
+      {personalizado && (
+        <p className="-mt-1 flex items-center gap-1.5 text-xs text-slate-500">
+          <span className="h-2 w-2 shrink-0 rounded-full bg-amber-500" aria-hidden />
+          Las áreas con este punto tienen permisos distintos de los del perfil {nombrePerfil}.
+        </p>
+      )}
 
       {esAdminGlobal && (
         <p className="flex items-start gap-2 rounded-lg border border-indigo-200 bg-indigo-50 p-2.5 text-xs text-indigo-700">
