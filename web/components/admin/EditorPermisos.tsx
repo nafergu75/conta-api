@@ -91,10 +91,11 @@ export default function EditorPermisos({ catalogo, rol, areas, onChange, empresa
               <th scope="col" className="px-3 py-2 text-left">
                 Qué puede hacer
               </th>
-              <th scope="col" className="px-1 py-2 text-center">
+              {/* Sin espaciado extra: «MODIFICAR» tiene que caber en los 72 px de la columna. */}
+              <th scope="col" className="px-0 py-2 text-center tracking-normal">
                 Ver
               </th>
-              <th scope="col" className="px-1 py-2 text-center">
+              <th scope="col" className="px-0 py-2 text-center tracking-normal">
                 Modificar
               </th>
             </tr>
