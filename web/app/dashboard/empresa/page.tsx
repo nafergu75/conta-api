@@ -13,6 +13,8 @@ import {
   type ErroresEmpresa,
 } from '@/components/empresa/CamposEmpresa';
 import { LogoEmpresa } from '../registro-mercantil/LogoEmpresa';
+import { PAISES_UE } from '@/lib/fiscal';
+import { NOMBRE_MONEDA } from '@/lib/moneda';
 
 /**
  * Datos de la empresa: los que salen en las facturas (emisor, contacto e
@@ -20,6 +22,24 @@ import { LogoEmpresa } from '../registro-mercantil/LogoEmpresa';
  * la app trae aqui primero (?primera=1). Los campos son los mismos que pide el
  * alta de una empresa en Administracion (components/empresa/CamposEmpresa).
  */
+
+/** Los datos de CamposEmpresa mas la moneda de la contabilidad (EUR en Espana; USD en EE. UU. y Hong Kong). */
+type Datos = DatosEmpresa & { monedaCuenta: string };
+
+const VACIO: Datos = { ...DATOS_EMPRESA_VACIOS, monedaCuenta: 'EUR' };
+
+/** Moneda de la contabilidad que corresponde a un pais: euros en Espana y en la UE; dolares en el resto. */
+const monedaDelPais = (pais: string) => (pais === 'ES' || PAISES_UE.has(pais) ? 'EUR' : 'USD');
+
+/**
+ * Monedas de la contabilidad que admite el pais (las mismas que el servidor):
+ * Espana y la UE, solo EUR; EE. UU. y Hong Kong, solo USD; el resto, las dos.
+ */
+const monedasDelPais = (pais: string): string[] =>
+  pais === 'ES' || PAISES_UE.has(pais) ? ['EUR'] : pais === 'US' || pais === 'HK' ? ['USD'] : ['EUR', 'USD'];
+
+const claseSelect =
+  'mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:bg-slate-50';
 
 export default function DatosEmpresaPage() {
   return (
@@ -33,8 +53,11 @@ function DatosEmpresa() {
   const router = useRouter();
   const primera = useSearchParams().get('primera') === '1';
   const puedeEditar = tieneAlgunPermiso(getUser(), ['contabilidad:write']);
-  const [datos, setDatos] = useState<DatosEmpresa>(DATOS_EMPRESA_VACIOS);
+  const [datos, setDatos] = useState<Datos>(VACIO);
   const [pendientes, setPendientes] = useState<string[]>([]);
+  // false: ya hay facturas o asientos y la moneda de la contabilidad no se puede cambiar.
+  const [monedaEditable, setMonedaEditable] = useState(true);
+  const [paisGuardado, setPaisGuardado] = useState('ES');
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [mensaje, setMensaje] = useState<{ ok: boolean; texto: string } | null>(null);
@@ -45,32 +68,62 @@ function DatosEmpresa() {
       .then((cfg) => {
         setDatos(
           Object.fromEntries(
-            Object.keys(DATOS_EMPRESA_VACIOS).map((k) => [k, cfg[k] == null ? DATOS_EMPRESA_VACIOS[k as CampoEmpresa] : String(cfg[k])]),
-          ) as unknown as DatosEmpresa,
+            Object.keys(VACIO).map((k) => [k, cfg[k] == null ? VACIO[k as keyof Datos] : String(cfg[k])]),
+          ) as unknown as Datos,
         );
         setPendientes((cfg.pendientes as string[]) ?? []);
+        setMonedaEditable(cfg.monedaCuentaEditable !== false);
+        setPaisGuardado(String(cfg.pais ?? 'ES'));
       })
       .catch((e) => setMensaje({ ok: false, texto: errorMessage(e) }))
       .finally(() => setCargando(false));
   }, []);
 
   const cambiar = (k: CampoEmpresa, v: string) => {
-    setDatos((d) => ({ ...d, [k]: v }));
+    setDatos((d) => ({
+      ...d,
+      [k]: v,
+      // Al cambiar de pais, la moneda de la contabilidad que le toca (si aun se puede cambiar).
+      ...(k === 'pais' && monedaEditable && /^[A-Z]{2}$/.test(v) ? { monedaCuenta: monedaDelPais(v) } : {}),
+    }));
     setErrores((e) => (e[k] ? { ...e, [k]: undefined } : e));
   };
+  const espana = datos.pais === 'ES';
   const off = !puedeEditar || guardando;
 
   const guardar = async (e: React.FormEvent) => {
     e.preventDefault();
+    // Con facturas o asientos no se pasa de Espana a otro pais ni al reves (el servidor tambien lo impide).
+    if (!monedaEditable && (datos.pais === 'ES') !== (paisGuardado === 'ES')) {
+      setMensaje({
+        ok: false,
+        texto:
+          paisGuardado === 'ES'
+            ? 'La empresa ya tiene facturas o asientos como empresa establecida en España: no se puede cambiar a otro país. Si va a operar desde otro país, dala de alta como empresa nueva.'
+            : 'La empresa ya tiene facturas o asientos como empresa no establecida en España: no se puede cambiar a España. Si tiene establecimiento permanente en España, dala de alta como empresa nueva con país España.',
+      });
+      return;
+    }
+    if (datos.pais !== paisGuardado) {
+      const aviso =
+        datos.pais === 'ES'
+          ? 'La empresa pasa a estar establecida en España: sus facturas llevarán IVA y tendrás que elegir el tipo de operación de cada una.'
+          : 'La empresa deja de estar establecida en España: sus facturas saldrán sin IVA ni IRPF y en inglés, y no se usan los modelos 303, 349, 390 ni 347. Las facturas ya emitidas no cambian.';
+      if (!window.confirm(`${aviso}\n\n¿Guardar el cambio de país?`)) return;
+    }
     setGuardando(true);
     setMensaje(null);
     setErrores({});
     try {
-      const cfg = await apiFetch<{ completo: boolean; pendientes: string[] }>(companyPath('/legal-config'), {
-        method: 'PUT',
-        body: JSON.stringify(datos),
-      });
+      // La moneda de la contabilidad solo se envia mientras se puede cambiar.
+      const cfg = await apiFetch<{ completo: boolean; pendientes: string[]; monedaCuenta?: string; monedaCuentaEditable?: boolean }>(
+        companyPath('/legal-config'),
+        { method: 'PUT', body: JSON.stringify(monedaEditable ? datos : { ...datos, monedaCuenta: undefined }) },
+      );
+      if (cfg.monedaCuenta) setDatos((d) => ({ ...d, monedaCuenta: cfg.monedaCuenta as string }));
+      setMonedaEditable(cfg.monedaCuentaEditable !== false);
       setPendientes(cfg.pendientes ?? []);
+      setPaisGuardado(datos.pais);
       if (cfg.completo) {
         setMensaje({ ok: true, texto: 'Datos guardados. Ya salen en tus facturas.' });
         if (primera) router.push('/dashboard');
@@ -112,6 +165,45 @@ function DatosEmpresa() {
       )}
 
       <CamposEmpresa datos={datos} onCambio={cambiar} errores={errores} disabled={off} />
+
+      <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-5">
+        <h2 className="font-semibold text-slate-900">Moneda e impuestos</h2>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div>
+            <label htmlFor="monedaCuenta" className="block text-sm font-medium text-slate-700">
+              Moneda de la contabilidad
+            </label>
+            <select
+              id="monedaCuenta"
+              value={datos.monedaCuenta}
+              onChange={(e) => setDatos((d) => ({ ...d, monedaCuenta: e.target.value }))}
+              className={claseSelect}
+              disabled={off || !monedaEditable || monedasDelPais(datos.pais).length < 2}
+            >
+              {/* La guardada se muestra aunque el pais ya no la admita (empresa antigua con facturas). */}
+              {monedasDelPais(datos.pais)
+                .concat(!monedaEditable && !monedasDelPais(datos.pais).includes(datos.monedaCuenta) ? [datos.monedaCuenta] : [])
+                .map((m) => (
+                  <option key={m} value={m}>
+                    {m} — {NOMBRE_MONEDA[m] ?? m}
+                  </option>
+                ))}
+            </select>
+          </div>
+          <p className="text-xs text-slate-500 md:col-span-2 md:self-end">
+            {espana
+              ? 'En España la contabilidad va en euros. Puedes emitir facturas en euros o en dólares: cada una lleva su tipo de cambio.'
+              : 'Las empresas de EE. UU. y Hong Kong llevan la contabilidad y facturan en dólares (USD).'}{' '}
+            {!monedaEditable && 'Ya hay facturas o asientos: la moneda de la contabilidad no se puede cambiar.'}
+          </p>
+        </div>
+        {!espana && (
+          <p className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+            Tus facturas saldrán sin IVA ni IRPF, en inglés y con el formato de fecha de tu país, y no se usan los modelos 303, 349, 390 ni 347. Si tienes
+            establecimiento permanente en España, elige España.
+          </p>
+        )}
+      </section>
 
       <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-5">
         <h2 className="font-semibold text-slate-900">Logo</h2>

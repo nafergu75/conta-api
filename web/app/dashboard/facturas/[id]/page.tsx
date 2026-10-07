@@ -9,6 +9,8 @@ import { AvisosFactura } from './AvisosFactura';
 import CobrosFactura from '@/components/CobrosFactura';
 import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getCompanyId, getUser, tieneAlgunPermiso } from '@/lib/auth';
+import { formatoImporte, NOMBRE_MONEDA, parseTipo, textoTipo, tipoParaEditar } from '@/lib/moneda';
+import { ETIQUETA_CORTA, ETIQUETA_LARGA, nombrePais } from '@/lib/fiscal';
 
 interface Linea {
   id: string;
@@ -21,6 +23,9 @@ interface Linea {
   ivaImporte: number;
   tipoRetencion: number;
   retencionImporte: number;
+  /** En la moneda de la factura (las anteriores a las divisas no lo traen). */
+  precioUnitarioDoc?: number;
+  baseLineDoc?: number;
 }
 
 interface Factura {
@@ -48,15 +53,48 @@ interface Factura {
   /** Proforma aceptada: la factura que se creo al pasarla a factura. */
   facturaGeneradaId?: string;
   lineas: Linea[];
+  /** Fecha de la operacion si es distinta de la de emision. */
+  fechaOperacion?: string;
+  /** Moneda de la factura y de la contabilidad; los totales de siempre van en la de la contabilidad. */
+  moneda?: string;
+  monedaCuenta?: string;
+  baseTotalDoc?: number;
+  ivaTotalDoc?: number;
+  retencionTotalDoc?: number;
+  totalFacturaDoc?: number;
+  tipoCambio?: number;
+  fechaTipoCambio?: string;
+  /** PAR | BCE | MANUAL | HEREDADO | PENDIENTE */
+  fuenteTipoCambio?: string;
+  tipoCambioProvisional?: boolean;
+  tipoOperacion?: string;
+  tipoOperacionEfectivo?: string | null;
+  referenciaLegal?: string;
+  mencionFiscal?: { es: string; en: string | null } | null;
 }
 
 interface Cliente {
   id: string;
   nombreFiscal: string;
   nifCif: string;
+  pais?: string;
 }
 
-const eur = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' });
+const fechaCorta = (iso?: string) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : '');
+
+/** De donde sale el tipo de cambio, para la ficha. */
+function origenTipo(f: Factura): string {
+  switch (f.fuenteTipoCambio) {
+    case 'BCE':
+      return `BCE ${fechaCorta(f.fechaTipoCambio)}`;
+    case 'MANUAL':
+      return 'indicado a mano';
+    case 'HEREDADO':
+      return 'el de la factura rectificada';
+    default:
+      return '';
+  }
+}
 const fecha = (iso: string) => (iso ? new Date(`${iso.slice(0, 10)}T00:00:00`).toLocaleDateString('es-ES') : '');
 
 const ESTADO_COBRO: Record<string, { texto: string; clase: string }> = {
@@ -107,6 +145,21 @@ export default function FacturaDetallePage() {
   const [error, setError] = useState('');
   const [aviso, setAviso] = useState('');
   const [rectificando, setRectificando] = useState(false);
+  // Emitida pero sin asiento (p. ej. sin plan contable): lo dice la respuesta de emitir.
+  const [sinAsiento, setSinAsiento] = useState('');
+
+  useEffect(() => {
+    try {
+      const clave = `conta_sin_asiento_${id}`;
+      const motivo = sessionStorage.getItem(clave);
+      if (motivo) {
+        setSinAsiento(motivo);
+        sessionStorage.removeItem(clave);
+      }
+    } catch {
+      // Sin sessionStorage: no hay aviso que recuperar.
+    }
+  }, [id]);
 
   const cargar = useCallback(async () => {
     try {
@@ -163,6 +216,27 @@ export default function FacturaDetallePage() {
     );
   }
 
+  const moneda = factura.moneda ?? 'EUR';
+  const monedaCuenta = factura.monedaCuenta ?? 'EUR';
+  const enDivisa = moneda !== monedaCuenta;
+  const fmtDoc = (n: number) => formatoImporte(n, moneda);
+  const fmtCuenta = (n: number) => formatoImporte(n, monedaCuenta);
+  const totalDoc = factura.totalFacturaDoc ?? factura.totalFactura;
+  // El tipo guardado; en un borrador o proforma, el que se deduce. Una factura
+  // emitida antes de los tipos de operacion no tiene: no se muestra (su PDF no lleva mencion).
+  const tipoOp = factura.tipoOperacion ?? (factura.estadoDocumento === 'FINAL' ? null : (factura.tipoOperacionEfectivo ?? null));
+  const sinIva = tipoOp === 'EMPRESA_EXTRANJERA';
+  // Tipos sin cuota: la linea al 0 % se nombra por su tipo (Exenta, Intracom....).
+  const etiquetaIva = (t: number) => (t === 0 && tipoOp && tipoOp !== 'NACIONAL' ? ETIQUETA_CORTA[tipoOp] ?? '0 %' : `${t} %`);
+  const estadoTipo =
+    factura.fuenteTipoCambio === 'PENDIENTE'
+      ? 'pendiente'
+      : factura.tipoCambioProvisional
+        ? 'provisional'
+        : factura.fuenteTipoCambio === 'HEREDADO'
+          ? 'heredado'
+          : 'definitivo';
+
   const esProforma = factura.estadoDocumento === 'PROFORMA';
   const esBorrador = factura.estadoDocumento === 'BORRADOR';
   const esFinal = factura.estadoDocumento === 'FINAL';
@@ -177,9 +251,39 @@ export default function FacturaDetallePage() {
       : `${factura.esRectificativa ? 'Rectificativa' : 'Factura'} ${factura.numeroCompleto}`;
 
   const emitir = () => {
-    if (!window.confirm(`Vas a pasar a factura por ${eur.format(factura.totalFactura)} con fecha de hoy.\n\n${CONFIRMAR_PASAR_A_FACTURA}`)) return;
+    // undefined: lo decide el servidor; null: volver al del BCE.
+    let tipoCambio: number | null | undefined;
+    if (enDivisa) {
+      // En divisa se aplica el tipo del BCE de la fecha de la operacion, salvo que se indique otro.
+      // El manual del borrador se propone con todos sus decimales (aceptarlo no lo cambia).
+      const actual = factura.fuenteTipoCambio === 'MANUAL' && factura.tipoCambio ? tipoParaEditar(factura.tipoCambio) : '';
+      const respuesta = window.prompt(
+        `Vas a pasar a factura por ${fmtDoc(totalDoc)} con fecha de hoy.\n\n` +
+          `Tipo de cambio: déjalo vacío para aplicar el de referencia del BCE de la fecha de la operación, o escribe el tuyo (1 ${monedaCuenta} = … ${moneda}).\n\n` +
+          CONFIRMAR_PASAR_A_FACTURA,
+        actual,
+      );
+      if (respuesta === null) return;
+      if (respuesta.trim()) {
+        const t = parseTipo(respuesta);
+        if (!(t > 0)) {
+          setError('El tipo de cambio tiene que ser un número mayor que cero, con coma o punto decimal (por ejemplo 1,1490).');
+          return;
+        }
+        tipoCambio = t;
+      } else if (factura.fuenteTipoCambio === 'MANUAL') {
+        // Vacio con un tipo manual guardado: se pide el del BCE (si no, se mantendria el manual).
+        tipoCambio = null;
+      }
+    } else if (!window.confirm(`Vas a pasar a factura por ${fmtDoc(totalDoc)} con fecha de hoy.\n\n${CONFIRMAR_PASAR_A_FACTURA}`)) {
+      return;
+    }
     accion(async () => {
-      await apiFetch(companyPath(`/income-invoices/${id}/finalizar`), { method: 'POST', body: '{}' });
+      const { invoice } = await apiFetch<{ invoice: { contabilizada?: boolean; motivoSinAsiento?: string | null } }>(
+        companyPath(`/income-invoices/${id}/finalizar`),
+        { method: 'POST', body: JSON.stringify(tipoCambio !== undefined ? { tipoCambio } : {}) },
+      );
+      if (invoice.contabilizada === false) setSinAsiento(invoice.motivoSinAsiento || 'No se pudo contabilizar.');
       await cargar();
     }, 'Factura emitida.');
   };
@@ -251,6 +355,11 @@ export default function FacturaDetallePage() {
 
       {error && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
       {aviso && <p role="status" className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">{aviso}</p>}
+      {sinAsiento && esFinal && (
+        <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          <span className="font-semibold">Emitida sin asiento.</span> {sinAsiento} Puedes contabilizarla abajo, en «Contabilidad», cuando esté resuelto.
+        </p>
+      )}
 
       <div className="flex flex-wrap gap-2">
         {proformaPendiente && puedeEditar && (
@@ -357,10 +466,51 @@ export default function FacturaDetallePage() {
         <Dato etiqueta="Fecha de emisión" valor={fecha(factura.fechaEmision)} />
         <Dato etiqueta="Vencimiento" valor={fecha(factura.fechaVencimiento)} />
         <Dato etiqueta="Forma de pago" valor={FORMA_PAGO[factura.formaPago ?? 'TRANSFERENCIA'] ?? factura.formaPago ?? ''} />
+        {factura.fechaOperacion && factura.fechaOperacion !== factura.fechaEmision && (
+          <Dato etiqueta="Fecha de la operación" valor={fecha(factura.fechaOperacion)} />
+        )}
+        <div className="col-span-2">
+          <p className="text-xs uppercase tracking-wide text-slate-500">Moneda</p>
+          <p className="font-medium text-slate-900">
+            {moneda}
+            {NOMBRE_MONEDA[moneda] ? <span className="font-normal text-slate-600"> · {NOMBRE_MONEDA[moneda]}</span> : null}
+          </p>
+          {enDivisa && (
+            <p className="text-sm text-slate-600">
+              {factura.fuenteTipoCambio === 'PENDIENTE' || !factura.tipoCambio ? (
+                'Sin tipo de cambio todavía: se fija al pasarla a factura.'
+              ) : (
+                <>
+                  <span className="font-mono">{textoTipo(monedaCuenta, moneda, factura.tipoCambio)}</span>
+                  {origenTipo(factura) && ` (${origenTipo(factura)})`}{' '}
+                  <span
+                    className={`ml-1 rounded-full border px-2 py-0.5 text-xs ${
+                      estadoTipo === 'definitivo' || estadoTipo === 'heredado'
+                        ? 'border-green-200 bg-green-50 text-green-800'
+                        : 'border-amber-200 bg-amber-50 text-amber-800'
+                    }`}
+                  >
+                    {estadoTipo}
+                  </span>
+                </>
+              )}
+            </p>
+          )}
+        </div>
+        {tipoOp && (
+          <div className="col-span-2">
+            <p className="text-xs uppercase tracking-wide text-slate-500">Operación</p>
+            <p className="font-medium text-slate-900">{ETIQUETA_LARGA[tipoOp] ?? tipoOp}</p>
+            {factura.referenciaLegal && <p className="text-sm text-slate-600">{factura.referenciaLegal}</p>}
+          </div>
+        )}
         <div className="col-span-2 md:col-span-4 border-t border-slate-100 pt-4">
           <p className="text-xs uppercase tracking-wide text-slate-500">Cliente</p>
           <p className="font-medium text-slate-900">{cliente?.nombreFiscal ?? '—'}</p>
-          <p className="font-mono text-sm text-slate-600">{cliente?.nifCif}</p>
+          <p className="font-mono text-sm text-slate-600">
+            {cliente?.nifCif}
+            {cliente?.pais && cliente.pais !== 'ES' && <span className="ml-2 font-sans">{nombrePais(cliente.pais)}</span>}
+          </p>
         </div>
       </section>
 
@@ -370,10 +520,10 @@ export default function FacturaDetallePage() {
             <tr>
               <th className="px-4 py-2 font-medium">Descripción</th>
               <th className="px-4 py-2 text-right font-medium">Cant.</th>
-              <th className="px-4 py-2 text-right font-medium">Precio</th>
+              <th className="px-4 py-2 text-right font-medium">Precio{enDivisa ? ` (${moneda})` : ''}</th>
               <th className="px-4 py-2 text-right font-medium">Dto.</th>
-              <th className="px-4 py-2 text-right font-medium">IVA</th>
-              <th className="px-4 py-2 text-right font-medium">Importe</th>
+              {!sinIva && <th className="px-4 py-2 text-right font-medium">IVA</th>}
+              <th className="px-4 py-2 text-right font-medium">Importe{enDivisa ? ` (${moneda})` : ''}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -381,30 +531,68 @@ export default function FacturaDetallePage() {
               <tr key={l.id}>
                 <td className="px-4 py-2 text-slate-900">{l.descripcion}</td>
                 <td className="px-4 py-2 text-right tabular-nums">{l.cantidad.toLocaleString('es-ES')}</td>
-                <td className="px-4 py-2 text-right tabular-nums">{eur.format(l.precioUnitario)}</td>
+                <td className="px-4 py-2 text-right tabular-nums">{fmtDoc(l.precioUnitarioDoc ?? l.precioUnitario)}</td>
                 <td className="px-4 py-2 text-right tabular-nums">{l.descuentoPorcentaje ? `${l.descuentoPorcentaje} %` : ''}</td>
-                <td className="px-4 py-2 text-right tabular-nums">{l.tipoIva} %</td>
-                <td className="px-4 py-2 text-right font-mono tabular-nums">{eur.format(l.baseLine)}</td>
+                {!sinIva && <td className="px-4 py-2 text-right tabular-nums">{etiquetaIva(l.tipoIva)}</td>}
+                <td className="px-4 py-2 text-right font-mono tabular-nums">{fmtDoc(l.baseLineDoc ?? l.baseLine)}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </section>
 
-      <section className="ml-auto max-w-sm rounded-xl border border-slate-200 bg-slate-50 p-5">
-        <dl className="space-y-2 text-sm">
-          <Fila etiqueta="Base imponible" valor={eur.format(factura.baseTotal)} />
-          <Fila etiqueta="IVA" valor={eur.format(factura.ivaTotal)} />
-          {factura.retencionTotal !== 0 && <Fila etiqueta="Retención IRPF" valor={`−${eur.format(factura.retencionTotal)}`} />}
-          <div className="flex justify-between border-t border-slate-300 pt-2 text-base font-bold text-slate-900">
-            <dt>Total</dt>
-            <dd className="font-mono tabular-nums">{eur.format(factura.totalFactura)}</dd>
-          </div>
-        </dl>
-      </section>
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-end">
+        {factura.mencionFiscal && (
+          <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm md:max-w-md md:flex-1">
+            <p className="text-xs uppercase tracking-wide text-slate-500">Mención en la factura</p>
+            <p className="mt-1 text-slate-800">{factura.mencionFiscal.es}</p>
+            {factura.mencionFiscal.en && <p className="mt-1 text-slate-500">{factura.mencionFiscal.en}</p>}
+          </section>
+        )}
+        <section className="w-full rounded-xl border border-slate-200 bg-slate-50 p-5 md:max-w-sm">
+          <dl className="space-y-2 text-sm">
+            <Fila etiqueta="Base imponible" valor={fmtDoc(factura.baseTotalDoc ?? factura.baseTotal)} />
+            {!sinIva && <Fila etiqueta="IVA" valor={fmtDoc(factura.ivaTotalDoc ?? factura.ivaTotal)} />}
+            {factura.retencionTotal !== 0 && (
+              <Fila etiqueta="Retención IRPF" valor={fmtDoc(-(factura.retencionTotalDoc ?? factura.retencionTotal))} />
+            )}
+            <div className="flex justify-between border-t border-slate-300 pt-2 text-base font-bold text-slate-900">
+              <dt>Total</dt>
+              <dd className="font-mono tabular-nums">{fmtDoc(totalDoc)}</dd>
+            </div>
+          </dl>
+          {enDivisa && factura.fuenteTipoCambio !== 'PENDIENTE' && (
+            <div className="mt-4 border-t border-slate-200 pt-3">
+              <p className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500">
+                Contravalor en {monedaCuenta}
+                {estadoTipo === 'provisional' ? ' (orientativo)' : ''}
+              </p>
+              <dl className="space-y-1 text-sm">
+                <Fila etiqueta="Base imponible" valor={fmtCuenta(factura.baseTotal)} />
+                {!sinIva && factura.ivaTotal !== 0 && (
+                  <Fila etiqueta={monedaCuenta === 'EUR' ? 'Cuota de IVA en euros' : 'Cuota de IVA'} valor={fmtCuenta(factura.ivaTotal)} />
+                )}
+                {factura.retencionTotal !== 0 && <Fila etiqueta="Retención IRPF" valor={fmtCuenta(-factura.retencionTotal)} />}
+                <div className="flex justify-between font-semibold text-slate-900">
+                  <dt>Total</dt>
+                  <dd className="font-mono tabular-nums">{fmtCuenta(factura.totalFactura)}</dd>
+                </div>
+              </dl>
+            </div>
+          )}
+        </section>
+      </div>
 
       {esFinal && factura.totalFactura > 0 && (
-        <CobrosFactura tipo="INGRESO" facturaId={id} puedeEditar={puedeCobrar} fechaFactura={factura.fechaEmision} onCambio={cargar} />
+        <CobrosFactura
+          tipo="INGRESO"
+          facturaId={id}
+          puedeEditar={puedeCobrar}
+          fechaFactura={factura.fechaEmision}
+          moneda={moneda}
+          monedaCuenta={monedaCuenta}
+          onCambio={cargar}
+        />
       )}
 
       {factura.observaciones && !factura.esRectificativa && (
@@ -499,7 +687,9 @@ function ModalRectificativa({
         </div>
         <p className="text-sm text-slate-600">
           Se emitirá una factura rectificativa en la serie de rectificativas que anula esta por completo
-          ({eur.format(-factura.totalFactura)}). Si solo había que corregir algo, después emite una factura nueva con los datos buenos.
+          ({formatoImporte(-(factura.totalFacturaDoc ?? factura.totalFactura), factura.moneda ?? 'EUR')}
+          {factura.moneda && factura.monedaCuenta && factura.moneda !== factura.monedaCuenta ? ', con el mismo tipo de cambio' : ''}). Si solo
+          había que corregir algo, después emite una factura nueva con los datos buenos.
         </p>
         <div>
           <label htmlFor="tipo-rect" className="mb-1 block text-sm font-medium text-slate-700">Causa</label>

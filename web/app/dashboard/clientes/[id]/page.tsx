@@ -4,13 +4,11 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft } from '@phosphor-icons/react';
 import { getToken, clearSession, getCompanyId } from '@/lib/auth';
+import { DatosFiscalesCliente, type DatosFiscales } from './DatosFiscalesCliente';
 
 const API = '/api/conta';
 
-interface Cliente {
-  id: string;
-  nombreFiscal: string;
-  nifCif: string;
+interface Cliente extends DatosFiscales {
   email?: string;
   telefono?: string;
 }
@@ -138,6 +136,8 @@ export default function ClienteDetailPage() {
             {error}
           </div>
         )}
+
+        <DatosFiscalesCliente cliente={cliente} onGuardado={(c) => setCliente((x) => (x ? { ...x, ...c } : x))} />
 
         {/* Tabs */}
         <div className="flex gap-4 border-b border-slate-200 mb-6">
