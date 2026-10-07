@@ -106,18 +106,7 @@ export const NAV_GROUPS: NavGroup[] = [
           'PUT /companies/:id/proveedores/:id',
         ],
       },
-      {
-        label: 'Bandeja OCR',
-        slug: 'ocr',
-        description: 'Procesa facturas escaneadas con OCR e iLovePDF automáticamente.',
-        implemented: true,
-        endpoints: [
-          'POST /companies/:id/ocr/invoices',
-          'GET /companies/:id/ocr/sessions',
-          'GET /companies/:id/ocr/sessions/:id',
-          'GET /companies/:id/ocr/status',
-        ],
-      },
+      // La Bandeja OCR (slug 'ocr') y el lector de gastos están fuera del menú hasta que funcionen: ver esRutaDesactivada.
       {
         label: 'Analytics OCR',
         slug: 'ocr/analytics',
@@ -516,4 +505,17 @@ const RUTAS_SOLO_ESPANA = NAV_GROUPS.flatMap((g) => g.items)
 export function esRutaSoloEspana(href: string): boolean {
   const ruta = href.split(/[?#]/)[0].replace(/\/+$/, '');
   return RUTAS_SOLO_ESPANA.some((r) => ruta === r || ruta.startsWith(`${r}/`));
+}
+
+/**
+ * Pantallas retiradas hasta que funcionen: la Bandeja OCR (todo /dashboard/ocr
+ * salvo Analytics OCR: la subida falla) y el lector de gastos (no guardaba el
+ * gasto). No están en el menú, Carmen no enlaza a ellas y quien entre por la URL
+ * ve un aviso (los layout.tsx de cada carpeta).
+ */
+export function esRutaDesactivada(href: string): boolean {
+  const ruta = href.split(/[?#]/)[0].replace(/\/+$/, '');
+  const dentroDe = (r: string) => ruta === r || ruta.startsWith(`${r}/`);
+  if (dentroDe('/dashboard/ocr/analytics')) return false;
+  return dentroDe('/dashboard/ocr') || dentroDe('/dashboard/compras/lector-gastos');
 }
