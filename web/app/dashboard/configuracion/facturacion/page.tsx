@@ -122,7 +122,9 @@ export default function FacturacionPage() {
   const cuentaMuestra = form
     ? (cuentas.find((c) => c.id === form.cuentaBancariaId) ?? cuentas.find((c) => c.moneda === moneda) ?? cuentas[0] ?? null)
     : null;
-  const formaTexto = FORMAS_PAGO.find(([v]) => v === form?.formaPago)?.[1] ?? '';
+  // Solo la transferencia lleva cuenta en la factura (igual que el PDF del servidor).
+  const conCuenta = form?.formaPago === 'TRANSFERENCIA';
+  const altaCuentas = tieneAlgunPermiso(user, ['tesoreria:write']);
 
   return (
     <>
@@ -218,7 +220,7 @@ export default function FacturacionPage() {
                 id="cuentaBancariaId"
                 value={form.cuentaBancariaId}
                 onChange={(e) => cambiar('cuentaBancariaId', e.target.value)}
-                disabled={off || !form.mostrarIban}
+                disabled={off || !form.mostrarIban || !conCuenta}
                 aria-invalid={errores.cuentaBancariaId ? true : undefined}
                 aria-describedby="cuentaBancariaId-ayuda"
                 className={claseCampo}
@@ -234,20 +236,22 @@ export default function FacturacionPage() {
               </select>
               <p id="cuentaBancariaId-ayuda" className={`mt-1 text-xs ${errores.cuentaBancariaId ? 'text-red-700' : 'text-slate-500'}`}>
                 {errores.cuentaBancariaId ??
-                  (cuentas.length === 0 ? (
+                  (!conCuenta ? (
+                    'Con giro o al contado la factura no lleva cuenta bancaria: solo sale cuando la forma de pago es transferencia.'
+                  ) : cuentas.length === 0 ? (
                     <>
                       No hay cuentas bancarias activas.{' '}
-                      {tieneAlgunPermiso(user, ['tesoreria:read', 'tesoreria:write']) ? (
+                      {altaCuentas ? (
                         <Link href="/dashboard/tesoreria/cuentas" className="font-medium text-emerald-700 underline">
                           Da de alta una
                         </Link>
                       ) : (
-                        'Pide a quien lleva la tesorería que dé de alta una'
+                        'Pide al administrador de la empresa que dé de alta una'
                       )}{' '}
                       para que tus clientes sepan dónde pagarte.
                     </>
                   ) : (
-                    'Con la automática, una factura en dólares lleva tu cuenta en dólares si la tienes. Una cuenta concreta sale en todas las facturas.'
+                    'Con la automática sale la primera cuenta activa. Si eliges una, sale esa en todas las facturas.'
                   ))}
               </p>
             </div>
@@ -261,7 +265,7 @@ export default function FacturacionPage() {
               />
               <span className="text-sm">
                 <span className="font-medium text-slate-900">Mostrar el IBAN en la factura</span>
-                <span className="block text-slate-600">Quítalo si tus clientes pagan con recibo domiciliado o al contado.</span>
+                <span className="block text-slate-600">Solo sale cuando la forma de pago es transferencia. Quítalo si no quieres que tu cuenta salga en las facturas.</span>
               </span>
             </label>
             <div>
@@ -288,23 +292,24 @@ export default function FacturacionPage() {
               </p>
             </div>
 
-            {/* Muestra de como queda el final del PDF. */}
-            <div aria-label="Así queda el pie de la factura" className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-3">
-              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Así queda el pie de la factura</p>
+            {/* Muestra de la franja de pago y del pie del PDF, con los mismos textos que el servidor. */}
+            <div aria-label="Así salen el pago y el pie en la factura" className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-3">
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Así salen el pago y el pie en la factura</p>
               <p className="text-xs text-slate-800">
-                <span className="font-semibold">Forma de pago:</span> {formaTexto}
-                {form.mostrarIban && (
+                {conCuenta && form.mostrarIban && cuentaMuestra ? (
                   <>
-                    {' · '}
-                    <span className="font-semibold">IBAN:</span>{' '}
-                    {cuentaMuestra ? (
-                      <span className="font-mono">
-                        {ibanLegible(cuentaMuestra.iban)}
-                        {cuentaMuestra.bancoNombre ? ` (${cuentaMuestra.bancoNombre})` : ''}
-                      </span>
-                    ) : (
-                      <span className="text-amber-700">sin cuenta bancaria</span>
-                    )}
+                    <span className="font-semibold">Transferencia a la cuenta</span>{' '}
+                    <span className="font-mono">{ibanLegible(cuentaMuestra.iban)}</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="font-semibold">Forma de pago:</span>{' '}
+                    {form.formaPago === 'TRANSFERENCIA'
+                      ? 'Transferencia bancaria'
+                      : form.formaPago === 'GIRO'
+                        ? 'Recibo domiciliado en su cuenta'
+                        : 'Contado'}
+                    {conCuenta && form.mostrarIban && <span className="text-amber-700"> (sin cuenta bancaria activa)</span>}
                   </>
                 )}
               </p>
