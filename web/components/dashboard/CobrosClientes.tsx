@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { apiFetch, companyPath, errorMessage } from '@/lib/api';
+import { ApiError, apiFetch, companyPath, errorMessage } from '@/lib/api';
 
 /** Respuesta de GET /income-invoices/stats/cobros?anio= */
 interface Cifra {
@@ -79,6 +79,8 @@ export function CobrosClientes({ anio }: { anio: number }) {
   const [intento, setIntento] = useState(0);
   // Cada fallo vuelve a insertar el texto del aviso, para que el lector de pantalla lo lea otra vez.
   const [fallos, setFallos] = useState(0);
+  // Un 403 no es un fallo: su acceso no incluye Ventas ni Contabilidad. Entonces el bloque no se pinta.
+  const [sinAcceso, setSinAcceso] = useState(false);
 
   useEffect(() => {
     let vigente = true;
@@ -94,6 +96,11 @@ export function CobrosClientes({ anio }: { anio: number }) {
       .catch((e) => {
         if (!vigente) return;
         setDatos(null);
+        if (e instanceof ApiError && e.status === 403) {
+          setSinAcceso(true);
+          setCargando(false);
+          return;
+        }
         setError(errorMessage(e));
         setFallos((n) => n + 1);
         setCargando(false);
@@ -107,6 +114,8 @@ export function CobrosClientes({ anio }: { anio: number }) {
   const reintentar = useCallback(() => {
     if (!cargando) setIntento((n) => n + 1);
   }, [cargando]);
+
+  if (sinAcceso) return null;
 
   return (
     <section
