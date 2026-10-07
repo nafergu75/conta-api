@@ -10,7 +10,12 @@ export interface NavItem {
   description: string;
   implemented: boolean;
   endpoints: string[];
-  requiredRoles?: string[]; // Codigos de PERMISO (no nombres de rol); sin especificar, accesible a todos
+  /**
+   * Codigos de PERMISO (no nombres de rol); basta con uno. Sin especificar,
+   * accesible a todos. Son los mismos que piden las lecturas en el servidor
+   * ("area o contabilidad:read"), asi el menu no ofrece pantallas que darian 403.
+   */
+  requiredRoles?: string[];
   /** Solo para empresas establecidas en Espana (modelos de la AEAT, nominas de la gestoria): el menu lo oculta en las demas. */
   soloEspana?: boolean;
   subItems?: NavSubItem[];
@@ -47,6 +52,7 @@ export const NAV_GROUPS: NavGroup[] = [
           'POST /companies/:id/clientes',
           'PUT /companies/:id/clientes/:id',
         ],
+        requiredRoles: ['ventas:read', 'contabilidad:read'],
       },
       {
         label: 'Productos',
@@ -54,6 +60,7 @@ export const NAV_GROUPS: NavGroup[] = [
         description: 'Catálogo de productos y servicios por códigos y familias.',
         implemented: true,
         endpoints: ['GET /companies/:id/productos', 'GET /companies/:id/productos/familias'],
+        requiredRoles: ['ventas:read', 'contabilidad:read'],
       },
       {
         label: 'Facturas de ingreso',
@@ -68,6 +75,7 @@ export const NAV_GROUPS: NavGroup[] = [
           'POST /companies/:id/income-invoices/:id/send-email',
           'POST /companies/:id/income-invoices/:id/make-recurring',
         ],
+        requiredRoles: ['ventas:read', 'contabilidad:read'],
       },
       {
         label: 'Proformas',
@@ -81,6 +89,7 @@ export const NAV_GROUPS: NavGroup[] = [
           'POST /companies/:id/income-invoices/:id/pasar-a-factura',
           'POST /companies/:id/income-invoices/:id/rechazar',
         ],
+        requiredRoles: ['ventas:read', 'contabilidad:read'],
       },
       {
         label: 'Lector de facturas (OCR)',
@@ -89,6 +98,7 @@ export const NAV_GROUPS: NavGroup[] = [
           'Lee facturas en PDF o imagen con visión de Claude y las convierte en datos contables. Integrado con bandeja OCR.',
         implemented: true,
         endpoints: ['POST /companies/:id/income-reader', 'GET /companies/:id/ocr/sessions/:id'],
+        requiredRoles: ['ventas:read', 'contabilidad:read'],
       },
     ],
   },
@@ -105,6 +115,7 @@ export const NAV_GROUPS: NavGroup[] = [
           'POST /companies/:id/proveedores',
           'PUT /companies/:id/proveedores/:id',
         ],
+        requiredRoles: ['compras:read', 'contabilidad:read'],
       },
       {
         label: 'Bandeja OCR',
@@ -117,6 +128,7 @@ export const NAV_GROUPS: NavGroup[] = [
           'GET /companies/:id/ocr/sessions/:id',
           'GET /companies/:id/ocr/status',
         ],
+        requiredRoles: ['compras:read', 'ventas:read', 'contabilidad:read'],
       },
       {
         label: 'Analytics OCR',
@@ -128,6 +140,7 @@ export const NAV_GROUPS: NavGroup[] = [
           'GET /companies/:id/ocr/analytics/timeline',
           'GET /companies/:id/ocr/analytics/distribution',
         ],
+        requiredRoles: ['compras:read', 'ventas:read', 'contabilidad:read'],
       },
       {
         label: 'Compras',
@@ -135,6 +148,7 @@ export const NAV_GROUPS: NavGroup[] = [
         description: 'Facturas recibidas y gastos de proveedor.',
         implemented: false,
         endpoints: ['GET /companies/:id/compras', 'POST /companies/:id/compras'],
+        requiredRoles: ['compras:read', 'contabilidad:read'],
       },
     ],
   },
@@ -153,6 +167,7 @@ export const NAV_GROUPS: NavGroup[] = [
           'GET /companies/:id/movements/stats/by-month',
           'GET /companies/:id/movements/stats/by-category',
         ],
+        requiredRoles: ['contabilidad:read', 'tesoreria:read'],
       },
       {
         label: 'Plan contable',
@@ -456,6 +471,8 @@ export const NAV_GROUPS: NavGroup[] = [
         description: 'Gestión centralizada de documentos y archivos de la empresa.',
         implemented: true,
         endpoints: ['GET /companies/:id/archivo', 'POST /companies/:id/archivo'],
+        // Sus lecturas piden contabilidad:read: sin el, la pantalla daria 403.
+        requiredRoles: ['contabilidad:read'],
       },
       {
         label: 'Configuración',
@@ -477,7 +494,7 @@ export const NAV_GROUPS: NavGroup[] = [
       {
         label: 'Empresas y usuarios',
         slug: 'admin',
-        description: 'Todas las empresas y usuarios de la plataforma: altas, accesos y roles.',
+        description: 'Todas las empresas y usuarios de la plataforma: altas, accesos, perfiles y permisos.',
         implemented: true,
         endpoints: [
           'GET /admin/empresas',
@@ -486,6 +503,7 @@ export const NAV_GROUPS: NavGroup[] = [
           'GET /admin/usuarios',
           'POST /admin/usuarios',
           'PATCH /admin/usuarios/:userId',
+          'GET /admin/permisos/catalogo',
           'PUT /admin/usuarios/:userId/empresas/:companyId',
           'DELETE /admin/usuarios/:userId/empresas/:companyId',
         ],

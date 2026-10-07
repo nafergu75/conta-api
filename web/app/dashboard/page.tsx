@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Plus } from '@phosphor-icons/react';
 import { getUser } from '@/lib/auth';
-import { apiFetch, companyPath, errorMessage } from '@/lib/api';
+import { ApiError, apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { proximosVencimientos } from '@/lib/aeatCalendar';
 import { AlertCard } from '@/components/dashboard/AlertCard';
 import { CobrosClientes } from '@/components/dashboard/CobrosClientes';
@@ -88,6 +88,7 @@ export default function DashboardPage() {
   const [movements, setMovements] = useState<Movement[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [sinAccesoResumen, setSinAccesoResumen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [userEmail, setUserEmail] = useState<string>('');
@@ -107,13 +108,28 @@ export default function DashboardPage() {
       // Sin sesion, el layout ya redirige al login; un 401 lo gestiona apiFetch.
       const get = <T,>(path: string) => apiFetch<T>(companyPath(path));
 
-      const [sum, byMonth, byCat, movs, cls] = await Promise.all([
+      // Cada bloque por su lado: con permisos a medida (p. ej. solo Ventas) unas
+      // lecturas dan 403 y otras no, y lo que si carga se pinta igual.
+      const resultados = await Promise.allSettled([
         get<Summary>('/movements/stats/summary'),
         get<MonthRow[]>('/movements/stats/by-month'),
         get<CategoryRow[]>('/movements/stats/by-category'),
         get<Movement[]>('/movements?limit=15'),
         get<{ items?: Cliente[] }>('/clientes?limit=10'),
       ]);
+      const [rSum, rByMonth, rByCat, rMovs, rCls] = resultados;
+      const valor = <T,>(r: PromiseSettledResult<T>, porDefecto: T): T => (r.status === 'fulfilled' ? r.value ?? porDefecto : porDefecto);
+      const sum = valor(rSum, null as Summary | null);
+      const byMonth = valor(rByMonth, [] as MonthRow[]);
+      const byCat = valor(rByCat, [] as CategoryRow[]);
+      const movs = valor(rMovs, [] as Movement[]);
+      const cls = valor(rCls, {} as { items?: Cliente[] });
+
+      const fallos = resultados.flatMap((r) => (r.status === 'rejected' ? [r.reason as unknown] : []));
+      const esSinPermiso = (e: unknown) => e instanceof ApiError && e.status === 403;
+      // Un 403 es que su acceso no incluye esos datos: se dice sin tono de error.
+      setSinAccesoResumen(fallos.some(esSinPermiso));
+      const otroFallo = fallos.find((e) => !esSinPermiso(e));
 
       // IVA y retenciones del año, desde las facturas (no se estiman).
       try {
@@ -127,7 +143,7 @@ export default function DashboardPage() {
       setCategories(byCat);
       setMovements(movs);
       setClientes(cls.items ?? []);
-      setError(null);
+      setError(otroFallo === undefined ? null : errorMessage(otroFallo));
 
       // Calcular años disponibles basados en los meses de datos
       const years = new Set<number>();
@@ -450,6 +466,11 @@ export default function DashboardPage() {
         {error && (
           <div className="rounded-xl border border-rose-200 bg-rose-50 text-rose-700 p-4 text-sm">
             <strong>No se pudo cargar el dashboard.</strong> {error}
+          </div>
+        )}
+        {sinAccesoResumen && (
+          <div role="status" className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
+            Tu acceso a esta empresa no incluye el resumen general.
           </div>
         )}
 
