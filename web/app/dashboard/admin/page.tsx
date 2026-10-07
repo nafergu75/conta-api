@@ -16,7 +16,7 @@ import {
   Users,
   X,
 } from '@phosphor-icons/react';
-import { ApiError, apiFetch, errorMessage } from '@/lib/api';
+import { apiFetch, errorMessage } from '@/lib/api';
 import {
   cambiarEmpresa,
   EVENTO_SESION,
@@ -31,6 +31,10 @@ import {
  * Administracion de la plataforma (modo administrador global): todas las
  * empresas y todos los usuarios, con sus accesos y roles. Solo la ve quien
  * tiene esAdminGlobal; el backend lo vuelve a comprobar en cada peticion.
+ *
+ * Los cambios surten efecto en la siguiente peticion del usuario afectado (el
+ * backend lee la BD, no el token): quitar un acceso o desactivar a alguien le
+ * corta al momento, y lo que se le da lo ve en cuanto recarga la pagina.
  */
 
 interface EmpresaAdmin {
@@ -65,14 +69,6 @@ interface UsuarioAdmin {
 type Pestana = 'empresas' | 'usuarios';
 
 const CONTRASENA_MIN = 12;
-
-/** Un 403 aqui casi siempre es una sesion de antes de recibir el permiso. */
-function textoError(e: unknown): string {
-  if (e instanceof ApiError && e.status === 403) {
-    return `${e.message} Si te acaban de dar el modo administrador, cierra sesión y vuelve a entrar.`;
-  }
-  return errorMessage(e);
-}
 
 /** Busqueda sin distinguir mayusculas ni tildes. */
 const normalizar = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -184,6 +180,9 @@ export default function AdministracionPage() {
   const [empresas, setEmpresas] = useState<EmpresaAdmin[]>([]);
   const [usuarios, setUsuarios] = useState<UsuarioAdmin[]>([]);
   const [cargando, setCargando] = useState(true);
+  // Si la carga falla, las listas vacias no significan "no hay nada": se dice
+  // que no se han podido cargar y se ofrece reintentar.
+  const [errorCarga, setErrorCarga] = useState('');
   const [error, setError] = useState('');
   const [aviso, setAviso] = useState('');
   const [modal, setModal] = useState<'empresa' | 'usuario' | null>(null);
@@ -210,9 +209,9 @@ export default function AdministracionPage() {
       ]);
       setEmpresas([...e].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')));
       setUsuarios(u);
-      setError('');
+      setErrorCarga('');
     } catch (e) {
-      setError(textoError(e));
+      setErrorCarga(errorMessage(e));
     } finally {
       setCargando(false);
     }
@@ -221,6 +220,11 @@ export default function AdministracionPage() {
   useEffect(() => {
     if (esAdmin) cargar();
   }, [esAdmin, cargar]);
+
+  const reintentar = () => {
+    setCargando(true);
+    cargar();
+  };
 
   /** Ejecuta un cambio, muestra el resultado y recarga las listas. */
   const accion = async (fn: () => Promise<unknown>, ok: string): Promise<boolean> => {
@@ -232,7 +236,7 @@ export default function AdministracionPage() {
       await cargar();
       return true;
     } catch (e) {
-      setError(textoError(e));
+      setError(errorMessage(e));
       return false;
     }
   };
@@ -269,14 +273,28 @@ export default function AdministracionPage() {
   };
 
   const alternarEmpresa = (e: EmpresaAdmin) => {
+    // La empresa en la que se trabaja no se queda abierta despues de
+    // desactivarla: se pasa a otra activa (y si no hay otra, no se deja).
+    const esLaActual = e.activa && e.id === empresaActual;
+    const otra = esLaActual ? empresas.find((x) => x.activa && x.id !== e.id) : undefined;
+    if (esLaActual && !otra) {
+      setAviso('');
+      setError(`Estás trabajando en «${e.nombre}» y no hay otra empresa activa a la que pasar. Crea o activa otra antes de desactivarla.`);
+      return;
+    }
     const pregunta = e.activa
-      ? `¿Desactivar «${e.nombre}»? No se borra ningún dato y podrás volver a activarla cuando quieras.`
+      ? `¿Desactivar «${e.nombre}»? No se borra ningún dato y podrás volver a activarla cuando quieras.` +
+        (otra ? `\n\nEstás trabajando en ella: pasarás a «${otra.nombre}».` : '')
       : `¿Volver a activar «${e.nombre}»?`;
     if (!window.confirm(pregunta)) return;
     accion(
       () => apiFetch(`/admin/empresas/${encodeURIComponent(e.id)}`, { method: 'PATCH', body: JSON.stringify({ activa: !e.activa }) }),
-      e.activa ? `«${e.nombre}» desactivada.` : `«${e.nombre}» activada.`,
-    ).then((ok) => ok && avisarMenu());
+      e.activa ? `«${e.nombre}» desactivada.${otra ? ` Ahora trabajas en «${otra.nombre}».` : ''}` : `«${e.nombre}» activada.`,
+    ).then((ok) => {
+      if (!ok) return;
+      if (otra) cambiarEmpresa(otra.id, otra.nombre);
+      avisarMenu();
+    });
   };
 
   if (!montado) {
@@ -289,8 +307,7 @@ export default function AdministracionPage() {
         <ShieldCheck size={40} className="mx-auto mb-4 text-slate-400" />
         <h1 className="mb-2 text-xl font-semibold text-slate-900">Administración</h1>
         <p className="mb-6 text-sm text-slate-600">
-          Esta pantalla es solo para el administrador global de la plataforma. Si te acaban de dar el permiso, cierra sesión y vuelve a
-          entrar.
+          Esta pantalla es solo para el administrador global de la plataforma. Si te acaban de dar el permiso, recarga la página.
         </p>
         <Link href="/dashboard" className="text-sm font-medium text-accent-600 hover:text-accent-700">
           Volver al resumen
@@ -312,7 +329,13 @@ export default function AdministracionPage() {
             </h1>
             <p className="text-xs text-slate-500">Todas las empresas y usuarios de la plataforma</p>
           </div>
-          <button type="button" onClick={() => setModal(pestana === 'empresas' ? 'empresa' : 'usuario')} className={BOTON_PRIMARIO}>
+          <button
+            type="button"
+            onClick={() => setModal(pestana === 'empresas' ? 'empresa' : 'usuario')}
+            disabled={cargando || !!errorCarga}
+            title={errorCarga ? 'Primero hay que poder cargar las listas' : undefined}
+            className={BOTON_PRIMARIO}
+          >
             {pestana === 'empresas' ? <Plus size={16} weight="bold" /> : <UserPlus size={16} weight="bold" />}
             {pestana === 'empresas' ? 'Nueva empresa' : 'Nuevo usuario'}
           </button>
@@ -337,7 +360,8 @@ export default function AdministracionPage() {
                 }`}
               >
                 {t === 'empresas' ? <Buildings size={16} /> : <Users size={16} />}
-                {t === 'empresas' ? `Empresas (${empresas.length})` : `Usuarios (${usuarios.length})`}
+                {t === 'empresas' ? 'Empresas' : 'Usuarios'}
+                {!cargando && !errorCarga && ` (${t === 'empresas' ? empresas.length : usuarios.length})`}
               </button>
             ))}
           </div>
@@ -363,6 +387,14 @@ export default function AdministracionPage() {
               <div key={i} className="h-14 animate-pulse rounded-lg border border-slate-200 bg-white" />
             ))}
           </div>
+        ) : errorCarga ? (
+          <section role="alert" className="flex flex-col items-center gap-3 rounded-xl border border-rose-200 bg-white px-4 py-10 text-center">
+            <p className="text-sm font-medium text-slate-900">No se han podido cargar las empresas y los usuarios.</p>
+            <p className="max-w-md text-sm text-slate-600">{errorCarga}</p>
+            <button type="button" onClick={reintentar} className={BOTON_SECUNDARIO_ALTO}>
+              Reintentar
+            </button>
+          </section>
         ) : pestana === 'empresas' ? (
           <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
             <div className="hidden grid-cols-[minmax(0,2fr)_minmax(0,1fr)_48px_64px_100px_176px] gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500 lg:grid">
@@ -489,7 +521,7 @@ export default function AdministracionPage() {
           </section>
         )}
 
-        {!cargando && (
+        {!cargando && !errorCarga && (
           <p className="text-center text-xs text-slate-500">
             {pestana === 'empresas'
               ? `${empresasFiltradas.length} de ${empresas.length} empresas`
@@ -558,7 +590,7 @@ function ModalNuevaEmpresa({ onClose, onCreada }: { onClose: () => void; onCread
       });
       onCreada(e);
     } catch (e) {
-      setError(textoError(e));
+      setError(errorMessage(e));
       setGuardando(false);
     }
   };
@@ -668,7 +700,7 @@ function ModalNuevoUsuario({
       });
       onCreado(u);
     } catch (e) {
-      setError(textoError(e));
+      setError(errorMessage(e));
       setGuardando(false);
     }
   };
@@ -773,7 +805,7 @@ function PanelUsuario({
       setAviso(ok);
       return true;
     } catch (e) {
-      setError(textoError(e));
+      setError(errorMessage(e));
       return false;
     } finally {
       setOcupado(false);
@@ -801,13 +833,16 @@ function PanelUsuario({
     ev.preventDefault();
     const e = empresas.find((x) => x.id === nuevaEmpresa);
     if (!e) return;
-    const ok = await hacer(() => ponerRol(e.id, nuevoRol), `Acceso a «${e.nombre}» como ${nombreRol(nuevoRol)}.`);
+    const ok = await hacer(
+      () => ponerRol(e.id, nuevoRol),
+      `Acceso a «${e.nombre}» como ${nombreRol(nuevoRol)}. Si tiene la sesión abierta, lo verá al recargar la página.`,
+    );
     if (ok) setNuevaEmpresa('');
   };
 
   const alternarActivo = () => {
     const pregunta = usuario.activo
-      ? `¿Desactivar a ${usuario.email}? No podrá entrar hasta que lo reactives. No se borra nada.`
+      ? `¿Desactivar a ${usuario.email}? Se le cierran las sesiones abiertas y no podrá entrar hasta que lo reactives. No se borra nada.`
       : `¿Reactivar a ${usuario.email}?`;
     if (!window.confirm(pregunta)) return;
     hacer(
@@ -825,7 +860,7 @@ function PanelUsuario({
       () => apiFetch(base, { method: 'PATCH', body: JSON.stringify({ esAdminGlobal: !usuario.esAdminGlobal }) }),
       usuario.esAdminGlobal
         ? 'Ya no es administrador global.'
-        : 'Ahora es administrador global. Lo verá al volver a iniciar sesión.',
+        : 'Ahora es administrador global. Si tiene la sesión abierta, lo verá al recargar la página.',
     );
   };
 
@@ -835,10 +870,15 @@ function PanelUsuario({
       setError(`La contraseña debe tener al menos ${CONTRASENA_MIN} caracteres.`);
       return;
     }
-    if (!window.confirm(`¿Cambiar la contraseña de ${usuario.email}? La actual dejará de servir.`)) return;
+    // Cambiar la contrasena cierra todas las sesiones abiertas con la anterior,
+    // tambien la propia: tras guardar la tuya, el panel te lleva a entrar de nuevo.
+    const pregunta = esYo
+      ? '¿Cambiar tu propia contraseña? Se cerrará tu sesión y tendrás que volver a entrar con la nueva.'
+      : `¿Cambiar la contraseña de ${usuario.email}? La actual dejará de servir y se le cierran las sesiones abiertas.`;
+    if (!window.confirm(pregunta)) return;
     const ok = await hacer(
       () => apiFetch(base, { method: 'PATCH', body: JSON.stringify({ nuevaContrasena: contrasena }) }),
-      'Contraseña restablecida. Pásasela por un canal seguro.',
+      'Contraseña restablecida y sesiones abiertas cerradas. Pásasela por un canal seguro.',
     );
     if (ok) setContrasena('');
   };
