@@ -86,9 +86,9 @@ export const NAV_GROUPS: NavGroup[] = [
         label: 'Lector de facturas (OCR)',
         slug: 'lector',
         description:
-          'Lee facturas en PDF o imagen con visión de Claude y las convierte en datos contables. Integrado con bandeja OCR.',
+          'Lee facturas en PDF o imagen con visión de Claude y las convierte en datos contables.',
         implemented: true,
-        endpoints: ['POST /companies/:id/income-reader', 'GET /companies/:id/ocr/sessions/:id'],
+        endpoints: ['POST /companies/:id/income-reader'],
       },
     ],
   },
