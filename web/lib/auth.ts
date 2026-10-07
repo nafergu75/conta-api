@@ -132,7 +132,7 @@ export const ROLES_EMPRESA: Array<{ valor: string; etiqueta: string }> = [
 /** Nombre en castellano de un rol ('solo_lectura' y 'solo-lectura' -> 'Solo lectura'). */
 export function nombreRol(rol: string): string {
   const valor = rol.replace(/-/g, '_');
-  return ROLES_EMPRESA.find((r) => r.valor === valor)?.etiqueta ?? (valor === 'tesoreria' ? 'Tesorería' : rol);
+  return ROLES_EMPRESA.find((r) => r.valor === valor)?.etiqueta ?? rol;
 }
 
 /**
