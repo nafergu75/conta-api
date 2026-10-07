@@ -188,6 +188,18 @@ export default function ConfiguracionPortada() {
     };
   }, [listo, empresaLeida, empresa, espanola, verEjercicios, verSeries, verTesoreria, altaCuentas, verContabilidad, verImpuestos]);
 
+  // El indice enlaza a #contabilidad: al llegar, el navegador salta al ancla
+  // antes de que se rellene la lista de arriba, que luego empuja las tarjetas.
+  // Cuando la lista ya esta, se vuelve a llevar el bloque a la vista.
+  useEffect(() => {
+    if (!puntos) return;
+    try {
+      if (window.location.hash === '#contabilidad') document.getElementById('contabilidad')?.scrollIntoView();
+    } catch {
+      // Sin acceso a la URL: no pasa nada, la pagina se ve igual.
+    }
+  }, [puntos]);
+
   const pendientes = puntos?.filter((p) => p.estado !== 'ok').length ?? 0;
   const moneda = String(empresa?.monedaCuenta ?? 'EUR');
 
