@@ -39,9 +39,13 @@ import ContrasenaProvisional from '@/components/admin/ContrasenaProvisional';
 import {
   areasDelPerfil,
   areasParaEnviar,
+  difiereDelPerfil,
   esAdministrador,
   esEmpresaEspanola,
   mismasAreas,
+  perfilDe,
+  resumenAreas,
+  resumenPerfil,
   todoNinguno,
 } from '@/components/admin/permisos';
 import {
@@ -856,19 +860,48 @@ function ModalNuevaEmpresa({
 const PREGUNTA_COPIADA = '¿Has copiado la contraseña? Después no se puede volver a ver.';
 
 /** Boton que abre o cierra el editor de permisos («Ajustar permisos (opcional)»). */
-function BotonAjustar({ abierto, onClick, controla }: { abierto: boolean; onClick: () => void; controla: string }) {
+function BotonAjustar({
+  abierto,
+  onClick,
+  controla,
+  personalizado,
+}: {
+  abierto: boolean;
+  onClick: () => void;
+  controla: string;
+  /** Hay casillas cambiadas: se guardan aunque el editor este plegado, y se dice. */
+  personalizado?: boolean;
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
       aria-expanded={abierto}
       aria-controls={controla}
-      className="inline-flex min-h-[44px] items-center gap-1.5 self-start rounded-lg px-1 text-sm font-medium text-slate-700 hover:text-slate-900"
+      className="inline-flex min-h-[44px] flex-wrap items-center gap-1.5 self-start rounded-lg px-1 text-sm font-medium text-slate-700 hover:text-slate-900"
     >
       <CaretDown size={14} className={`transition-transform ${abierto ? 'rotate-180' : ''}`} aria-hidden />
       Ajustar permisos <span className="font-normal text-slate-500">(opcional)</span>
+      {personalizado && (
+        <span className="inline-flex items-center whitespace-nowrap rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+          Personalizado
+        </span>
+      )}
     </button>
   );
+}
+
+const PREGUNTA_CAMBIO_PERFIL =
+  'Al cambiar de perfil se quitan los permisos que has marcado y se parte de los del perfil nuevo. ¿Seguir?';
+
+/** Una linea bajo el desplegable de perfil que dice lo que incluye. */
+function ResumenDelPerfil({ catalogo, rol, id }: { catalogo: CatalogoPermisos | null; rol: string; id?: string }) {
+  const texto = resumenPerfil(catalogo, rol);
+  return texto ? (
+    <p id={id} className="text-xs text-slate-500">
+      {texto}
+    </p>
+  ) : null;
 }
 
 /**
@@ -896,14 +929,18 @@ function ModalNuevoUsuario({
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState('');
   // La contrasena provisional vive SOLO aqui: ni en el navegador ni en la URL.
-  const [creado, setCreado] = useState<{ email: string; contrasena?: string } | null>(null);
+  const [creado, setCreado] = useState<{ email: string; contrasena?: string; acceso?: string } | null>(null);
 
   const empresa = empresas.find((e) => e.id === companyId);
   const puedeAjustar = !!catalogo && !!companyId && !esAdministrador(rol);
-  const areasElegidas = puedeAjustar && ajustar ? areas : null;
+  // Lo marcado se envia este el editor abierto o plegado: lo que se ve al
+  // reabrirlo es lo que se guarda (y el boton dice «Personalizado»).
+  const areasElegidas = puedeAjustar ? areas : null;
   const vacio = !!areasElegidas && todoNinguno(areasElegidas);
+  const aMedidaAhora = puedeAjustar && difiereDelPerfil(catalogo, rol, areas);
 
   const cambiarPerfil = (valor: string) => {
+    if (aMedidaAhora && !window.confirm(PREGUNTA_CAMBIO_PERFIL)) return;
     setRol(valor);
     setAreas(null); // Se vuelve a partir del perfil nuevo.
   };
@@ -922,7 +959,12 @@ function ModalNuevoUsuario({
         method: 'POST',
         body: JSON.stringify({ email: email.trim(), ...(companyId ? { companyId, rol } : {}), ...(aMedida ? { areas: aMedida } : {}) }),
       });
-      setCreado({ email: u.email, contrasena: u.contrasenaProvisional });
+      // Con que acceso ha quedado, segun el servidor (no segun la pantalla).
+      const a = u.empresas?.[0];
+      const acceso = a
+        ? `Acceso a «${a.nombre}»: ${perfilDe(catalogo, a.rol)?.nombre ?? nombreRol(a.rol)}${a.personalizado ? ' a medida' : ''}.`
+        : 'Todavía no tiene acceso a ninguna empresa.';
+      setCreado({ email: u.email, contrasena: u.contrasenaProvisional, acceso });
       setGuardando(false);
       await onCreado(u);
     } catch (e) {
@@ -934,6 +976,7 @@ function ModalNuevoUsuario({
   if (creado) {
     return (
       <Modal titulo="Usuario creado" onClose={onClose} confirmarAlCerrar={creado.contrasena ? PREGUNTA_COPIADA : undefined}>
+        {creado.acceso && <p className="mb-3 text-sm text-slate-600">{creado.acceso}</p>}
         {creado.contrasena ? (
           <div className="flex flex-col gap-3">
             <p className="text-sm text-slate-600">
@@ -997,7 +1040,14 @@ function ModalNuevoUsuario({
             <label htmlFor="usuario-rol" className="text-sm font-medium text-slate-700">
               Perfil
             </label>
-            <select id="usuario-rol" value={rol} onChange={(e) => cambiarPerfil(e.target.value)} disabled={!companyId} className={CLASE_INPUT}>
+            <select
+              id="usuario-rol"
+              value={rol}
+              onChange={(e) => cambiarPerfil(e.target.value)}
+              disabled={!companyId}
+              aria-describedby={companyId ? 'usuario-rol-resumen' : undefined}
+              className={CLASE_INPUT}
+            >
               {ROLES_EMPRESA.map((r) => (
                 <option key={r.valor} value={r.valor}>
                   {r.etiqueta}
@@ -1007,9 +1057,11 @@ function ModalNuevoUsuario({
           </div>
         </div>
 
+        {companyId && <ResumenDelPerfil catalogo={catalogo} rol={rol} id="usuario-rol-resumen" />}
+
         {puedeAjustar && catalogo && (
           <div className="flex flex-col gap-2">
-            <BotonAjustar abierto={ajustar} onClick={() => setAjustar((v) => !v)} controla="usuario-permisos" />
+            <BotonAjustar abierto={ajustar} onClick={() => setAjustar((v) => !v)} controla="usuario-permisos" personalizado={aMedidaAhora} />
             {ajustar && (
               <div id="usuario-permisos">
                 <EditorPermisos
@@ -1019,6 +1071,7 @@ function ModalNuevoUsuario({
                   onChange={setAreas}
                   empresaEspanola={esEmpresaEspanola(empresa?.pais)}
                   deshabilitado={guardando}
+                  onVolverAlPerfil={() => setAreas(null)}
                 />
               </div>
             )}
@@ -1158,8 +1211,10 @@ function PanelUsuario({
   };
 
   const puedeAjustarNuevo = !!catalogo && !!nuevaEmpresa && !esAdministrador(nuevoRol);
-  const areasNuevas = puedeAjustarNuevo && ajustarNuevo ? nuevasAreas : null;
+  // Igual que en el alta: lo marcado cuenta aunque el editor este plegado.
+  const areasNuevas = puedeAjustarNuevo ? nuevasAreas : null;
   const nuevoVacio = !!areasNuevas && todoNinguno(areasNuevas);
+  const nuevoAMedida = puedeAjustarNuevo && difiereDelPerfil(catalogo, nuevoRol, nuevasAreas);
 
   const darAcceso = async (ev: React.FormEvent) => {
     ev.preventDefault();
@@ -1251,6 +1306,13 @@ function PanelUsuario({
                     <div className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between">
                       <div className="min-w-0">
                         <p className="truncate text-sm font-medium text-slate-900">{a.nombre}</p>
+                        {catalogo && (
+                          <p className="mt-0.5 text-xs text-slate-500">
+                            {a.personalizado && a.areas
+                              ? `Permisos distintos de los del perfil ${nombrePerfil(a.rol)}. ${resumenAreas(catalogo, a.areas)}`
+                              : resumenPerfil(catalogo, a.rol)}
+                          </p>
+                        )}
                         {(a.personalizado || !a.activa) && (
                           <div className="mt-1 flex flex-wrap gap-1.5">
                             {a.personalizado && <Etiqueta tono="ambar">Personalizado</Etiqueta>}
@@ -1355,9 +1417,11 @@ function PanelUsuario({
                     id="acceso-rol"
                     value={nuevoRol}
                     onChange={(e) => {
+                      if (nuevoAMedida && !window.confirm(PREGUNTA_CAMBIO_PERFIL)) return;
                       setNuevoRol(e.target.value);
                       setNuevasAreas(null); // Se vuelve a partir del perfil nuevo.
                     }}
+                    aria-describedby={nuevaEmpresa ? 'acceso-rol-resumen' : undefined}
                     className={CLASE_INPUT}
                   >
                     {ROLES_EMPRESA.map((r) => (
@@ -1369,9 +1433,16 @@ function PanelUsuario({
                 </div>
               </div>
 
+              {nuevaEmpresa && <ResumenDelPerfil catalogo={catalogo} rol={nuevoRol} id="acceso-rol-resumen" />}
+
               {puedeAjustarNuevo && catalogo && (
                 <>
-                  <BotonAjustar abierto={ajustarNuevo} onClick={() => setAjustarNuevo((v) => !v)} controla="acceso-permisos" />
+                  <BotonAjustar
+                    abierto={ajustarNuevo}
+                    onClick={() => setAjustarNuevo((v) => !v)}
+                    controla="acceso-permisos"
+                    personalizado={nuevoAMedida}
+                  />
                   {ajustarNuevo && (
                     <div id="acceso-permisos">
                       <EditorPermisos
@@ -1382,6 +1453,7 @@ function PanelUsuario({
                         empresaEspanola={esEmpresaEspanola(paisDe(nuevaEmpresa))}
                         esAdminGlobal={usuario.esAdminGlobal}
                         deshabilitado={ocupado}
+                        onVolverAlPerfil={() => setNuevasAreas(null)}
                       />
                     </div>
                   )}
