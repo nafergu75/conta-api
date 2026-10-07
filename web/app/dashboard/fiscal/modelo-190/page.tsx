@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
+import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { ejercicioAnualAPresentar, ejerciciosSeleccionables } from '@/lib/aeatCalendar';
 import { CaretLeft, Info, Download } from '@phosphor-icons/react';
 import { CasillasViewer } from '../components/CasillasViewer';
@@ -58,12 +59,24 @@ export default function Modelo190Page() {
     currency: 'EUR',
   });
 
-  const descargarAEAT = () => {
-    // El backend aun no genera el fichero de este modelo (solo el del 303).
-    setAvisoDescarga(
-      'La descarga del fichero AEAT de este modelo aún no está disponible. Puedes copiar las casillas desde esta pantalla.',
-    );
+  // El fichero y el informe por perceptor llevan datos de cada trabajador: solo con permiso de nominas.
+  const conNominas = tieneAlgunPermiso(getUser(), ['nominas:read']);
+
+  const descargar = async (ruta: string, nombre: string) => {
+    setAvisoDescarga('');
+    if (!conNominas) {
+      setAvisoDescarga('El fichero lleva los datos de cada trabajador: solo lo pueden descargar el administrador y el contable.');
+      return;
+    }
+    try {
+      await apiDownload(companyPath(ruta), nombre);
+    } catch (err) {
+      // 409 si el diseno de registro de ese ejercicio aun no esta publicado; 400 si faltan datos.
+      setAvisoDescarga(errorMessage(err));
+    }
   };
+  const descargarAEAT = () => descargar(`/nominas/190/${ejercicio}/fichero`, `190_${ejercicio}.txt`);
+  const descargarPerceptores = () => descargar(`/nominas/190/${ejercicio}/perceptores?formato=xlsx`, `modelo190_${ejercicio}.xlsx`);
 
   if (loading) {
     return (
@@ -350,6 +363,15 @@ export default function Modelo190Page() {
               <Download size={18} />
               Descargar Fichero AEAT (TXT)
             </button>
+            {conNominas && (
+              <button
+                onClick={descargarPerceptores}
+                className="w-full inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-6 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50 transition"
+              >
+                <Download size={18} />
+                Informe por perceptor (Excel)
+              </button>
+            )}
             {avisoDescarga && (
               <p role="status" className="mt-2 text-sm text-amber-700">{avisoDescarga}</p>
             )}

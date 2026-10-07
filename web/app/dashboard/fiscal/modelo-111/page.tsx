@@ -149,6 +149,7 @@ export default function Modelo111Page() {
       <CasillasViewer
         casillas={modelo.casillas}
         titulo="Casillas del Modelo 111"
+        casillasConteo={['01', '04', '07']}
         descripcion={`Trimestre ${modelo.trimestre} de ${modelo.ejercicio} – Retenciones por tipo`}
         estado={modelo.estado}
       />
