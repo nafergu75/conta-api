@@ -21,8 +21,10 @@ export function EmpresaSelector({ user }: { user: SessionUser }) {
       .then((lista) => {
         const todas = lista.filter((e) => e.activa).map((e) => ({ companyId: e.id, codigo: e.codigo, nombre: e.nombre }));
         setEmpresas(todas);
-        // Un admin sin empresas propias entra en la primera de la plataforma.
-        if (!user.empresaActiva && !user.companies?.length && todas[0]) {
+        // Si la empresa activa no esta entre las activas (un admin sin empresas
+        // propias, o la ultima que uso se ha desactivado), entra en la primera.
+        // Al iniciar sesion la ultima empresa del admin no se comprueba: es aqui.
+        if (!todas.some((e) => e.companyId === getCompanyId()) && todas[0]) {
           cambiarEmpresa(todas[0].companyId, todas[0].nombre);
           window.location.reload();
         }

@@ -52,7 +52,9 @@ export default function DashboardLayout({
           return;
         }
         setFaltanDatos(cfg.pendientes ?? []);
-        if (pathname.startsWith('/dashboard/empresa')) return;
+        // Ni en datos de la empresa ni en Administracion: el administrador tiene que
+        // poder llegar aunque la empresa en la que esta no tenga aun sus datos.
+        if (pathname.startsWith('/dashboard/empresa') || pathname.startsWith('/dashboard/admin')) return;
         const clave = `conta_datos_empresa_avisado_${getCompanyId()}`;
         try {
           if (sessionStorage.getItem(clave)) return;
