@@ -312,12 +312,16 @@ export default function EjerciciosPage() {
                         <Etiqueta tono={estado.tono}>{estado.texto}</Etiqueta>
                         <div className="flex-1" />
                         {e.estadoEfectivo === 'CERRADO_SIN_ASIENTOS' && reabrirPermitido && (
-                          <button type="button" onClick={() => setReabrir(e)} className={claseBotonSecundario}>
+                          <button type="button" onClick={() => setReabrir(e)} aria-label={`Reabrir el ejercicio ${e.label}`} className={claseBotonSecundario}>
                             <LockKeyOpen size={16} /> Reabrir
                           </button>
                         )}
                         {e.estadoEfectivo !== 'CERRADO_SIN_ASIENTOS' && (
-                          <Link href={enlaceCierre(e.label)} className="inline-flex items-center gap-1 text-sm font-medium text-emerald-700 hover:underline">
+                          <Link
+                            href={enlaceCierre(e.label)}
+                            aria-label={`Cerrar o deshacer el cierre de ${e.label}`}
+                            className="inline-flex items-center gap-1 text-sm font-medium text-emerald-700 hover:underline"
+                          >
                             Cerrar o deshacer el cierre <ArrowRight size={14} />
                           </Link>
                         )}
@@ -407,6 +411,7 @@ export default function EjerciciosPage() {
                             type="button"
                             onClick={() => cambiarMes(p.mes, 'bloqueado')}
                             disabled={!!ocupado}
+                            aria-label={`Bloquear ${MESES[p.mes - 1].toLowerCase()} de ${anioSel}`}
                             className={claseBotonSecundario}
                           >
                             {ocupado === `mes-${p.mes}` ? '…' : 'Bloquear'}
@@ -417,6 +422,7 @@ export default function EjerciciosPage() {
                             type="button"
                             onClick={() => cambiarMes(p.mes, 'abierto')}
                             disabled={!!ocupado}
+                            aria-label={`Desbloquear ${MESES[p.mes - 1].toLowerCase()} de ${anioSel}`}
                             className={claseBotonSecundario}
                           >
                             {ocupado === `mes-${p.mes}` ? '…' : 'Desbloquear'}

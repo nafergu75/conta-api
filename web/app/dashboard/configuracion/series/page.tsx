@@ -165,6 +165,7 @@ export default function SeriesPage() {
                                     type="button"
                                     disabled={!!ocupado}
                                     onClick={() => cambioRapido(s, { porDefecto: true }, `La serie ${s.codigo} es ahora la predeterminada.`)}
+                                    aria-label={`Marcar la serie ${s.codigo} como predeterminada`}
                                     className={claseBotonSecundario}
                                   >
                                     <Star size={16} /> Predeterminada
@@ -177,12 +178,19 @@ export default function SeriesPage() {
                                     onClick={() =>
                                       cambioRapido(s, { activa: !s.activa }, s.activa ? `Serie ${s.codigo} desactivada.` : `Serie ${s.codigo} activada.`)
                                     }
+                                    aria-label={`${s.activa ? 'Desactivar' : 'Activar'} la serie ${s.codigo}`}
                                     className={claseBotonSecundario}
                                   >
                                     {s.activa ? 'Desactivar' : 'Activar'}
                                   </button>
                                 )}
-                                <button type="button" disabled={!!ocupado} onClick={() => setEditando(s.id)} className={claseBotonSecundario}>
+                                <button
+                                  type="button"
+                                  disabled={!!ocupado}
+                                  onClick={() => setEditando(s.id)}
+                                  aria-label={`Editar la serie ${s.codigo}`}
+                                  className={claseBotonSecundario}
+                                >
                                   <PencilSimple size={16} /> Editar
                                 </button>
                               </div>
@@ -321,7 +329,7 @@ function FormularioSerie({
             inputMode="numeric"
             placeholder="1"
             aria-invalid={errores.numeroInicial ? true : undefined}
-            aria-describedby={`${id}-numero-ayuda`}
+            aria-describedby={`${id}-numero-ayuda${errores.numeroInicial ? ` ${id}-numeroInicial-error` : ''}`}
             className={`${claseCampo} font-mono`}
           />
           {ayudaError('numeroInicial')}
