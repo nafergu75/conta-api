@@ -1,13 +1,15 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { trimestreAPresentar, ejerciciosSeleccionables } from '@/lib/aeatCalendar';
 import { CaretLeft, Download } from '@phosphor-icons/react';
 import { CasillasViewer } from '../components/CasillasViewer';
 import { FormPresentar } from '../components/FormPresentar';
 import { Tooltip } from '../components/Tooltip';
+import { AvisosModelo } from '../components/AvisosModelo';
 
 interface Modelo111 {
   id: string;
@@ -17,16 +19,30 @@ interface Modelo111 {
   totalBase: number;
   totalRetenido: number;
   estado: 'vigente' | 'presentado';
+  /** Nominas en borrador, meses solo con el resumen antiguo, casillas editadas o presentadas... */
+  avisos?: string[];
 }
 
 export default function Modelo111Page() {
+  return (
+    <Suspense fallback={<div className="h-10 w-32 animate-pulse rounded-lg bg-slate-200" />}>
+      <Modelo111Contenido />
+    </Suspense>
+  );
+}
+
+function Modelo111Contenido() {
+  const params = useSearchParams();
   const [modelo, setModelo] = useState<Modelo111 | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [avisoDescarga, setAvisoDescarga] = useState('');
-  // Se abre en el trimestre que toca presentar (en octubre, el 3T).
-  const [ejercicio, setEjercicio] = useState(() => trimestreAPresentar().ejercicio);
-  const [trimestre, setTrimestre] = useState(() => trimestreAPresentar().trimestre);
+  // Se abre en el trimestre de la URL (desde Nominas) o en el que toca presentar (en octubre, el 3T).
+  const [ejercicio, setEjercicio] = useState(() => Number(params.get('ejercicio')) || trimestreAPresentar().ejercicio);
+  const [trimestre, setTrimestre] = useState(() => {
+    const t = Number(params.get('trimestre'));
+    return t >= 1 && t <= 4 ? t : trimestreAPresentar().trimestre;
+  });
 
   useEffect(() => {
     const fetchModelo = async () => {
@@ -145,6 +161,8 @@ export default function Modelo111Page() {
         </div>
       </div>
 
+      <AvisosModelo avisos={modelo.avisos} ejercicio={modelo.ejercicio} mes={modelo.trimestre * 3} />
+
       {/* Casillas Completas */}
       <CasillasViewer
         casillas={modelo.casillas}
@@ -183,7 +201,9 @@ export default function Modelo111Page() {
                 {modelo.casillas.retenciones.map((ret: any, i: number) => (
                   <tr key={i} className="border-b border-slate-100 hover:bg-slate-50">
                     <td className="py-3">{ret.tipo}</td>
-                    <td className="text-right py-3">{ret.porcentaje}%</td>
+                    <td className="text-right py-3" title={ret.medio ? 'Tipo medio: cuota entre base (cada nómina o factura lleva el suyo)' : undefined}>
+                      {ret.porcentaje}%{ret.medio ? ' (medio)' : ''}
+                    </td>
                     <td className="text-right py-3">{eur.format(ret.base)}</td>
                     <td className="text-right py-3 font-medium">{eur.format(ret.cuota)}</td>
                     <td className="text-right py-3 text-slate-600">{ret.operaciones}</td>

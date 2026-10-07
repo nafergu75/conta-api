@@ -22,6 +22,7 @@ import {
   fechaEs,
   hoyIso,
   MarcaCuadre,
+  medioPagoCompleto,
   Modal,
   num,
   periodoTexto,
@@ -37,6 +38,7 @@ import { NominaModal } from './NominaModal';
 import { AsientosModal } from './AsientosModal';
 import { SegurosSociales, type SegurosSocialesMes } from './SegurosSociales';
 import { descargarPdf, Documentos, subirPdf, type DocumentoNomina } from './Documentos';
+import { Retenciones111 } from './Retenciones111';
 
 /**
  * Nominas del mes: una fila por trabajador con su cuadre, estado y asiento.
@@ -103,6 +105,9 @@ function NominasMes() {
 function Mes({ ejercicio, mes, escribir, irA }: { ejercicio: number; mes: number; escribir: boolean; irA: (e: number, m: number) => void }) {
   const [datos, setDatos] = useState<ResumenMes | null>(null);
   const [ss, setSs] = useState<SegurosSocialesMes | null>(null);
+  const [ssComplementaria, setSsComplementaria] = useState<SegurosSocialesMes | null>(null);
+  // Cada recarga del mes (contabilizar, pagar...) vuelve a pedir las retenciones del trimestre.
+  const [version, setVersion] = useState(0);
   const [docs, setDocs] = useState<DocumentoNomina[]>([]);
   const [errorCarga, setErrorCarga] = useState('');
   const [mensaje, setMensaje] = useState<{ tipo: 'ok' | 'error'; texto: string; avisos?: string[] } | null>(null);
@@ -112,10 +117,11 @@ function Mes({ ejercicio, mes, escribir, irA }: { ejercicio: number; mes: number
   const inputPdf = useRef<HTMLInputElement>(null);
 
   const cargar = useCallback(async () => {
-    const [r, s, d] = await Promise.allSettled([
+    const [r, s, d, c] = await Promise.allSettled([
       apiFetch<ResumenMes>(companyPath(`/nominas/periodos/${ejercicio}/${mes}`)),
       apiFetch<SegurosSocialesMes>(companyPath(`/nominas/seguros-sociales/${ejercicio}/${mes}`)),
       apiFetch<DocumentoNomina[]>(companyPath(`/nominas/periodos/${ejercicio}/${mes}/documentos`)),
+      apiFetch<SegurosSocialesMes>(companyPath(`/nominas/seguros-sociales/${ejercicio}/${mes}?tipo=COMPLEMENTARIA`)),
     ]);
     if (r.status === 'fulfilled') {
       setDatos(r.value);
@@ -125,6 +131,8 @@ function Mes({ ejercicio, mes, escribir, irA }: { ejercicio: number; mes: number
     } else setErrorCarga(errorMessage(r.reason));
     setSs(s.status === 'fulfilled' ? s.value : null);
     setDocs(d.status === 'fulfilled' ? d.value : []);
+    setSsComplementaria(c.status === 'fulfilled' ? c.value : null);
+    setVersion((v) => v + 1);
   }, [ejercicio, mes]);
 
   useEffect(() => {
@@ -218,6 +226,11 @@ function Mes({ ejercicio, mes, escribir, irA }: { ejercicio: number; mes: number
         </Alerta>
       )}
       {errorCarga && <Alerta tipo="error">{errorCarga}</Alerta>}
+      {!datos && !errorCarga && (
+        <p className="rounded-lg border border-slate-200 bg-white p-6 text-center text-sm text-slate-500" role="status">
+          Cargando las nóminas de {periodoTexto(ejercicio, mes)}...
+        </p>
+      )}
 
       {datos && (
         <>
@@ -389,7 +402,12 @@ function Mes({ ejercicio, mes, escribir, irA }: { ejercicio: number; mes: number
 
           <div className="grid gap-4 lg:grid-cols-2">
             {ss && <SegurosSociales ss={ss} escribir={escribir} onCambio={cargar} onMensaje={(tipo, texto) => setMensaje({ tipo, texto })} />}
+            {/* Con el RLC normal pagado: la SS de nominas contabilizadas despues se paga con la complementaria. */}
+            {ss?.estado === 'PAGADA' && ssComplementaria && (ssComplementaria.totalPrevisto > 0 || ssComplementaria.id) && (
+              <SegurosSociales ss={ssComplementaria} escribir={escribir} onCambio={cargar} onMensaje={(tipo, texto) => setMensaje({ tipo, texto })} />
+            )}
             <Documentos ejercicio={ejercicio} mes={mes} documentos={docs} nominas={nominas} escribir={escribir} onCambio={cargar} onMensaje={(tipo, texto) => setMensaje({ tipo, texto })} />
+            <Retenciones111 ejercicio={ejercicio} mes={mes} escribir={escribir} version={version} onMensaje={(tipo, texto, avisos) => setMensaje({ tipo, texto, avisos })} />
           </div>
         </>
       )}
@@ -420,6 +438,16 @@ function Mes({ ejercicio, mes, escribir, irA }: { ejercicio: number; mes: number
 // Pagar los liquidos (465 de cada trabajador contra el banco o la caja)
 // ---------------------------------------------------------------------------
 
+/** La fecha de pago que mas se repite entre las nominas (o la de devengo). */
+function fechaPagoPropuesta(nominas: Nomina[]): string {
+  const veces = new Map<string, number>();
+  for (const n of nominas) {
+    const f = n.fechaPago || n.fechaDevengo;
+    if (f) veces.set(f, (veces.get(f) ?? 0) + 1);
+  }
+  return Array.from(veces).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? hoyIso();
+}
+
 function PagarLiquidos({
   ejercicio,
   mes,
@@ -435,12 +463,15 @@ function PagarLiquidos({
   onCerrar: () => void;
   onHecho: (t: string, avisos?: string[]) => void;
 }) {
-  const [medio, setMedio] = useState<MedioPago>({ fecha: hoyIso(), cuenta: '' });
+  // Se propone la fecha de pago que ya tienen (por defecto, el ultimo dia del mes),
+  // no la de hoy: es la que decide el trimestre del 111.
+  const [medio, setMedio] = useState<MedioPago>(() => ({ fecha: fechaPagoPropuesta(nominas), cuenta: '' }));
   const embargos = Math.round(nominas.reduce((a, n) => a + n.embargos * 100, 0)) / 100;
   const liquido = Math.round(nominas.reduce((a, n) => a + n.liquido * 100, 0)) / 100;
   const [conEmbargos, setConEmbargos] = useState(false);
   const [error, setError] = useState('');
   const [ocupado, setOcupado] = useState(false);
+  const total = Math.round((liquido + (conEmbargos ? embargos : 0)) * 100) / 100;
 
   const pagar = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -459,13 +490,12 @@ function PagarLiquidos({
     }
   };
 
-  const total = liquido + (conEmbargos ? embargos : 0);
   return (
     <Modal titulo={`Pagar los líquidos de ${periodoTexto(ejercicio, mes)}`} onCerrar={onCerrar}>
       <form onSubmit={pagar} className="space-y-4">
         <p className="text-sm text-slate-700">
           {nominas.length} {nominas.length === 1 ? 'nómina contabilizada' : 'nóminas contabilizadas'} por <strong className="tabular-nums">{eur.format(liquido)}</strong>. Se salda la 465 de cada trabajador contra la cuenta elegida, y la fecha
-          del pago pasa a ser la fecha de pago de la nómina (la que cuenta para el modelo 111).
+          del pago pasa a ser la fecha de pago de la nómina (la que cuenta para el modelo 111): pon la fecha real del cargo. Si el 111 de su trimestre ya está presentado, la nómina se queda en él.
         </p>
         <ul className="max-h-40 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-200 text-sm">
           {nominas.map((n) => (
@@ -475,7 +505,7 @@ function PagarLiquidos({
             </li>
           ))}
         </ul>
-        <CamposMedioPago valor={medio} onCambiar={setMedio} />
+        <CamposMedioPago valor={medio} onCambiar={setMedio} importe={total} />
         {embargos > 0 && (
           <label className="flex items-start gap-2 text-sm text-slate-700">
             <input type="checkbox" checked={conEmbargos} onChange={(e) => setConEmbargos(e.target.checked)} className="mt-0.5 h-4 w-4 rounded border-slate-300" />
@@ -487,7 +517,7 @@ function PagarLiquidos({
           <button type="button" onClick={onCerrar} disabled={ocupado} className={botonSecundario}>
             Cancelar
           </button>
-          <button type="submit" disabled={ocupado || !nominas.length} className={boton}>
+          <button type="submit" disabled={ocupado || !nominas.length || !medioPagoCompleto(medio)} className={boton}>
             {ocupado ? 'Pagando...' : `Pagar ${eur.format(total)}`}
           </button>
         </div>
@@ -597,7 +627,7 @@ function AnularContabilizacion({
   );
 }
 
-function AnularPago({ ejercicio, mes, pagadas, todas, onCerrar, onHecho }: { ejercicio: number; mes: number; pagadas: Nomina[]; todas: boolean; onCerrar: () => void; onHecho: (t: string) => void }) {
+function AnularPago({ ejercicio, mes, pagadas, todas, onCerrar, onHecho }: { ejercicio: number; mes: number; pagadas: Nomina[]; todas: boolean; onCerrar: () => void; onHecho: (t: string, avisos?: string[]) => void }) {
   const [fecha, setFecha] = useState(hoyIso());
   const [motivo, setMotivo] = useState('');
   const [error, setError] = useState('');
@@ -608,7 +638,7 @@ function AnularPago({ ejercicio, mes, pagadas, todas, onCerrar, onHecho }: { eje
     setOcupado(true);
     setError('');
     try {
-      const r = await apiFetch<{ nominas: number; arrastradas: number; contraasientos: Array<{ numero: string }>; movimientosDesconciliados: number }>(
+      const r = await apiFetch<{ nominas: number; arrastradas: number; contraasientos: Array<{ numero: string }>; movimientosDesconciliados: number; avisos?: string[] }>(
         companyPath(`/nominas/periodos/${ejercicio}/${mes}/pago/anular`),
         { method: 'POST', body: JSON.stringify({ ...(todas ? {} : { nominaIds: pagadas.map((n) => n.id) }), fecha, ...(motivo.trim() ? { motivo: motivo.trim() } : {}) }) },
       );
@@ -617,7 +647,8 @@ function AnularPago({ ejercicio, mes, pagadas, todas, onCerrar, onHecho }: { eje
           (r.arrastradas ? ` (${r.arrastradas} de otras nóminas pagadas en el mismo cargo)` : '') +
           (r.contraasientos.length ? `; contraasiento ${r.contraasientos.map((c) => c.numero).join(', ')}` : '') +
           (r.movimientosDesconciliados ? '; el movimiento del banco queda sin conciliar' : '') +
-          '.',
+          (r.avisos?.length ? '.' : '. Su fecha de pago vuelve a la de antes del pago.'),
+        r.avisos,
       );
     } catch (err) {
       setError(errorMessage(err));

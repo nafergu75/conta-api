@@ -78,10 +78,10 @@ export function Documentos({
   };
 
   const anular = async (d: DocumentoNomina) => {
-    if (!window.confirm(`¿Quitar ${d.archivoNombre} del archivo?`)) return;
+    if (!window.confirm(`¿Borrar ${d.archivoNombre}? Se borra el fichero del archivo y ya no se podrá descargar.`)) return;
     try {
       await apiFetch(companyPath(`/nominas/documentos/${d.id}`), { method: 'DELETE' });
-      onMensaje('ok', `${d.archivoNombre} quitado del archivo.`);
+      onMensaje('ok', `${d.archivoNombre} borrado del archivo.`);
       onCambio();
     } catch (e) {
       onMensaje('error', errorMessage(e));
@@ -139,7 +139,7 @@ export function Documentos({
                 <DownloadSimple size={18} />
               </button>
               {escribir && (
-                <button type="button" onClick={() => anular(d)} className="rounded p-1.5 text-slate-500 hover:bg-red-50 hover:text-red-600" title="Quitar del archivo" aria-label={`Quitar ${d.archivoNombre}`}>
+                <button type="button" onClick={() => anular(d)} className="rounded p-1.5 text-slate-500 hover:bg-red-50 hover:text-red-600" title="Borrar del archivo" aria-label={`Borrar ${d.archivoNombre}`}>
                   <Trash size={18} />
                 </button>
               )}
@@ -183,7 +183,7 @@ export function Documentos({
             {ocupado ? 'Subiendo...' : 'Subir PDF'}
             <input ref={input} type="file" accept="application/pdf,image/jpeg,image/png" className="sr-only" disabled={ocupado} onChange={(e) => subir(e.target.files?.[0])} />
           </label>
-          <p className="text-xs text-slate-500">PDF, JPG o PNG de hasta 4 MB. Si el mismo fichero ya está en el archivo, no se sube dos veces.</p>
+          <p className="text-xs text-slate-500">PDF, JPG o PNG de hasta 4 MB. Si el mismo fichero ya está en el archivo, no se sube dos veces. El recibo nuevo de un trabajador sustituye al anterior, que se borra.</p>
         </div>
       )}
     </section>

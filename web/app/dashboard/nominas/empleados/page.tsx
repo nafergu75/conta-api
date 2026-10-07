@@ -31,6 +31,15 @@ import {
 
 const textoContrato = (t: string) => TIPOS_CONTRATO.find(([k]) => k === t)?.[1] ?? t;
 
+/** Datos que el fichero del 190 necesita y la ficha no tiene (los que llegan del Excel no los traen). */
+function faltan190(e: Pick<Empleado, 'provincia' | 'anioNacimiento' | 'situacionFamiliar' | 'nifConyuge'>): string[] {
+  const faltan: string[] = [];
+  if (!e.provincia) faltan.push('provincia');
+  if (!e.anioNacimiento) faltan.push('año de nacimiento');
+  if (e.situacionFamiliar === 2 && !e.nifConyuge) faltan.push('NIF del cónyuge');
+  return faltan;
+}
+
 export default function EmpleadosPage() {
   const { leer, escribir } = permisosNominas();
   const [items, setItems] = useState<Empleado[]>([]);
@@ -160,6 +169,11 @@ export default function EmpleadosPage() {
                 <tr key={e.id} className={e.activo ? '' : 'text-slate-400'}>
                   <td className="px-4 py-2">
                     <span className={`font-medium ${e.activo ? 'text-slate-900' : ''}`}>{e.nombreCompleto}</span>
+                    {faltan190(e).length > 0 && (
+                      <span className="ml-2 rounded bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-700" title={`Para el modelo 190 falta: ${faltan190(e).join(', ')}`}>
+                        Faltan datos del 190
+                      </span>
+                    )}
                     <span className="block font-mono text-xs text-slate-500">{e.nif}</span>
                   </td>
                   <td className="whitespace-nowrap px-4 py-2 font-mono text-xs">{e.naf ?? '—'}</td>
@@ -244,6 +258,8 @@ function EmpleadoModal({ empleado, onCerrar, onGuardado }: { empleado: Empleado 
   });
   const [error, setError] = useState('');
   const [guardando, setGuardando] = useState(false);
+  // Abierto si al trabajador le falta algo para el 190 (los que llegan del Excel no traen provincia ni año).
+  const [abrir190] = useState(() => !!empleado && faltan190(empleado).length > 0);
   const s = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setF({ ...f, [k]: e.target.value });
   const entero = (v: string) => (v.trim() === '' ? null : Number(v));
 
@@ -354,8 +370,11 @@ function EmpleadoModal({ empleado, onCerrar, onGuardado }: { empleado: Empleado 
           </label>
         </div>
 
-        <details className="rounded-lg border border-slate-200 bg-white">
-          <summary className="cursor-pointer select-none px-3 py-2 text-sm text-slate-700">Datos para el modelo 190</summary>
+        <details open={abrir190} className="rounded-lg border border-slate-200 bg-white">
+          <summary className="cursor-pointer select-none px-3 py-2 text-sm text-slate-700">
+            Datos para el modelo 190
+            {empleado && faltan190(empleado).length > 0 && <span className="ml-2 text-xs font-medium text-amber-700">Falta: {faltan190(empleado).join(', ')}</span>}
+          </summary>
           <div className="grid gap-3 border-t border-slate-100 p-3 sm:grid-cols-4">
             <div>
               <label htmlFor="em-clave" className={etiqueta}>

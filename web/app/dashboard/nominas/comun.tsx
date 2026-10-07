@@ -406,7 +406,17 @@ interface CuentaBancaria {
 
 export interface MedioPago {
   fecha: string;
-  /** '' = la primera cuenta bancaria activa; 'caja' = efectivo; si no, el id de la cuenta. */
+  /** '' = la primera cuenta bancaria activa; 'caja' = efectivo; 'cargo' = un cargo del extracto; si no, el id de la cuenta. */
+  cuenta: string;
+  /** Con cuenta 'cargo': el movimiento del extracto que se concilia con el pago. */
+  movimientoId?: string;
+}
+
+interface CargoExtracto {
+  id: string;
+  fecha: string;
+  importe: number;
+  concepto: string;
   cuenta: string;
 }
 
@@ -415,41 +425,112 @@ export const hoyIso = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
-/** Cuerpo de la peticion de pago a partir de lo elegido. */
-export function cuerpoMedioPago(m: MedioPago): { fecha?: string; caja?: boolean; cuentaBancariaId?: string } {
+/** Cuerpo de la peticion de pago a partir de lo elegido (con un cargo, la fecha y la cuenta son las suyas). */
+export function cuerpoMedioPago(m: MedioPago): { fecha?: string; caja?: boolean; cuentaBancariaId?: string; movimientoId?: string } {
+  if (m.cuenta === 'cargo') return m.movimientoId ? { movimientoId: m.movimientoId } : {};
   return { ...(m.fecha ? { fecha: m.fecha } : {}), ...(m.cuenta === 'caja' ? { caja: true } : m.cuenta ? { cuentaBancariaId: m.cuenta } : {}) };
 }
 
-export function CamposMedioPago({ valor, onCambiar }: { valor: MedioPago; onCambiar: (m: MedioPago) => void }) {
+/** Si lo elegido se puede mandar (con "un cargo del extracto", hay que elegir el cargo). */
+export const medioPagoCompleto = (m: MedioPago) => m.cuenta !== 'cargo' || !!m.movimientoId;
+
+/**
+ * Fecha y cuenta del pago. Con `importe`, deja elegir un cargo del extracto por
+ * ese importe exacto: el pago queda conciliado con el y el cargo no se queda
+ * pendiente en Conciliacion bancaria.
+ */
+export function CamposMedioPago({ valor, onCambiar, importe }: { valor: MedioPago; onCambiar: (m: MedioPago) => void; importe?: number }) {
   const [cuentas, setCuentas] = useState<CuentaBancaria[] | null>(null);
+  const [cargos, setCargos] = useState<CargoExtracto[] | null>(null);
   useEffect(() => {
     apiFetch<CuentaBancaria[]>(companyPath('/treasury/bank-accounts'))
       .then((c) => setCuentas((c ?? []).filter((x) => x.estado === 'activa')))
       .catch(() => setCuentas([]));
   }, []);
+  const conCargo = valor.cuenta === 'cargo';
+  useEffect(() => {
+    if (!conCargo || !importe) return;
+    setCargos(null);
+    apiFetch<CargoExtracto[]>(companyPath(`/nominas/conciliacion/cargos?importe=${importe}&fecha=${valor.fecha || hoyIso()}`))
+      .then((c) => setCargos(c ?? []))
+      .catch(() => setCargos([]));
+    // La fecha solo ordena la lista: no hace falta volver a pedirla al cambiarla.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conCargo, importe]);
+  const sinCuentas = cuentas !== null && cuentas.length === 0;
   return (
-    <div className="grid gap-3 sm:grid-cols-2">
-      <div>
-        <label htmlFor="pago-fecha" className={etiqueta}>
-          Fecha del pago
-        </label>
-        <input id="pago-fecha" type="date" value={valor.fecha} onChange={(e) => onCambiar({ ...valor, fecha: e.target.value })} className={campo} required />
+    <div className="space-y-3">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <label htmlFor="pago-fecha" className={etiqueta}>
+            Fecha del pago
+          </label>
+          <input
+            id="pago-fecha"
+            type="date"
+            value={conCargo ? (cargos?.find((c) => c.id === valor.movimientoId)?.fecha ?? '') : valor.fecha}
+            onChange={(e) => onCambiar({ ...valor, fecha: e.target.value })}
+            className={campo}
+            disabled={conCargo}
+            required={!conCargo}
+            title={conCargo ? 'La del cargo del extracto' : undefined}
+          />
+        </div>
+        <div>
+          <label htmlFor="pago-cuenta" className={etiqueta}>
+            Desde
+          </label>
+          <select id="pago-cuenta" value={valor.cuenta} onChange={(e) => onCambiar({ ...valor, cuenta: e.target.value, movimientoId: undefined })} className={campo}>
+            <option value="">{sinCuentas ? 'No hay cuentas bancarias: créala en Tesorería' : 'Cuenta bancaria principal'}</option>
+            {(cuentas ?? []).map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.bancoNombre ? `${c.bancoNombre} · ` : ''}
+                {c.iban.replace(/\s/g, '').slice(-8)} ({c.subcuentaCodigo})
+              </option>
+            ))}
+            {!!importe && !sinCuentas && <option value="cargo">Un cargo del extracto importado</option>}
+            <option value="caja">Caja, en efectivo (570)</option>
+          </select>
+        </div>
       </div>
-      <div>
-        <label htmlFor="pago-cuenta" className={etiqueta}>
-          Desde
-        </label>
-        <select id="pago-cuenta" value={valor.cuenta} onChange={(e) => onCambiar({ ...valor, cuenta: e.target.value })} className={campo}>
-          <option value="">{cuentas && cuentas.length ? 'Cuenta bancaria principal' : 'La cuenta bancaria activa'}</option>
-          {(cuentas ?? []).map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.bancoNombre ? `${c.bancoNombre} · ` : ''}
-              {c.iban.replace(/\s/g, '').slice(-8)} ({c.subcuentaCodigo})
-            </option>
-          ))}
-          <option value="caja">Caja, en efectivo (570)</option>
-        </select>
-      </div>
+      {sinCuentas && valor.cuenta === '' && (
+        <p className="text-xs text-amber-700">
+          Para pagar desde el banco, crea antes la cuenta (con su subcuenta 572) en{' '}
+          <Link href="/dashboard/tesoreria/cuentas" className="font-medium underline">
+            Tesorería &gt; Cuentas bancarias
+          </Link>
+          , o paga en efectivo.
+        </p>
+      )}
+      {conCargo && (
+        <div>
+          <label htmlFor="pago-cargo" className={etiqueta}>
+            Cargo del extracto por {importe ? eur.format(importe) : ''}
+          </label>
+          {cargos === null ? (
+            <p className="mt-1 text-sm text-slate-500">Buscando cargos sin conciliar...</p>
+          ) : cargos.length === 0 ? (
+            <p className="mt-1 text-sm text-amber-700">
+              No hay ningún cargo sin conciliar por {importe ? eur.format(importe) : 'ese importe'} en los extractos importados. Importa el extracto o paga desde la cuenta.
+            </p>
+          ) : (
+            <select id="pago-cargo" value={valor.movimientoId ?? ''} onChange={(e) => onCambiar({ ...valor, movimientoId: e.target.value || undefined })} className={campo} required>
+              <option value="">Elige el cargo</option>
+              {cargos.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {fechaEs(c.fecha)} · {c.concepto.slice(0, 40)} · {c.cuenta}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+      )}
+      {!!importe && !conCargo && valor.cuenta !== 'caja' && (
+        <p className="text-xs text-slate-500">
+          Si el cargo ya está en un extracto importado, elige «Un cargo del extracto»: el pago queda conciliado con él. Si lo importas después, en Conciliación bancaria saldrá pendiente: no lo
+          contabilices otra vez desde allí, este pago ya lo apunta.
+        </p>
+      )}
     </div>
   );
 }

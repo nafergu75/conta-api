@@ -8,6 +8,7 @@ import { ejercicioAnualAPresentar, ejerciciosSeleccionables } from '@/lib/aeatCa
 import { CaretLeft, Info, Download } from '@phosphor-icons/react';
 import { CasillasViewer } from '../components/CasillasViewer';
 import { FormPresentar } from '../components/FormPresentar';
+import { AvisosModelo } from '../components/AvisosModelo';
 
 interface Modelo190 {
   id: string;
@@ -28,6 +29,28 @@ interface Modelo190 {
     base: number;
     cuota: number;
   }>;
+  /** Nominas en borrador, datos que faltan, atrasos sin ejercicio, cuadre con los 111 presentados... */
+  avisos?: string[];
+  cuadre111?: { total: number; coincide: boolean };
+}
+
+/**
+ * Retenciones del ano por tipo: se suman los trimestres por su tipo (los
+ * profesionales ya vienen por el tipo real de sus facturas, "Profesionales (15 %)").
+ * Sin columna de porcentaje: en el trabajo es un tipo medio que cambia cada
+ * trimestre y partiria la misma clase de perceptor en varias filas.
+ */
+function retencionesPorTipo(desglose: Modelo190['desgloseTrimestral']) {
+  const grupos = new Map<string, { tipo: string; base: number; cuota: number }>();
+  for (const t of desglose) {
+    for (const r of t.retenciones) {
+      const g = grupos.get(r.tipo) ?? { tipo: r.tipo, base: 0, cuota: 0 };
+      g.base = Math.round((g.base + r.base) * 100) / 100;
+      g.cuota = Math.round((g.cuota + r.cuota) * 100) / 100;
+      grupos.set(r.tipo, g);
+    }
+  }
+  return Array.from(grupos.values());
 }
 
 export default function Modelo190Page() {
@@ -196,6 +219,8 @@ export default function Modelo190Page() {
         </div>
       </div>
 
+      <AvisosModelo avisos={modelo.avisos} ejercicio={modelo.ejercicio} />
+
       {/* Resumen Anual */}
       <div className="grid gap-4 md:grid-cols-2">
         <div className="rounded-lg border border-slate-200 bg-white p-6">
@@ -254,71 +279,40 @@ export default function Modelo190Page() {
       )}
 
       {/* Desglose por Tipo de Retención */}
-      {modelo.desgloseTrimestral &&
-        modelo.desgloseTrimestral.length > 0 &&
-        modelo.desgloseTrimestral[0].retenciones &&
-        modelo.desgloseTrimestral[0].retenciones.length > 0 && (
-          <div className="rounded-lg border border-slate-200 bg-white p-6">
-            <h3 className="mb-4 font-semibold text-slate-900">Retenciones por Tipo (Total Anual)</h3>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200">
-                    <th className="text-left py-3">Tipo de Retención</th>
-                    <th className="text-right py-3">Porcentaje</th>
-                    <th className="text-right py-3">Base Anual</th>
-                    <th className="text-right py-3">Retención Anual</th>
+      {modelo.desgloseTrimestral && retencionesPorTipo(modelo.desgloseTrimestral).length > 0 && (
+        <div className="rounded-lg border border-slate-200 bg-white p-6">
+          <h3 className="mb-4 font-semibold text-slate-900">Retenciones por Tipo (Total Anual)</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-200">
+                  <th className="text-left py-3">Tipo de Retención</th>
+                  <th className="text-right py-3">Base Anual</th>
+                  <th className="text-right py-3">Retención Anual</th>
+                </tr>
+              </thead>
+              <tbody>
+                {retencionesPorTipo(modelo.desgloseTrimestral).map((ret) => (
+                  <tr key={ret.tipo} className="border-b border-slate-100 hover:bg-slate-50">
+                    <td className="py-3">{ret.tipo}</td>
+                    <td className="text-right py-3">{eur.format(ret.base)}</td>
+                    <td className="text-right py-3 font-medium text-amber-600">{eur.format(ret.cuota)}</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {Array.from(
-                    new Map(
-                      modelo.desgloseTrimestral
-                        .flatMap((t) => t.retenciones)
-                        .map((r) => [
-                          `${r.tipo}-${r.porcentaje}`,
-                          r,
-                        ])
-                    ).values()
-                  ).map((ret) => (
-                    <tr key={`${ret.tipo}-${ret.porcentaje}`} className="border-b border-slate-100 hover:bg-slate-50">
-                      <td className="py-3">{ret.tipo}</td>
-                      <td className="text-right py-3">{ret.porcentaje}%</td>
-                      <td className="text-right py-3">
-                        {eur.format(
-                          modelo.desgloseTrimestral.reduce(
-                            (sum, t) =>
-                              sum +
-                              t.retenciones
-                                .filter((r) => r.tipo === ret.tipo && r.porcentaje === ret.porcentaje)
-                                .reduce((s, r) => s + r.base, 0),
-                            0
-                          )
-                        )}
-                      </td>
-                      <td className="text-right py-3 font-medium text-amber-600">
-                        {eur.format(
-                          modelo.desgloseTrimestral.reduce(
-                            (sum, t) =>
-                              sum +
-                              t.retenciones
-                                .filter((r) => r.tipo === ret.tipo && r.porcentaje === ret.porcentaje)
-                                .reduce((s, r) => s + r.cuota, 0),
-                            0
-                          )
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                ))}
+              </tbody>
+            </table>
           </div>
-        )}
+          <p className="mt-2 text-xs text-slate-500">
+            Los trimestres van por fecha de pago, como el 111. La base anual de arriba suma además las dietas y las indemnizaciones exentas (registros L del 190), que no tienen retención.
+          </p>
+        </div>
+      )}
 
       {/* Casillas Completas */}
       <CasillasViewer
         casillas={modelo.casillas}
+        // La 01 y los totales de perceptores son recuentos, no euros.
+        casillasConteo={['01', 'numeroPercepciones', 'perceptores']}
         titulo="Casillas del Modelo 190"
         descripcion={`Ejercicio ${modelo.ejercicio} – Resumen Anual de Retenciones`}
         estado={modelo.estado}

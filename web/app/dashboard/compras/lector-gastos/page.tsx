@@ -213,12 +213,25 @@ function LectorGastosPageInner() {
               )}
 
               {(gasto.tipoDocumento === 'nomina' || gasto.tipoDocumento === 'seguros_sociales') && (
-                <div className="mb-6 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
-                  {gasto.tipoDocumento === 'nomina' ? 'Es una nómina' : 'Son unos seguros sociales'}: no se registra como factura de gasto.{' '}
-                  <Link href="/dashboard/nominas" className="font-semibold underline">
-                    Ve a Nóminas
-                  </Link>
-                  , importa el Excel de la gestoría y guarda allí este PDF.
+                <div className="mb-6 space-y-2 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
+                  <p>
+                    {gasto.tipoDocumento === 'nomina' ? 'Parece una nómina' : 'Parecen unos seguros sociales'}: si la empresa lleva sus nóminas en la app, no se registra como factura de gasto.{' '}
+                    <Link href="/dashboard/nominas" className="font-semibold underline">
+                      Ve a Nóminas
+                    </Link>
+                    , importa el Excel de la gestoría y guarda allí este PDF.
+                  </p>
+                  <p>
+                    Si no lo es (por ejemplo, la cuota de autónomos del administrador, o una empresa sin trabajadores),{' '}
+                    <button
+                      type="button"
+                      onClick={() => setGasto({ ...gasto, tipoDocumento: 'factura' })}
+                      className="font-semibold underline"
+                    >
+                      es una factura de gasto
+                    </button>
+                    .
+                  </p>
                 </div>
               )}
 

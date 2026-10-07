@@ -70,6 +70,8 @@ export function NominaModal({
   const [empleadoId, setEmpleadoId] = useState(nomina?.empleadoId ?? '');
   const [periodo, setPeriodo] = useState({ ejercicio: nomina?.ejercicio ?? ejercicio, mes: nomina?.mes ?? mes });
   const [tipo, setTipo] = useState(nomina?.tipo ?? 'ORDINARIA');
+  // Atrasos de otro año: el ejercicio al que corresponden (el 190 los declara aparte).
+  const [ejercicioDevengo, setEjercicioDevengo] = useState(nomina?.ejercicioDevengo ? String(nomina.ejercicioDevengo) : '');
   // Fecha de pago: vacia = el ultimo dia del mes (la pone el servidor).
   const [fechaPago, setFechaPago] = useState(nomina && nomina.fechaPago !== nomina.fechaDevengo ? nomina.fechaPago : '');
   const [importes, setImportes] = useState<Record<CampoImporte, string>>(
@@ -108,10 +110,15 @@ export function NominaModal({
     if (!cuadre.cuadra) return setError(`La nómina no cuadra: el líquido calculado es ${eur.format(cuadre.liquidoCalculado)}.`);
     const pct = porcentaje.trim() === '' ? null : aNumero(porcentaje);
     if (pct !== null && (!Number.isFinite(pct) || pct < 0 || pct > 100)) return setError('El % de IRPF tiene que estar entre 0 y 100.');
+    const devengo = conDevengo && ejercicioDevengo.trim() ? Number(ejercicioDevengo) : null;
+    if (devengo !== null && !(Number.isInteger(devengo) && devengo >= 2000 && devengo <= periodo.ejercicio)) {
+      return setError(`El ejercicio de devengo tiene que ser un año entre 2000 y ${periodo.ejercicio} (el de la nómina).`);
+    }
     const cuerpo: Record<string, unknown> = {
       ejercicio: periodo.ejercicio,
       mes: periodo.mes,
       tipo,
+      ejercicioDevengo: devengo,
       porcentajeIrpf: pct,
       observaciones: observaciones.trim() || null,
       ...Object.fromEntries(TODOS.map((k) => [k, Math.round(valores[k] * 100) / 100])),
@@ -152,6 +159,8 @@ export function NominaModal({
   );
 
   const anio = new Date().getFullYear();
+  const conDevengo = tipo === 'ATRASOS' || !!nomina?.ejercicioDevengo;
+  const devengoMal = conDevengo && ejercicioDevengo.trim() !== '' && !(/^\d{4}$/.test(ejercicioDevengo.trim()) && Number(ejercicioDevengo) <= periodo.ejercicio);
 
   return (
     <Modal titulo={nomina ? `Nómina de ${nomina.empleado?.nombreCompleto ?? ''}` : 'Añadir nómina'} onCerrar={onCerrar} ancho="max-w-3xl">
@@ -226,6 +235,24 @@ export function NominaModal({
             <input id="nm-fecha" type="date" value={fechaPago} onChange={(e) => setFechaPago(e.target.value)} className={campo} />
             <p className="mt-0.5 text-[11px] text-slate-500">Vacía: el último día del mes. Al pagar se pone la real.</p>
           </div>
+          {conDevengo && (
+            <div className="sm:col-span-2">
+              <label htmlFor="nm-devengo" className={etiqueta}>
+                Ejercicio de devengo
+              </label>
+              <input
+                id="nm-devengo"
+                inputMode="numeric"
+                maxLength={4}
+                value={ejercicioDevengo}
+                onChange={(e) => setEjercicioDevengo(e.target.value.replace(/\D/g, ''))}
+                placeholder={String(periodo.ejercicio)}
+                aria-invalid={devengoMal}
+                className={`${campo} ${devengoMal ? 'border-red-200 bg-red-50' : ''}`}
+              />
+              <p className="mt-0.5 text-[11px] text-slate-500">Si los atrasos son de un año anterior: el 190 los declara aparte, con ese año.</p>
+            </div>
+          )}
           <div className="sm:col-span-2">
             <label htmlFor="nm-pct" className={etiqueta}>
               % de IRPF

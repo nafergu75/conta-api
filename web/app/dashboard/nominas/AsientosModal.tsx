@@ -49,7 +49,7 @@ export function AsientosModal({
   /** Muestra solo las de borrador y el boton de contabilizar. */
   contabilizar?: boolean;
   onCerrar: () => void;
-  onContabilizado?: (mensaje: string) => void;
+  onContabilizado?: (mensaje: string, avisos?: string[]) => void;
 }) {
   const [asientos, setAsientos] = useState<AsientoPrevio[] | null>(null);
   const [error, setError] = useState('');
@@ -71,7 +71,7 @@ export function AsientosModal({
     setOcupado(true);
     setError('');
     try {
-      const r = await apiFetch<{ contabilizadas: number; asientos: Array<{ numero: string }>; subcuentasCreadas: string[] }>(
+      const r = await apiFetch<{ contabilizadas: number; asientos: Array<{ numero: string }>; subcuentasCreadas: string[]; avisos?: string[] }>(
         companyPath(`/nominas/periodos/${ejercicio}/${mes}/contabilizar`),
         { method: 'POST', body: JSON.stringify(nominaIds?.length ? { nominaIds: asientos.map((a) => a.nominaId) } : {}) },
       );
@@ -79,6 +79,7 @@ export function AsientosModal({
       onContabilizado?.(
         `${r.contabilizadas} ${r.contabilizadas === 1 ? 'nómina contabilizada' : 'nóminas contabilizadas'} (${numeros.length > 3 ? `${numeros[0]} a ${numeros[numeros.length - 1]}` : numeros.join(', ')}).` +
           (r.subcuentasCreadas.length ? ` Subcuentas nuevas: ${r.subcuentasCreadas.join(', ')}.` : ''),
+        r.avisos,
       );
     } catch (e) {
       setError(errorMessage(e));
@@ -96,7 +97,8 @@ export function AsientosModal({
         {asientos && asientos.length === 0 && <p className="text-sm text-slate-600">{contabilizar ? 'No hay nóminas en borrador que contabilizar.' : 'Este mes no tiene nóminas.'}</p>}
         {contabilizar && asientos && asientos.length > 0 && (
           <p className="text-sm text-slate-600">
-            Se creará un asiento por trabajador con fecha del último día del mes. El líquido queda en la subcuenta 465 de cada uno hasta que se pague.
+            Se creará un asiento por trabajador con fecha del último día del mes. El líquido queda en la subcuenta 465 de cada uno hasta que se pague. En el diario el trabajador va por su
+            subcuenta, sin su nombre: la contabilidad la ven usuarios que no tienen acceso a las nóminas.
             {nuevas > 0 && ` Se crearán ${nuevas} ${nuevas === 1 ? 'subcuenta 465 nueva' : 'subcuentas 465 nuevas'} en el plan contable.`}
           </p>
         )}

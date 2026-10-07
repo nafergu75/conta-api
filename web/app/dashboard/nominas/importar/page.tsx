@@ -56,6 +56,7 @@ interface FilaVista extends Importes {
   ejercicio: number | null;
   mes: number | null;
   tipo: string;
+  ejercicioDevengo: number | null;
   naf: string | null;
   porcentajeIrpf: number | null;
   cuadre: Cuadre;
@@ -88,7 +89,17 @@ interface NecesitaMapeoNominas {
   mensaje: string;
   columnas: Columna[];
   mapeo?: Record<string, number>;
+  /** Fila de titulos que ha detectado el servidor (1-based; 0 = ninguna). */
+  filaCabecera?: number;
   campos: Record<string, string>;
+}
+
+/** Fila con errores que se queda sin importar al importar solo las correctas. */
+interface FilaNoImportada {
+  fila: number;
+  nif: string;
+  nombre: string;
+  error: string;
 }
 
 interface Resultado {
@@ -110,6 +121,7 @@ const CAMPOS_FILA = [
   'ejercicio',
   'mes',
   'tipo',
+  'ejercicioDevengo',
   'porcentajeIrpf',
   'brutoDinerario',
   'dietasExentas',
@@ -156,6 +168,9 @@ function Importar() {
   const [contabilizar, setContabilizar] = useState(false);
   const [soloErrores, setSoloErrores] = useState(false);
   const [resultado, setResultado] = useState<Resultado | null>(null);
+  const [noImportadas, setNoImportadas] = useState<FilaNoImportada[]>([]);
+  // El año se escribe aqui y solo pasa a la vista previa cuando es un año completo (2000-2100).
+  const [anioTexto, setAnioTexto] = useState(() => String(mesFijo.ejercicio));
   const eleccion = useRef(0);
 
   const opciones = useMemo(
@@ -197,6 +212,7 @@ function Importar() {
     setResultado(null);
     setError('');
     setSoloErrores(false);
+    setContabilizar(false);
     if (f.size > TAM_MAXIMO) {
       setError(`El fichero pesa ${(f.size / 1024 / 1024).toFixed(1)} MB y el máximo son ${TAM_MAXIMO / 1024 / 1024} MB.`);
       return;
@@ -221,6 +237,7 @@ function Importar() {
     setVista(null);
     setAjustes(AJUSTES_INICIALES);
     setError('');
+    setContabilizar(false);
   };
 
   const v = vista && !esNecesitaMapeo(vista) ? (vista as VistaImportacion) : null;
@@ -228,6 +245,8 @@ function Importar() {
   const campos = Object.entries((v ?? mapeo)?.campos ?? {}) as Array<[string, string]>;
   const validas = v ? v.filas.filter((f) => f.accion !== 'error') : [];
   const cerrados = v ? v.resumen.periodos.filter((p) => p.estadoPeriodo !== 'abierto') : [];
+  // Con un periodo cerrado no se puede contabilizar: aunque la casilla siguiera marcada de antes, no se pide.
+  const contabilizarAhora = contabilizar && cerrados.length === 0;
   const conEspecie = v ? v.filas.some((f) => f.especieValoracion > 0) : false;
   const filasVisibles = v ? (soloErrores ? v.filas.filter((f) => f.errores.length) : v.filas) : [];
 
@@ -241,12 +260,21 @@ function Importar() {
             method: 'POST',
             body: JSON.stringify({
               filas: validas.map((f) => Object.fromEntries(CAMPOS_FILA.map((k) => [k, f[k]]))),
-              ...(contabilizar ? { contabilizar: true } : {}),
+              ...(contabilizarAhora ? { contabilizar: true } : {}),
             }),
           })
-        : await apiFetch<Resultado>(companyPath('/nominas/importar'), { method: 'POST', body: formulario(fuente, ajustes, { ...opciones, contabilizar }) });
+        : await apiFetch<Resultado>(companyPath('/nominas/importar'), { method: 'POST', body: formulario(fuente, ajustes, { ...opciones, contabilizar: contabilizarAhora }) });
       if (soloValidas) descartarSubida(fuente);
+      // Las filas con errores que se quedan fuera: se enseñan en el resultado para no perderlas de vista.
+      setNoImportadas(
+        soloValidas
+          ? v.filas
+              .filter((f) => f.accion === 'error')
+              .map((f) => ({ fila: f.fila, nif: f.nif, nombre: f.empleado.nombreCompleto || [f.nombre, f.apellidos].filter(Boolean).join(' '), error: f.errores[0] ?? '' }))
+          : [],
+      );
       eleccion.current++;
+      setContabilizar(false);
       setResultado(r);
       setArchivo(null);
       setFuente(null);
@@ -302,7 +330,17 @@ function Importar() {
         ))}
       </ol>
 
-      {resultado && <ResultadoImportacion r={resultado} onOtro={() => setResultado(null)} />}
+      {resultado && (
+        <ResultadoImportacion
+          r={resultado}
+          noImportadas={noImportadas}
+          onOtro={() => {
+            setResultado(null);
+            setNoImportadas([]);
+            setContabilizar(false);
+          }}
+        />
+      )}
 
       {!resultado && (
         <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-4 md:p-6">
@@ -334,10 +372,19 @@ function Importar() {
                 </select>
                 <input
                   aria-label="Ejercicio"
-                  type="number"
-                  value={mesFijo.ejercicio}
-                  onChange={(e) => setMesFijo({ ...mesFijo, activo: true, ejercicio: Number(e.target.value) || mesFijo.ejercicio })}
-                  className="w-24 rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm"
+                  inputMode="numeric"
+                  maxLength={4}
+                  value={anioTexto}
+                  onChange={(e) => {
+                    const t = e.target.value.replace(/\D/g, '').slice(0, 4);
+                    setAnioTexto(t);
+                    const n = Number(t);
+                    // Solo un año completo cambia la vista previa (con "202" a medias no se pide nada).
+                    if (t.length === 4 && n >= 2000 && n <= 2100) setMesFijo({ ...mesFijo, activo: true, ejercicio: n });
+                  }}
+                  onBlur={() => setAnioTexto(String(mesFijo.ejercicio))}
+                  aria-invalid={!(anioTexto.length === 4 && Number(anioTexto) >= 2000 && Number(anioTexto) <= 2100)}
+                  className="w-20 rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm"
                 />
               </label>
             </fieldset>
@@ -363,7 +410,8 @@ function Importar() {
                 campos={campos}
                 columnas={mapeo.columnas}
                 mapeoDetectado={mapeo.mapeo ?? {}}
-                filaDetectada={ajustes.filaCabecera ?? 1}
+                // La que ha detectado el servidor (si no, al elegir la primera columna se fijaria la 1 y se leeria mal).
+                filaDetectada={mapeo.filaCabecera ?? 0}
                 ajustes={ajustes}
                 abierto
                 onCambiar={setAjustes}
@@ -446,7 +494,7 @@ function Importar() {
 
               <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
                 <label className="flex items-start gap-2 text-sm text-slate-700">
-                  <input type="checkbox" checked={contabilizar} disabled={cerrados.length > 0} onChange={(e) => setContabilizar(e.target.checked)} className="mt-0.5 h-4 w-4 rounded border-slate-300" />
+                  <input type="checkbox" checked={contabilizarAhora} disabled={cerrados.length > 0} onChange={(e) => setContabilizar(e.target.checked)} className="mt-0.5 h-4 w-4 rounded border-slate-300" />
                   <span>
                     Contabilizarlas ahora (un asiento por trabajador)
                     <span className="block text-xs text-slate-500">
@@ -489,8 +537,8 @@ function Importar() {
             <div className="space-y-1 text-xs text-slate-500">
               <p className="font-medium text-slate-600">Columnas que se reconocen (con los nombres habituales de A3, Nominasol o Sage, en cualquier orden):</p>
               <p>
-                Trabajador · Apellidos · NIF/DNI · Nº afiliación SS · Mes · Tipo (ordinaria, extra...) · Total devengado o bruto · Retribución en especie · Ingreso a cuenta · Dietas ·
-                Indemnización · SS trabajador · IRPF · % IRPF · Embargos · Anticipos · Otras deducciones · Líquido a percibir · SS empresa · Coste total.
+                Trabajador · Apellidos · NIF/DNI · Nº afiliación SS · Mes · Tipo (ordinaria, extra, atrasos...) · Ejercicio devengo (atrasos de otro año) · Total devengado o bruto · Retribución en
+                especie · Ingreso a cuenta · Dietas · Indemnización · SS trabajador · IRPF · % IRPF · Embargos · Anticipos · Otras deducciones · Líquido a percibir · SS empresa · Coste total.
               </p>
               <p>Hacen falta como mínimo el NIF, el bruto y el líquido. Las filas de totales se saltan y los trabajadores nuevos se dan de alta por su NIF.</p>
             </div>
@@ -515,7 +563,10 @@ function FilaImportada({ f, mal, conEspecie, columnas }: { f: FilaVista; mal: bo
           {f.tipo !== 'ORDINARIA' && <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-700">{textoTipo(f.tipo).toLowerCase()}</span>}
           <span className="block font-mono text-xs text-slate-500">{f.nif || 'sin NIF'}</span>
         </td>
-        <td className="whitespace-nowrap px-3 py-2 text-slate-600">{f.mes && f.ejercicio ? `${String(f.mes).padStart(2, '0')}/${f.ejercicio}` : '—'}</td>
+        <td className="whitespace-nowrap px-3 py-2 text-slate-600">
+          {f.mes && f.ejercicio ? `${String(f.mes).padStart(2, '0')}/${f.ejercicio}` : '—'}
+          {f.ejercicioDevengo ? <span className="block text-xs text-slate-500">devengo {f.ejercicioDevengo}</span> : null}
+        </td>
         <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{num.format(f.brutoDinerario)}</td>
         {conEspecie && <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{f.especieValoracion ? num.format(f.especieValoracion) : ''}</td>}
         <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{num.format(f.ssTrabajador)}</td>
@@ -557,7 +608,7 @@ function FilaImportada({ f, mal, conEspecie, columnas }: { f: FilaVista; mal: bo
   );
 }
 
-function ResultadoImportacion({ r, onOtro }: { r: Resultado; onOtro: () => void }) {
+function ResultadoImportacion({ r, noImportadas, onOtro }: { r: Resultado; noImportadas: FilaNoImportada[]; onOtro: () => void }) {
   const asientos = (r.contabilizacion ?? []).reduce((a, c) => a + c.contabilizadas, 0);
   return (
     <div className="space-y-4 rounded-lg border border-emerald-200 bg-white p-4 md:p-6">
@@ -576,6 +627,22 @@ function ResultadoImportacion({ r, onOtro }: { r: Resultado; onOtro: () => void 
               : '. Quedan en borrador hasta que las contabilices.'}
         </span>
       </p>
+      {noImportadas.length > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800" role="status">
+          <p className="font-medium">
+            {noImportadas.length === 1 ? 'No se importó 1 fila' : `No se importaron ${noImportadas.length} filas`} con errores: corrígelas en el Excel y vuelve a importarlo, o añade esas nóminas a mano. Hasta
+            entonces, el mes y el modelo 111 no las incluyen.
+          </p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-5">
+            {noImportadas.map((f) => (
+              <li key={f.fila}>
+                Fila {f.fila}: {f.nombre || 'sin nombre'}
+                {f.nif ? ` (${f.nif})` : ''}. {f.error}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <Mensajes avisos={r.avisos} />
       <div className="flex flex-wrap gap-2">
         {r.periodos.map((p) => (
