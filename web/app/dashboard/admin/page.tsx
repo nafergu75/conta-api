@@ -34,6 +34,7 @@ import {
   CamposEmpresa,
   DATOS_EMPRESA_VACIOS,
   datosParaGuardar,
+  idParaFoco,
   nombrePais,
   primerCampoConError,
   revisarDatosEmpresa,
@@ -649,7 +650,8 @@ function ModalNuevaEmpresa({
     setDatos((d) => ({ ...d, [k]: v }));
     quitarError(k);
   };
-  const enfocar = (campo: string) => setFoco(campo);
+  // El error del pais se corrige en la caja del codigo si se eligio "Otro pais...".
+  const enfocar = (campo: string) => setFoco(idParaFoco(campo, datos));
 
   const enviar = async (ev: React.FormEvent) => {
     ev.preventDefault();

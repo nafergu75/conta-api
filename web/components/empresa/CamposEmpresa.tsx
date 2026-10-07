@@ -1,12 +1,15 @@
 'use client';
 
+import { esCodigoPais, nombrePaisIso, problemaCodigoPostal, provinciaDeCodigoPostal } from '@/lib/geografia';
+
 /**
  * Campos de los datos de una empresa (los que salen en sus facturas): los usa
  * la pantalla "Datos de la empresa" para editarlos y el panel de Administracion
  * para pedirlos en el alta. Las etiquetas y lo obligatorio cambian con el pais,
  * igual que en el backend (legalConfig.service: camposPendientesEmpresa):
- * - Espana: NIF, provincia y CP de 5 cifras; las SA, SL y SLU, ademas, su
- *   inscripcion en el Registro Mercantil.
+ * - Espana: NIF, provincia y CP de 5 cifras que exista y sea de esa provincia
+ *   (lib/geografia); las SA, SL y SLU, ademas, su inscripcion en el Registro
+ *   Mercantil.
  * - Otro pais: identificacion fiscal libre, region opcional y, si su factura
  *   lo pide, datos registrales en texto libre.
  */
@@ -77,7 +80,7 @@ export const CAMPOS_EMPRESA: CampoEmpresa[] = [
 
 const CAMPOS_REGISTRO: CampoEmpresa[] = ['registroMercantilProvincia', 'registroTomo', 'registroFolio', 'registroHoja', 'registroInscripcion'];
 
-// Los mas habituales; cualquier otro con su codigo ISO de dos letras.
+// Los mas habituales; cualquier otro con su codigo ISO de dos letras ("Otro pais...").
 export const PAISES = [
   ['ES', 'España'],
   ['MA', 'Marruecos'],
@@ -108,7 +111,14 @@ export const INSCRIBIBLES = ['SL', 'SLU', 'SA'];
 
 export const esEspanola = (d: DatosEmpresa) => d.pais === 'ES';
 export const esInscribible = (d: DatosEmpresa) => esEspanola(d) && INSCRIBIBLES.includes(d.tipoSociedad);
-export const nombrePais = (codigo: string) => PAISES.find(([c]) => c === codigo)?.[1] ?? codigo;
+export const nombrePais = (codigo: string) => PAISES.find(([c]) => c === codigo)?.[1] ?? nombrePaisIso(codigo) ?? codigo;
+const paisEnLista = (codigo: string) => PAISES.some(([c]) => c === codigo);
+
+/**
+ * Sufijo del id del elemento al que llevar el foco para un campo: el error del
+ * pais se corrige en la caja del codigo cuando esta a la vista ("Otro pais...").
+ */
+export const idParaFoco = (campo: string, d: DatosEmpresa) => (campo === 'pais' && !paisEnLista(d.pais) ? 'pais-otro' : campo);
 
 /**
  * Comprobaciones rapidas antes de dar de alta una empresa (lo minimo para
@@ -121,10 +131,16 @@ export function revisarDatosEmpresa(d: DatosEmpresa): ErroresEmpresa {
   const vacio = (k: CampoEmpresa) => !d[k].trim();
   if (vacio('denominacion')) e.denominacion = 'Escribe la denominación o el nombre completo.';
   if (!/^[A-Za-z]{2}$/.test(d.pais.trim())) e.pais = 'Elige el país o escribe su código de dos letras.';
+  else if (!esCodigoPais(d.pais)) {
+    e.pais = `«${d.pais.trim().toUpperCase()}» no es un código de país. Escribe el código ISO de dos letras (p. ej. BE para Bélgica o GB para el Reino Unido).`;
+  }
   if (vacio('nif')) e.nif = espana ? 'Falta el NIF.' : 'Falta la identificación fiscal.';
   if (vacio('domicilioSocial')) e.domicilioSocial = 'Falta el domicilio.';
   if (vacio('codigoPostal')) e.codigoPostal = 'Falta el código postal.';
-  else if (espana && !/^\d{5}$/.test(d.codigoPostal.trim())) e.codigoPostal = 'En España el código postal tiene 5 cifras.';
+  else if (espana) {
+    const problema = problemaCodigoPostal(d.codigoPostal, d.provincia);
+    if (problema) e.codigoPostal = problema.tipo === 'formato' ? 'En España el código postal tiene 5 cifras.' : problema.mensaje;
+  }
   if (vacio('municipio')) e.municipio = 'Falta el municipio.';
   if (espana && vacio('provincia')) e.provincia = 'Falta la provincia.';
   if (d.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email.trim())) e.email = 'El email no es válido.';
@@ -308,11 +324,19 @@ export function CamposEmpresa({
 }) {
   const espana = esEspanola(datos);
   const inscribible = esInscribible(datos);
-  const paisEnLista = PAISES.some(([c]) => c === datos.pais);
+  const enLista = paisEnLista(datos.pais);
+  const nombreOtroPais = enLista ? null : nombrePaisIso(datos.pais);
+  const provinciaCp = espana ? provinciaDeCodigoPostal(datos.codigoPostal) : null;
   const id = (k: string) => `${prefijoId}${k}`;
   const s = (k: CampoEmpresa) => (v: string) => onCambio(k, v);
   const c = (k: CampoEmpresa) => ({ id: id(k), valor: datos[k], onChange: s(k), error: errores[k], disabled });
   const n = (i: number) => (alta ? i : undefined);
+  // En Espana el CP dice la provincia: si aun no esta escrita, se rellena sola.
+  const cambiarCodigoPostal = (v: string) => {
+    onCambio('codigoPostal', v);
+    const provincia = espana && !datos.provincia.trim() ? provinciaDeCodigoPostal(v) : null;
+    if (provincia) onCambio('provincia', provincia);
+  };
 
   return (
     <>
@@ -353,7 +377,7 @@ export function CamposEmpresa({
             </Etiqueta>
             <select
               id={id('pais')}
-              value={paisEnLista ? datos.pais : 'OTRO'}
+              value={enLista ? datos.pais : 'OTRO'}
               onChange={(e) => onCambio('pais', e.target.value === 'OTRO' ? '' : e.target.value)}
               className={claseCampo(errores.pais)}
               disabled={disabled}
@@ -367,18 +391,34 @@ export function CamposEmpresa({
               ))}
               <option value="OTRO">Otro país…</option>
             </select>
-            {!paisEnLista && (
-              <input
-                id={id('pais-otro')}
-                aria-label="Código del país"
-                placeholder="Código de 2 letras (p. ej. BE)"
-                maxLength={2}
-                value={datos.pais}
-                onChange={(e) => onCambio('pais', e.target.value.toUpperCase())}
-                className={claseCampo(errores.pais)}
-                disabled={disabled}
-                autoComplete="off"
-              />
+            {!enLista && (
+              <div className="mt-1 flex items-center gap-3">
+                <div className="w-28 shrink-0">
+                  <input
+                    id={id('pais-otro')}
+                    aria-label="Código del país"
+                    placeholder="p. ej. BE"
+                    maxLength={2}
+                    value={datos.pais}
+                    onChange={(e) => onCambio('pais', e.target.value.toUpperCase())}
+                    className={claseCampo(errores.pais)}
+                    disabled={disabled}
+                    autoComplete="off"
+                    aria-invalid={errores.pais ? true : undefined}
+                    aria-describedby={[errores.pais ? `${id('pais')}-error` : '', id('pais-otro-nombre')].filter(Boolean).join(' ')}
+                  />
+                </div>
+                {/* El nombre del pais que corresponde al codigo, para ver que es el que se queria. */}
+                <p id={id('pais-otro-nombre')} aria-live="polite" className="mt-1 min-w-0 text-sm">
+                  {datos.pais.trim().length < 2 ? (
+                    <span className="text-slate-500">Código ISO de dos letras</span>
+                  ) : nombreOtroPais ? (
+                    <span className="font-medium text-slate-700">{nombreOtroPais}</span>
+                  ) : (
+                    <span className="font-medium text-rose-700">No es un código de país</span>
+                  )}
+                </p>
+              </div>
             )}
             <AyudaYError
               id={id('pais')}
@@ -407,12 +447,14 @@ export function CamposEmpresa({
           <Campo {...c('domicilioSocial')} label="Domicilio" obligatorio className="sm:col-span-2 md:col-span-6" autoComplete="street-address" ayuda="Calle, número, piso y puerta." />
           <Campo
             {...c('codigoPostal')}
+            onChange={cambiarCodigoPostal}
             label="Código postal"
             obligatorio
             className="md:col-span-2"
             inputMode={espana ? 'numeric' : undefined}
             maxLength={espana ? 5 : 20}
             autoComplete="postal-code"
+            ayuda={espana ? (provinciaCp ? `Provincia de ${provinciaCp}.` : 'Las dos primeras cifras son la provincia.') : undefined}
           />
           <Campo {...c('municipio')} label="Municipio" obligatorio className="md:col-span-2" autoComplete="address-level2" />
           <Campo
