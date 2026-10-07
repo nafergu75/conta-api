@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Plus, MagnifyingGlass, X } from '@phosphor-icons/react';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
+import { formatoImporte } from '@/lib/moneda';
+import { ETIQUETA_CORTA, useContextoFiscal } from '@/lib/fiscal';
 
 interface Factura {
   id: string;
@@ -18,6 +20,10 @@ interface Factura {
   ivaTotal: number;
   totalFactura: number;
   estado: string;
+  /** Moneda de la factura y total en ella (totalFactura va en la de la contabilidad). */
+  moneda?: string;
+  totalFacturaDoc?: number;
+  tipoOperacion?: string | null;
 }
 
 interface Cliente {
@@ -26,8 +32,6 @@ interface Cliente {
   nifCif: string;
 }
 
-const eur = (n: number) =>
-  n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 
 const statusStyles: Record<string, string> = {
   DRAFT: 'bg-amber-50 text-amber-700 border-amber-200',
@@ -53,6 +57,7 @@ export default function FacturasPage() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
+  const monedaCuenta = useContextoFiscal().contexto?.monedaCuenta ?? 'EUR';
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -200,6 +205,11 @@ export default function FacturasPage() {
                           {factura.numeroCompleto ?? <span className="font-sans italic text-slate-500">Borrador</span>}
                         </Link>
                         {factura.esRectificativa && <span className="ml-2 text-xs text-amber-700">Rectificativa</span>}
+                        {factura.tipoOperacion && factura.tipoOperacion !== 'NACIONAL' && factura.tipoOperacion !== 'EMPRESA_EXTRANJERA' && (
+                          <span className="ml-2 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-xs text-slate-600">
+                            {ETIQUETA_CORTA[factura.tipoOperacion] ?? factura.tipoOperacion}
+                          </span>
+                        )}
                       </td>
                       <td className="px-6 py-3 text-slate-900">
                         <Link
@@ -227,8 +237,15 @@ export default function FacturasPage() {
                           </span>
                         )}
                       </td>
-                      <td className="px-6 py-3 text-right font-mono font-medium text-slate-900">
-                        {eur(factura.totalFactura)}
+                      <td
+                        className="px-6 py-3 text-right font-mono font-medium text-slate-900"
+                        title={
+                          factura.moneda && factura.moneda !== monedaCuenta
+                            ? `Contravalor: ${formatoImporte(factura.totalFactura, monedaCuenta)}`
+                            : undefined
+                        }
+                      >
+                        {formatoImporte(factura.totalFacturaDoc ?? factura.totalFactura, factura.moneda ?? monedaCuenta)}
                       </td>
                     </tr>
                   ))}

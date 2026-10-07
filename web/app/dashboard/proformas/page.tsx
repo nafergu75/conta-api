@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Plus, MagnifyingGlass, X } from '@phosphor-icons/react';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
+import { formatoImporte } from '@/lib/moneda';
 
 /**
  * Facturas proforma: mismo documento que la factura, numerado en la serie P,
@@ -20,9 +21,10 @@ interface Proforma {
   customerNombre: string;
   totalFactura: number;
   estado: string;
+  /** Moneda de la proforma y total en ella. */
+  moneda?: string;
+  totalFacturaDoc?: number;
 }
-
-const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 const fecha = (iso: string) => (iso ? new Date(`${iso.slice(0, 10)}T00:00:00`).toLocaleDateString('es-ES') : '');
 
 const ESTADOS: Record<string, { texto: string; clase: string }> = {
@@ -203,7 +205,9 @@ export default function ProformasPage() {
                             {e?.texto ?? p.estado}
                           </span>
                         </td>
-                        <td className="px-6 py-3 text-right font-mono font-medium text-slate-900">{eur(p.totalFactura)}</td>
+                        <td className="px-6 py-3 text-right font-mono font-medium text-slate-900">
+                          {formatoImporte(p.totalFacturaDoc ?? p.totalFactura, p.moneda ?? 'EUR')}
+                        </td>
                       </tr>
                     );
                   })}
