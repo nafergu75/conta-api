@@ -6,6 +6,8 @@ import { Buildings, CheckCircle, WarningCircle } from '@phosphor-icons/react';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { LogoEmpresa } from '../registro-mercantil/LogoEmpresa';
+import { PAISES, PAISES_UE } from '@/lib/fiscal';
+import { NOMBRE_MONEDA } from '@/lib/moneda';
 
 /**
  * Datos de la empresa: los que salen en las facturas (emisor, contacto e
@@ -31,6 +33,8 @@ interface Datos {
   registroInscripcion: string;
   pais: string;
   datosRegistrales: string;
+  /** Moneda de la contabilidad: EUR en Espana; USD en EE. UU. y Hong Kong. */
+  monedaCuenta: string;
 }
 
 const VACIO: Datos = {
@@ -51,24 +55,11 @@ const VACIO: Datos = {
   registroInscripcion: '',
   pais: 'ES',
   datosRegistrales: '',
+  monedaCuenta: 'EUR',
 };
 
-// Los mas habituales; cualquier otro con su codigo ISO de dos letras.
-const PAISES = [
-  ['ES', 'España'],
-  ['MA', 'Marruecos'],
-  ['PT', 'Portugal'],
-  ['FR', 'Francia'],
-  ['IT', 'Italia'],
-  ['DE', 'Alemania'],
-  ['GB', 'Reino Unido'],
-  ['US', 'Estados Unidos'],
-  ['HK', 'Hong Kong'],
-  ['MX', 'México'],
-  ['AR', 'Argentina'],
-  ['CO', 'Colombia'],
-  ['CL', 'Chile'],
-] as const;
+/** Moneda de la contabilidad que corresponde a un pais: euros en Espana y en la UE; dolares en el resto. */
+const monedaDelPais = (pais: string) => (pais === 'ES' || PAISES_UE.has(pais) ? 'EUR' : 'USD');
 
 const FORMAS = [
   ['SL', 'Sociedad limitada (S.L.)'],
@@ -130,6 +121,9 @@ function DatosEmpresa() {
   const puedeEditar = tieneAlgunPermiso(getUser(), ['contabilidad:write']);
   const [datos, setDatos] = useState<Datos>(VACIO);
   const [pendientes, setPendientes] = useState<string[]>([]);
+  // false: ya hay facturas o asientos y la moneda de la contabilidad no se puede cambiar.
+  const [monedaEditable, setMonedaEditable] = useState(true);
+  const [paisGuardado, setPaisGuardado] = useState('ES');
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [mensaje, setMensaje] = useState<{ ok: boolean; texto: string } | null>(null);
@@ -143,12 +137,17 @@ function DatosEmpresa() {
           ) as unknown as Datos,
         );
         setPendientes((cfg.pendientes as string[]) ?? []);
+        setMonedaEditable(cfg.monedaCuentaEditable !== false);
+        setPaisGuardado(String(cfg.pais ?? 'ES'));
       })
       .catch((e) => setMensaje({ ok: false, texto: errorMessage(e) }))
       .finally(() => setCargando(false));
   }, []);
 
   const s = (k: keyof Datos) => (v: string) => setDatos((d) => ({ ...d, [k]: v }));
+  // Al cambiar de pais, la moneda de la contabilidad que le toca (si aun se puede cambiar).
+  const cambiarPais = (pais: string) =>
+    setDatos((d) => ({ ...d, pais, ...(monedaEditable && /^[A-Z]{2}$/.test(pais) ? { monedaCuenta: monedaDelPais(pais) } : {}) }));
   const espana = datos.pais === 'ES';
   const inscribible = espana && INSCRIBIBLES.includes(datos.tipoSociedad);
   const paisEnLista = PAISES.some(([c]) => c === datos.pais);
@@ -156,14 +155,25 @@ function DatosEmpresa() {
 
   const guardar = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (datos.pais !== paisGuardado) {
+      const aviso =
+        datos.pais === 'ES'
+          ? 'La empresa pasa a estar establecida en España: sus facturas llevarán IVA y tendrás que elegir el tipo de operación de cada una.'
+          : 'La empresa deja de estar establecida en España: sus facturas saldrán sin IVA ni IRPF y en inglés, y no se usan los modelos 303, 349, 390 ni 347. Las facturas ya emitidas no cambian.';
+      if (!window.confirm(`${aviso}\n\n¿Guardar el cambio de país?`)) return;
+    }
     setGuardando(true);
     setMensaje(null);
     try {
-      const cfg = await apiFetch<{ completo: boolean; pendientes: string[] }>(companyPath('/legal-config'), {
-        method: 'PUT',
-        body: JSON.stringify(datos),
-      });
+      // La moneda de la contabilidad solo se envia mientras se puede cambiar.
+      const cfg = await apiFetch<{ completo: boolean; pendientes: string[]; monedaCuenta?: string; monedaCuentaEditable?: boolean }>(
+        companyPath('/legal-config'),
+        { method: 'PUT', body: JSON.stringify(monedaEditable ? datos : { ...datos, monedaCuenta: undefined }) },
+      );
+      if (cfg.monedaCuenta) setDatos((d) => ({ ...d, monedaCuenta: cfg.monedaCuenta as string }));
+      setMonedaEditable(cfg.monedaCuentaEditable !== false);
       setPendientes(cfg.pendientes ?? []);
+      setPaisGuardado(datos.pais);
       if (cfg.completo) {
         setMensaje({ ok: true, texto: 'Datos guardados. Ya salen en tus facturas.' });
         if (primera) router.push('/dashboard');
@@ -225,7 +235,7 @@ function DatosEmpresa() {
             <select
               id="pais"
               value={paisEnLista ? datos.pais : 'OTRO'}
-              onChange={(e) => s('pais')(e.target.value === 'OTRO' ? '' : e.target.value)}
+              onChange={(e) => cambiarPais(e.target.value === 'OTRO' ? '' : e.target.value)}
               className={campo}
               disabled={off}
             >
@@ -242,7 +252,7 @@ function DatosEmpresa() {
                 placeholder="Código de 2 letras (p. ej. BE)"
                 maxLength={2}
                 value={datos.pais}
-                onChange={(e) => s('pais')(e.target.value.toUpperCase())}
+                onChange={(e) => cambiarPais(e.target.value.toUpperCase())}
                 className={campo}
                 disabled={off}
               />
@@ -254,6 +264,42 @@ function DatosEmpresa() {
           <Campo id="municipio" label="Municipio" valor={datos.municipio} onChange={s('municipio')} obligatorio className="md:col-span-2" disabled={off} />
           <Campo id="provincia" label={espana ? 'Provincia' : 'Región o estado'} valor={datos.provincia} onChange={s('provincia')} obligatorio={espana} className="md:col-span-2" disabled={off} />
         </div>
+      </section>
+
+      <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-5">
+        <h2 className="font-semibold text-slate-900">Moneda e impuestos</h2>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div>
+            <label htmlFor="monedaCuenta" className="block text-sm font-medium text-slate-700">
+              Moneda de la contabilidad
+            </label>
+            <select
+              id="monedaCuenta"
+              value={datos.monedaCuenta}
+              onChange={(e) => s('monedaCuenta')(e.target.value)}
+              className={campo}
+              disabled={off || espana || !monedaEditable}
+            >
+              {(espana ? ['EUR'] : ['EUR', 'USD']).map((m) => (
+                <option key={m} value={m}>
+                  {m} — {NOMBRE_MONEDA[m] ?? m}
+                </option>
+              ))}
+            </select>
+          </div>
+          <p className="text-xs text-slate-500 md:col-span-2 md:self-end">
+            {espana
+              ? 'En España la contabilidad va en euros. Puedes emitir facturas en euros o en dólares: cada una lleva su tipo de cambio.'
+              : 'Las empresas de EE. UU. y Hong Kong llevan la contabilidad y facturan en dólares (USD).'}{' '}
+            {!monedaEditable && 'Ya hay facturas o asientos: la moneda de la contabilidad no se puede cambiar.'}
+          </p>
+        </div>
+        {!espana && (
+          <p className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+            Tus facturas saldrán sin IVA ni IRPF, en inglés y con el formato de fecha de tu país, y no se usan los modelos 303, 349, 390 ni 347. Si tienes
+            establecimiento permanente en España, elige España.
+          </p>
+        )}
       </section>
 
       <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-5">

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus, MagnifyingGlass, X, Trash } from '@phosphor-icons/react';
 import { getToken, clearSession, getCompanyId } from '@/lib/auth';
+import { nombrePais, PAISES, PAISES_UE, pareceNifIvaUe } from '@/lib/fiscal';
 
 const API = '/api/conta';
 
@@ -15,6 +16,8 @@ interface Cliente {
   telefono?: string;
   direccion?: string;
   provincia?: string;
+  pais?: string;
+  monedaPreferida?: string | null;
 }
 
 export default function ClientesPage() {
@@ -152,6 +155,10 @@ export default function ClientesPage() {
                     </h3>
                     <p className="text-sm font-mono text-slate-500">
                       {cliente.nifCif}
+                      {cliente.pais && cliente.pais !== 'ES' && (
+                        <span className="ml-2 font-sans">{nombrePais(cliente.pais)}</span>
+                      )}
+                      {cliente.monedaPreferida && <span className="ml-2 font-sans">· {cliente.monedaPreferida}</span>}
                     </p>
                   </div>
                   <button
@@ -210,6 +217,12 @@ function NuevoClienteModal({
   const [email, setEmail] = useState('');
   const [telefono, setTelefono] = useState('');
   const [provincia, setProvincia] = useState('');
+  const [pais, setPais] = useState('ES');
+  const [direccion, setDireccion] = useState('');
+  const [cp, setCp] = useState('');
+  const [municipio, setMunicipio] = useState('');
+  const [monedaPreferida, setMonedaPreferida] = useState('');
+  const ue = pais !== 'ES' && PAISES_UE.has(pais);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -230,6 +243,11 @@ function NuevoClienteModal({
           email: email || undefined,
           telefono: telefono || undefined,
           provincia: provincia || undefined,
+          pais,
+          direccion: direccion || undefined,
+          cp: cp || undefined,
+          municipio: municipio || undefined,
+          monedaPreferida: monedaPreferida || undefined,
         }),
       });
       if (!res.ok) {
@@ -284,8 +302,28 @@ function NuevoClienteModal({
           </div>
 
           <div className="flex flex-col gap-2">
+            <label htmlFor="pais" className="text-sm font-medium text-slate-700">
+              País
+            </label>
+            <select id="pais" value={pais} onChange={(e) => setPais(e.target.value)} className={inputClass}>
+              {PAISES.map(([c, n]) => (
+                <option key={c} value={c}>
+                  {n}
+                </option>
+              ))}
+            </select>
+            {pais !== 'ES' && (
+              <p className="text-xs text-slate-500">
+                {ue
+                  ? 'Cliente de la UE: con su NIF-IVA (VIES) la venta suele ir sin IVA español (intracomunitaria).'
+                  : 'Cliente de fuera de la UE: las ventas suelen ir sin IVA (exportación o servicio no sujeto).'}
+              </p>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-2">
             <label htmlFor="nif" className="text-sm font-medium text-slate-700">
-              NIF/CIF *
+              {pais === 'ES' ? 'NIF/CIF' : ue ? 'NIF-IVA (con el prefijo del país)' : 'Identificación fiscal (Tax ID)'} *
             </label>
             <input
               id="nif"
@@ -295,6 +333,31 @@ function NuevoClienteModal({
               onChange={(e) => setNif(e.target.value)}
               className={inputClass}
             />
+            {ue && nif.trim() && !pareceNifIvaUe(nif) && (
+              <p className="text-xs text-amber-700">Falta el prefijo del país (p. ej. FR…, DE…; EL para Grecia).</p>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <label htmlFor="dir" className="text-sm font-medium text-slate-700">
+              Dirección
+            </label>
+            <input id="dir" type="text" value={direccion} onChange={(e) => setDireccion(e.target.value)} className={inputClass} />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-2">
+              <label htmlFor="cp" className="text-sm font-medium text-slate-700">
+                Código postal
+              </label>
+              <input id="cp" type="text" value={cp} onChange={(e) => setCp(e.target.value)} className={inputClass} />
+            </div>
+            <div className="flex flex-col gap-2">
+              <label htmlFor="mun" className="text-sm font-medium text-slate-700">
+                Municipio
+              </label>
+              <input id="mun" type="text" value={municipio} onChange={(e) => setMunicipio(e.target.value)} className={inputClass} />
+            </div>
           </div>
 
           <div className="flex flex-col gap-2">
@@ -325,7 +388,7 @@ function NuevoClienteModal({
 
           <div className="flex flex-col gap-2">
             <label htmlFor="prov" className="text-sm font-medium text-slate-700">
-              Provincia
+              {pais === 'ES' ? 'Provincia' : 'Región o estado'}
             </label>
             <input
               id="prov"
@@ -334,6 +397,18 @@ function NuevoClienteModal({
               onChange={(e) => setProvincia(e.target.value)}
               className={inputClass}
             />
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <label htmlFor="moneda" className="text-sm font-medium text-slate-700">
+              Moneda en la que se le factura
+            </label>
+            <select id="moneda" value={monedaPreferida} onChange={(e) => setMonedaPreferida(e.target.value)} className={inputClass}>
+              <option value="">La de la contabilidad</option>
+              <option value="EUR">EUR — Euro</option>
+              <option value="USD">USD — Dólar estadounidense</option>
+            </select>
+            <p className="text-xs text-slate-500">Se propone al hacerle una factura; se puede cambiar en cada una.</p>
           </div>
 
           {error && (
