@@ -82,7 +82,9 @@ interface ToastContainerProps {
 
 export function ToastContainer({ toasts, onClose }: ToastContainerProps) {
   return (
-    <div className="fixed bottom-4 right-4 z-40 flex flex-col gap-2 max-w-sm">
+    // Por encima de los botones flotantes de abajo a la derecha: en el móvil, el del
+    // menú y el de Carmen (hasta 128 px); en escritorio, el de Carmen (hasta 68 px).
+    <div className="fixed bottom-36 right-4 z-40 flex max-w-sm flex-col gap-2 md:bottom-20">
       {toasts.map((toast) => (
         <Toast
           key={toast.id}
