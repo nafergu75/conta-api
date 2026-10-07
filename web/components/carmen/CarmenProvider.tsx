@@ -18,6 +18,7 @@ import { EVENTO_SESION, getCompanyId, getToken, getUser } from '@/lib/auth';
 import {
   EVENTO_AJUSTES_CARMEN,
   MAX_PREGUNTA,
+  MAX_TEXTO_BOTON,
   catalogoCarmen,
   estadoCarmen,
   claveVentana,
@@ -91,6 +92,11 @@ interface ContextoCarmen {
   enviando: boolean;
   cargandoConversacion: boolean;
   errorConversacion: string | null;
+  /**
+   * Lo que el lector de pantalla tiene que leer de la última respuesta (solo el texto).
+   * Cambia solo con las respuestas nuevas, no al cargar una conversación guardada.
+   */
+  anuncio: { id: string; texto: string } | null;
   enviar: (envio: Envio) => void;
   enviarTexto: (texto: string) => void;
   pulsarBoton: (b: Boton, origen?: MensajeCarmen) => void;
@@ -178,6 +184,7 @@ export function CarmenProvider({ children }: { children: React.ReactNode }) {
   const [enviando, setEnviando] = useState(false);
   const [cargandoConversacion, setCargandoConversacion] = useState(false);
   const [errorConversacion, setErrorConversacion] = useState<string | null>(null);
+  const [anuncio, setAnuncio] = useState<{ id: string; texto: string } | null>(null);
   const [versionLista, setVersionLista] = useState(0);
   const [estado, setEstado] = useState<EstadoCarmen | null>(null);
   const [catalogo, setCatalogo] = useState<CatalogoCarmen | null>(null);
@@ -312,6 +319,8 @@ export function CarmenProvider({ children }: { children: React.ReactNode }) {
     async (id: string, silencioso = false) => {
       setCargandoConversacion(true);
       setErrorConversacion(null);
+      // Una conversación guardada no se anuncia: el lector solo lee las respuestas nuevas.
+      setAnuncio(null);
       try {
         const c = await leerConversacion(id);
         fijarSesion(c.sessionId);
@@ -347,9 +356,12 @@ export function CarmenProvider({ children }: { children: React.ReactNode }) {
       setEnviando(true);
       setErrorConversacion(null);
       setMensajes((ms) => [...ms, { id: idLocal(), rol: 'usuario', texto: envio.visible }]);
+      const textoBoton = envio.accion ? envio.visible.trim().slice(0, MAX_TEXTO_BOTON) : '';
       const cuerpo: PeticionCarmen = {
         ...(envio.message ? { message: envio.message } : {}),
         ...(envio.accion ? { accion: envio.accion } : {}),
+        // Con un botón, el historial guarda el texto que vio el usuario («¿Y el trimestre pasado?»).
+        ...(textoBoton ? { textoBoton } : {}),
         currentPage: paginaRef.current.slice(0, 200),
       };
       try {
@@ -370,10 +382,13 @@ export function CarmenProvider({ children }: { children: React.ReactNode }) {
           ...ms,
           { id: r.mensajeId, rol: 'carmen', r: vista, valoracion: null, oculto: false, pregunta: envio.message },
         ]);
+        setAnuncio({ id: r.mensajeId, texto: `Carmen: ${r.texto}` });
         // Una respuesta de IA gasta tope; una aclaración puede decir que se ha agotado.
         if (r.origen === 'ia' || r.origen === 'aclaracion') cargarEstado();
       } catch (e) {
-        setMensajes((ms) => [...ms, { id: idLocal(), rol: 'error', ...errorDeEnvio(e, envio) }]);
+        const error = errorDeEnvio(e, envio);
+        setMensajes((ms) => [...ms, { id: idLocal(), rol: 'error', ...error }]);
+        setAnuncio({ id: idLocal(), texto: error.texto });
       } finally {
         enviandoRef.current = false;
         setEnviando(false);
@@ -431,7 +446,13 @@ export function CarmenProvider({ children }: { children: React.ReactNode }) {
   const noEraEsto = useCallback(
     (m: MensajeCarmen) => {
       valorar(m, false);
-      void enviar({ visible: 'No era esto', accion: { tipo: 'catalogo' } });
+      // Se vuelve a mirar la pregunta escrita, sin la consulta que no era: fichas parecidas,
+      // otras consultas y, si es una duda general, la IA. Sin pregunta escrita, el catálogo.
+      void enviar({
+        visible: 'No era esto',
+        accion: { tipo: 'noEraEsto', ...(m.r.intencion ? { intencion: m.r.intencion } : {}) },
+        ...(m.pregunta ? { message: m.pregunta } : {}),
+      });
     },
     [valorar, enviar],
   );
@@ -468,6 +489,7 @@ export function CarmenProvider({ children }: { children: React.ReactNode }) {
 
   const cerrar = useCallback(() => {
     setAbierto(false);
+    setAnuncio(null);
     requestAnimationFrame(() => botonRef.current?.focus());
   }, []);
 
@@ -506,6 +528,7 @@ export function CarmenProvider({ children }: { children: React.ReactNode }) {
       enviando,
       cargandoConversacion,
       errorConversacion,
+      anuncio,
       enviar: (e) => void enviar(e),
       enviarTexto,
       pulsarBoton,
@@ -536,6 +559,7 @@ export function CarmenProvider({ children }: { children: React.ReactNode }) {
       enviando,
       cargandoConversacion,
       errorConversacion,
+      anuncio,
       enviar,
       enviarTexto,
       pulsarBoton,

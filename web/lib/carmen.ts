@@ -40,7 +40,12 @@ export type Accion =
   | { tipo: 'faq'; id: string }
   | { tipo: 'tercero'; terceroId: string; rol: 'cliente' | 'proveedor' | 'banco'; intencion?: string }
   | { tipo: 'ia' }
-  | { tipo: 'catalogo' };
+  | { tipo: 'catalogo' }
+  /** «No era esto»: el servidor vuelve a mirar la pregunta (message) sin la intención descartada. */
+  | { tipo: 'noEraEsto'; intencion?: string };
+
+/** Texto de un botón que se guarda como pregunta en el historial (el servidor admite 120 caracteres). */
+export const MAX_TEXTO_BOTON = 120;
 
 export interface Boton {
   texto: string;
@@ -112,6 +117,8 @@ export interface PeticionCarmen {
   accion?: Accion;
   sessionId?: string;
   currentPage?: string;
+  /** Con un botón: su texto tal como lo vio el usuario, para guardarlo como su pregunta. */
+  textoBoton?: string;
 }
 
 export type MotivoSinIA = 'apagada' | 'sin_clave' | 'desactivada_empresa' | 'tope_mensual' | 'tope_empresa' | 'tope_usuario';

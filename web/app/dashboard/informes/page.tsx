@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { FilePdf, FileXls, MagnifyingGlass } from '@phosphor-icons/react';
 import { Tooltip } from '@/app/dashboard/components/Tooltip';
 import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
@@ -59,7 +60,26 @@ function parametros(c: Consulta): URLSearchParams {
 
 const faltaCuenta = (c: Consulta) => c.tipo === 'mayor' && !c.cuentaDesde.trim() && !c.cuentaHasta.trim();
 
+/** Informe pedido en la URL (?tipo=pyg), o null si no hay o no es uno de la lista. */
+function tipoValido(tipo: string | null | undefined): TipoInforme | null {
+  return INFORMES.some((i) => i.id === tipo) ? (tipo as TipoInforme) : null;
+}
+
 export default function InformesContablesPage() {
+  // useSearchParams necesita un Suspense para generar la página.
+  return (
+    <Suspense fallback={<p className="p-6 text-slate-500">Cargando…</p>}>
+      <InformesContables />
+    </Suspense>
+  );
+}
+
+function InformesContables() {
+  // ?tipo=pyg cambia el informe también si ya se está en esta pantalla (por ejemplo, con un
+  // enlace de Carmen): Next no vuelve a montar la página cuando solo cambia la consulta.
+  const tipoUrl = tipoValido(useSearchParams()?.get('tipo'));
+  const tipoVisto = useRef(tipoUrl);
+  const router = useRouter();
   const anioActual = new Date().getFullYear();
   const [ejercicios, setEjercicios] = useState<number[]>([anioActual]);
   const [form, setForm] = useState<Consulta>({
@@ -78,10 +98,9 @@ export default function InformesContablesPage() {
   const [descargando, setDescargando] = useState<'' | 'pdf' | 'xlsx'>('');
   const [error, setError] = useState('');
 
-  // Ejercicios con asientos y, si se llega desde un enlace antiguo, el informe pedido (?tipo=pyg).
+  // Ejercicios con asientos y, si se llega con un enlace, el informe pedido (?tipo=pyg).
   useEffect(() => {
-    const tipo = new URLSearchParams(window.location.search).get('tipo');
-    const inicial = INFORMES.some((i) => i.id === tipo) ? (tipo as TipoInforme) : 'balance';
+    const inicial = tipoVisto.current ?? 'balance';
     apiFetch<number[]>(companyPath('/informes-contables/ejercicios'))
       .then((lista) => {
         const anios = lista.length ? lista : [anioActual];
@@ -121,6 +140,14 @@ export default function InformesContablesPage() {
   useEffect(() => {
     if (aplicada) cargar(aplicada);
   }, [aplicada, cargar]);
+
+  // Un enlace a esta misma pantalla con otro ?tipo= (la página ya está montada): se cambia de informe.
+  useEffect(() => {
+    if (!tipoUrl || tipoUrl === tipoVisto.current) return;
+    tipoVisto.current = tipoUrl;
+    setForm((f) => ({ ...f, tipo: tipoUrl }));
+    setAplicada((a) => (a ? { ...a, tipo: tipoUrl } : a));
+  }, [tipoUrl]);
 
   /** Cambios que se aplican al momento (informe, ejercicio, nivel...). */
   const cambiarYAplicar = (cambios: Partial<Consulta>) => {
@@ -176,7 +203,12 @@ export default function InformesContablesPage() {
             key={i.id}
             role="tab"
             aria-selected={form.tipo === i.id}
-            onClick={() => cambiarYAplicar({ tipo: i.id })}
+            onClick={() => {
+              // La URL sigue al informe elegido: un enlace posterior a ?tipo=... siempre es un cambio.
+              tipoVisto.current = i.id;
+              router.replace(`/dashboard/informes?tipo=${i.id}`, { scroll: false });
+              cambiarYAplicar({ tipo: i.id });
+            }}
             className={`-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium sm:px-4 ${form.tipo === i.id ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
           >
             {i.nombre}

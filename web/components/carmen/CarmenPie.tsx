@@ -46,8 +46,9 @@ export function CarmenPie({ variante }: { variante: Variante }) {
         )}
         {uso && (
           <p className={uso.avisoTope ? 'text-amber-800' : ''}>
-            IA este mes: {gastoIA(uso.gastoMesEur)} de {euros(uso.topeMesEur)}
-            {uso.avisoTope ? ` (${uso.porcentajeMes.toLocaleString('es-ES')} % gastado)` : ''}
+            {/* El tope es común a todas las empresas de la plataforma: se dice, y se da aparte lo de esta empresa. */}
+            IA este mes, con el presupuesto común a todas las empresas: {gastoIA(uso.gastoMesEur)} de {euros(uso.topeMesEur)}
+            {uso.avisoTope ? `, el ${uso.porcentajeMes.toLocaleString('es-ES')} %` : ''}. De tu empresa, {gastoIA(uso.gastoEmpresaMesEur)}.
             {' · '}
             <Link
               href={RUTA_AJUSTES_CARMEN}

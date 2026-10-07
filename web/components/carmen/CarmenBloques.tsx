@@ -12,7 +12,6 @@ import type { Variante } from './CarmenConversacion';
 /** Filas que se ven en la ventana; el resto, en la pantalla o en la descarga. */
 const FILAS_VISIBLES = 10;
 
-const MOVIL = '(max-width: 767px)';
 
 /** «perdidas-ganancias.pdf» a partir de la ruta de la descarga. */
 function nombreFichero(d: Descarga): string {
@@ -32,9 +31,11 @@ export function CarmenBloques({ r, variante }: { r: RespuestaVista; variante: Va
   const filas = tabla ? tabla.filas.slice(0, FILAS_VISIBLES) : [];
   const total = tabla ? Math.max(tabla.totalFilas, tabla.filas.length) : 0;
 
-  // En el móvil la ventana tapa la pantalla: al seguir un enlace se cierra (la conversación se queda).
+  // La ventana es modal (tapa la pantalla en el móvil, y en escritorio deja un velo y bloquea
+  // el desplazamiento y el foco): al seguir un enlace se cierra para poder usar la pantalla.
+  // La conversación se queda y Ctrl+/ o el botón la vuelven a abrir.
   const alSeguirEnlace = () => {
-    if (!enPagina && window.matchMedia?.(MOVIL).matches) cerrar();
+    if (!enPagina) cerrar();
   };
 
   const descargar = async (d: Descarga) => {

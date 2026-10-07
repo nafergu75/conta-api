@@ -8,11 +8,13 @@ import { CarmenSugerencias } from './CarmenSugerencias';
 export type Variante = 'panel' | 'pagina';
 
 /**
- * Lista de mensajes (role="log": el lector de pantalla lee cada respuesta nueva)
- * con la bienvenida cuando la conversación está vacía.
+ * Lista de mensajes (role="log") con la bienvenida cuando la conversación está
+ * vacía. El lector de pantalla no lee la lista entera (al abrir una
+ * conversación guardada leería cientos de celdas y botones): solo el texto de
+ * cada respuesta nueva, en una región de estado aparte.
  */
 export function CarmenConversacion({ variante }: { variante: Variante }) {
-  const { mensajes, enviando, cargandoConversacion, errorConversacion } = useCarmen();
+  const { mensajes, enviando, cargandoConversacion, errorConversacion, anuncio } = useCarmen();
   const zonaRef = useRef<HTMLDivElement>(null);
   const cuantos = useRef(0);
 
@@ -57,11 +59,15 @@ export function CarmenConversacion({ variante }: { variante: Variante }) {
         )}
         {!cargandoConversacion && mensajes.length === 0 && <CarmenSugerencias variante={variante} />}
 
-        <div role="log" aria-live="polite" aria-relevant="additions" aria-label="Conversación con Carmen" className="space-y-4">
+        {/* aria-live="off": la lista no se anuncia (tampoco al cargar el historial); lo nuevo, en el estado de abajo. */}
+        <div role="log" aria-live="off" aria-label="Conversación con Carmen" className="space-y-4">
           {mensajes.map((m) => (
             <CarmenMensaje key={m.id} m={m} variante={variante} />
           ))}
         </div>
+        <p role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+          {anuncio ? <span key={anuncio.id}>{anuncio.texto}</span> : null}
+        </p>
 
         {enviando && (
           <p role="status" className="mt-4 flex items-center gap-2 text-sm text-slate-500">
