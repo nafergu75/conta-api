@@ -1,5 +1,6 @@
 'use client';
 
+import { PAISES as PAISES_FISCAL } from '@/lib/fiscal';
 import { esCodigoPais, nombrePaisIso, problemaCodigoPostal, provinciaDeCodigoPostal } from '@/lib/geografia';
 
 /**
@@ -80,22 +81,9 @@ export const CAMPOS_EMPRESA: CampoEmpresa[] = [
 
 const CAMPOS_REGISTRO: CampoEmpresa[] = ['registroMercantilProvincia', 'registroTomo', 'registroFolio', 'registroHoja', 'registroInscripcion'];
 
-// Los mas habituales; cualquier otro con su codigo ISO de dos letras ("Otro pais...").
-export const PAISES = [
-  ['ES', 'España'],
-  ['MA', 'Marruecos'],
-  ['PT', 'Portugal'],
-  ['FR', 'Francia'],
-  ['IT', 'Italia'],
-  ['DE', 'Alemania'],
-  ['GB', 'Reino Unido'],
-  ['US', 'Estados Unidos'],
-  ['HK', 'Hong Kong'],
-  ['MX', 'México'],
-  ['AR', 'Argentina'],
-  ['CO', 'Colombia'],
-  ['CL', 'Chile'],
-] as const;
+// La misma lista que la ficha del cliente (lib/fiscal: toda la UE y los mas
+// habituales); cualquier otro con su codigo ISO de dos letras ("Otro pais...").
+export const PAISES = PAISES_FISCAL;
 
 export const FORMAS = [
   ['SL', 'Sociedad limitada (S.L.)'],
