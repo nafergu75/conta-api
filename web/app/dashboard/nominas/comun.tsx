@@ -401,7 +401,7 @@ interface CuentaBancaria {
   iban: string;
   bancoNombre?: string;
   subcuentaCodigo: string;
-  estado: string;
+  activa: boolean;
 }
 
 export interface MedioPago {
@@ -443,8 +443,10 @@ export function CamposMedioPago({ valor, onCambiar, importe }: { valor: MedioPag
   const [cuentas, setCuentas] = useState<CuentaBancaria[] | null>(null);
   const [cargos, setCargos] = useState<CargoExtracto[] | null>(null);
   useEffect(() => {
-    apiFetch<CuentaBancaria[]>(companyPath('/treasury/bank-accounts'))
-      .then((c) => setCuentas((c ?? []).filter((x) => x.estado === 'activa')))
+    // /bancos/cuentas (sin saldos) y no /treasury/bank-accounts: esta ultima pide
+    // Tesoreria, y quien solo tiene Nominas tambien tiene que poder elegir la cuenta.
+    apiFetch<CuentaBancaria[]>(companyPath('/bancos/cuentas'))
+      .then((c) => setCuentas((Array.isArray(c) ? c : []).filter((x) => x.activa)))
       .catch(() => setCuentas([]));
   }, []);
   const conCargo = valor.cuenta === 'cargo';
@@ -481,7 +483,7 @@ export function CamposMedioPago({ valor, onCambiar, importe }: { valor: MedioPag
             Desde
           </label>
           <select id="pago-cuenta" value={valor.cuenta} onChange={(e) => onCambiar({ ...valor, cuenta: e.target.value, movimientoId: undefined })} className={campo}>
-            <option value="">{sinCuentas ? 'No hay cuentas bancarias: créala en Tesorería' : 'Cuenta bancaria principal'}</option>
+            <option value="">{sinCuentas ? 'No hay cuentas bancarias dadas de alta' : 'Cuenta bancaria principal'}</option>
             {(cuentas ?? []).map((c) => (
               <option key={c.id} value={c.id}>
                 {c.bancoNombre ? `${c.bancoNombre} · ` : ''}
@@ -495,11 +497,17 @@ export function CamposMedioPago({ valor, onCambiar, importe }: { valor: MedioPag
       </div>
       {sinCuentas && valor.cuenta === '' && (
         <p className="text-xs text-amber-700">
-          Para pagar desde el banco, crea antes la cuenta (con su subcuenta 572) en{' '}
-          <Link href="/dashboard/tesoreria/cuentas" className="font-medium underline">
-            Tesorería &gt; Cuentas bancarias
-          </Link>
-          , o paga en efectivo.
+          {tieneAlgunPermiso(getUser(), ['tesoreria:write']) ? (
+            <>
+              Para pagar desde el banco, crea antes la cuenta (con su subcuenta 572) en{' '}
+              <Link href="/dashboard/tesoreria/cuentas" className="font-medium underline">
+                Tesorería &gt; Cuentas bancarias
+              </Link>
+              , o paga en efectivo.
+            </>
+          ) : (
+            'Para pagar desde el banco, pide al administrador que dé de alta la cuenta bancaria de la empresa, o paga en efectivo.'
+          )}
         </p>
       )}
       {conCargo && (
