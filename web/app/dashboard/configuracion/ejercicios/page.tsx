@@ -37,6 +37,12 @@ const ESTADO_EJERCICIO: Record<EjercicioConfig['estadoEfectivo'], { texto: strin
   CERRADO_SIN_ASIENTOS: { texto: 'Cerrado sin asientos', tono: 'ambar' },
 };
 
+/** «303 1T», «303 1T y 111 1T», «303 1T, 111 1T y 115 1T». */
+function enumerar(lista: string[], articulo = ''): string {
+  const l = lista.map((m) => `${articulo}${m}`);
+  return l.length > 1 ? `${l.slice(0, -1).join(', ')} y ${l[l.length - 1]}` : (l[0] ?? '');
+}
+
 /** Detalles de un error del servidor (motivo, aviso, enlace...). */
 function detalles(e: unknown): Record<string, unknown> {
   const d = e instanceof ApiError ? e.detalles : undefined;
@@ -177,7 +183,9 @@ export default function EjerciciosPage() {
           estado === 'bloqueado'
             ? `Mes de ${nombre} bloqueado: ya no se pueden registrar facturas, cobros, pagos ni asientos con esa fecha.`
             : r.aviso === 'modelo_presentado'
-              ? `Mes de ${nombre} desbloqueado. Ojo: ${r.modelosPresentados?.join(', ')} ya está presentado; si cambias algo, puede que tengas que presentar una complementaria.`
+              ? (r.modelosPresentados?.length ?? 0) > 1
+                ? `Mes de ${nombre} desbloqueado. Ojo: ${enumerar(r.modelosPresentados ?? [], 'el ')} ya están presentados; si cambias algo, puede que tengas que presentar complementarias.`
+                : `Mes de ${nombre} desbloqueado. Ojo: ${enumerar(r.modelosPresentados ?? [], 'el ')} ya está presentado; si cambias algo, puede que tengas que presentar una complementaria.`
               : `Mes de ${nombre} desbloqueado.`,
       });
       setConfirmarMes(null);
@@ -391,7 +399,7 @@ export default function EjerciciosPage() {
                           <p className="text-sm font-medium text-slate-900">{MESES[p.mes - 1]}</p>
                           <p className="text-xs text-slate-500">
                             {textoEstado}
-                            {presentados.length > 0 && ` · ${presentados.join(', ')} presentado`}
+                            {presentados.length > 0 && ` · ${enumerar(presentados)} ${presentados.length > 1 ? 'presentados' : 'presentado'}`}
                           </p>
                         </div>
                         {editar && p.estado === 'abierto' && !ejercicioCerrado && (
@@ -461,7 +469,13 @@ export default function EjerciciosPage() {
         isOpen={!!confirmarMes}
         title={`Desbloquear ${confirmarMes ? MESES[confirmarMes.mes - 1].toLowerCase() : ''} de ${anioSel}`}
         message="Hay modelos de este mes ya presentados a Hacienda. Si cambias facturas o asientos de ese periodo, puede que tengas que presentar una declaración complementaria."
-        details={confirmarMes?.modelos.length ? <p>Presentados: {confirmarMes.modelos.join(', ')}</p> : undefined}
+        details={
+          confirmarMes?.modelos.length ? (
+            <p>
+              {confirmarMes.modelos.length > 1 ? 'Presentados' : 'Presentado'}: {enumerar(confirmarMes.modelos)}
+            </p>
+          ) : undefined
+        }
         confirmLabel="Desbloquear igualmente"
         isDangerous
         isLoading={!!confirmarMes && ocupado === `mes-${confirmarMes.mes}`}
