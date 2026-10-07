@@ -1,8 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { getToken, clearSession } from '@/lib/auth';
 import { CheckCircle, Spinner } from '@phosphor-icons/react';
+import { apiFetch, errorMessage } from '@/lib/api';
 
 interface ContabilizarButtonProps {
   invoiceId: string;
@@ -12,8 +12,6 @@ interface ContabilizarButtonProps {
   onError?: (error: string) => void;
   disabled?: boolean;
 }
-
-const API = '/api/conta';
 
 export default function ContabilizarButton({
   invoiceId,
@@ -29,47 +27,23 @@ export default function ContabilizarButton({
   const [journalId, setJournalId] = useState('');
 
   const handleContabilizar = async () => {
-    const token = getToken();
-    if (!token) {
-      setError('No autorizado');
-      onError?.('No autorizado');
-      return;
-    }
-
     try {
       setLoading(true);
       setError('');
 
-      const res = await fetch(
-        `${API}/companies/${companyId}/accounting/contabilizar/${invoiceId}?tipo=${tipo}`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        }
+      // La ruta responde { journalEntryId, estado, ... } sin sobre, y los errores
+      // con { error } o { message }: apiFetch lee los dos (antes salia siempre
+      // «Error al contabilizar»).
+      const data = await apiFetch<{ journalEntryId?: string; id?: string }>(
+        `/companies/${encodeURIComponent(companyId)}/accounting/contabilizar/${encodeURIComponent(invoiceId)}?tipo=${tipo}`,
+        { method: 'POST' },
       );
-
-      if (res.status === 401) {
-        clearSession();
-        setError('Sesión expirada');
-        onError?.('Sesión expirada');
-        return;
-      }
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error?.message || 'Error al contabilizar');
-      }
-
-      const data = await res.json();
-      const id = data.data?.id || data.journalEntryId;
+      const id = data.journalEntryId || data.id || '';
       setJournalId(id);
       setSuccess(true);
       onSuccess?.(id);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Error desconocido';
+      const message = errorMessage(err) || 'No se pudo contabilizar';
       setError(message);
       onError?.(message);
     } finally {
@@ -82,11 +56,11 @@ export default function ContabilizarButton({
       <div className="space-y-2">
         <div className="flex items-center gap-2 text-green-700 bg-green-50 border border-green-200 rounded-lg p-3">
           <CheckCircle size={20} weight="fill" />
-          <span className="font-medium">Contabilizado exitosamente</span>
+          <span className="font-medium">Factura contabilizada</span>
         </div>
         {journalId && (
           <p className="text-sm text-gray-600">
-            ID del asiento: <code className="font-mono bg-gray-100 px-2 py-1 rounded">{journalId}</code>
+            Asiento creado: <code className="font-mono bg-gray-100 px-2 py-1 rounded">{journalId}</code>
           </p>
         )}
       </div>
@@ -106,7 +80,7 @@ export default function ContabilizarButton({
             Contabilizando...
           </>
         ) : (
-          'Contabilizar Factura'
+          'Contabilizar factura'
         )}
       </button>
       {error && (
