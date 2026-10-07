@@ -145,7 +145,7 @@ export default function AsientoDetailPage() {
   const aprobable = asiento.estado === 'DRAFT' || asiento.estado === 'PENDING_REVIEW';
 
   return (
-    <div className="p-4 md:p-6 max-w-5xl mx-auto">
+    <div className="p-4 pb-24 md:p-6 max-w-5xl mx-auto">
       {/* Encabezado */}
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-start gap-3 min-w-0">

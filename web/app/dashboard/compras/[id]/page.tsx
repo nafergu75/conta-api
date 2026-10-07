@@ -7,7 +7,7 @@ import { ArrowLeft, PencilSimple, Prohibit, X } from '@phosphor-icons/react';
 import { getCompanyId, getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { ApiError, apiFetch, campoDelError, companyPath, errorMessage } from '@/lib/api';
 import { formatoImporte } from '@/lib/moneda';
-import { claseEstadoGasto, claseEstadoPago, fechaCorta, hoyIso, textoEstadoAsiento, type GastoDetalle } from '@/lib/compras';
+import { claseEstadoGasto, claseEstadoPago, esTipoGasto, fechaCorta, hoyIso, textoEstadoAsiento, TIPO_GASTO_INFO, type GastoDetalle } from '@/lib/compras';
 import ContabilizarButton from '@/components/ContabilizarButton';
 import CobrosFactura from '@/components/CobrosFactura';
 
@@ -72,10 +72,12 @@ export default function GastoDetailPage() {
 
   const fmt = (n: number) => formatoImporte(Number(n) || 0, gasto.monedaCuenta);
   const anulada = gasto.estado === 'ANULADA';
-  const cuenta = gasto.cuentaGasto ?? (gasto.lineas.some((l) => l.accountCode) ? 'Varias (ver líneas)' : null);
+  // Sin cuenta en las lineas, el asiento usa la del tipo de gasto.
+  const cuenta =
+    gasto.cuentaGasto ?? (gasto.lineas.some((l) => l.accountCode) ? 'Varias (ver líneas)' : esTipoGasto(gasto.tipoGasto) ? TIPO_GASTO_INFO[gasto.tipoGasto].cuenta : null);
 
   return (
-    <div className="mx-auto max-w-4xl p-4 md:p-6">
+    <div className="mx-auto max-w-4xl p-4 pb-24 md:p-6">
       {/* Encabezado */}
       <div className="mb-6 flex flex-wrap items-start gap-3">
         <Link href="/dashboard/compras" className="rounded-lg p-2 transition hover:bg-slate-100" aria-label="Volver a Compras">
