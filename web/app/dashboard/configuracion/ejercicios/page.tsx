@@ -114,6 +114,9 @@ export default function EjerciciosPage() {
 
   const ejercicioSel = ejercicios?.find((e) => e.label === anioSel) ?? null;
   const ejercicioCerrado = !!ejercicioSel && ejercicioSel.estadoEfectivo !== 'ABIERTO';
+  // Marcado como cerrado sin regularizacion ni cierre: no hay cierre que deshacer,
+  // la salida es «Reabrir» (solo el administrador) y despues cerrarlo bien.
+  const cerradoSinAsientos = ejercicioSel?.estadoEfectivo === 'CERRADO_SIN_ASIENTOS';
 
   const crear = async () => {
     if (!nuevoAnio) return;
@@ -305,9 +308,11 @@ export default function EjerciciosPage() {
                             <LockKeyOpen size={16} /> Reabrir
                           </button>
                         )}
-                        <Link href={enlaceCierre(e.label)} className="inline-flex items-center gap-1 text-sm font-medium text-emerald-700 hover:underline">
-                          Cerrar o deshacer el cierre <ArrowRight size={14} />
-                        </Link>
+                        {e.estadoEfectivo !== 'CERRADO_SIN_ASIENTOS' && (
+                          <Link href={enlaceCierre(e.label)} className="inline-flex items-center gap-1 text-sm font-medium text-emerald-700 hover:underline">
+                            Cerrar o deshacer el cierre <ArrowRight size={14} />
+                          </Link>
+                        )}
                       </div>
                       {(e.legalizationDeadline || e.accountsDepositDeadline || e.closingDate) && (
                         <p className="mt-1 text-xs text-slate-600">
@@ -320,8 +325,8 @@ export default function EjerciciosPage() {
                         <p className="mt-1 text-xs text-amber-800">
                           Se marcó como cerrado sin hacer la regularización ni el cierre.{' '}
                           {reabrirPermitido
-                            ? 'Reábrelo y ciérralo desde Cierre y traspaso de saldos.'
-                            : 'El administrador de la empresa puede reabrirlo para cerrarlo bien.'}
+                            ? 'Pulsa «Reabrir» y después ciérralo en Cierre y traspaso de saldos.'
+                            : 'Pide al administrador de la empresa que lo reabra para cerrarlo bien.'}
                         </p>
                       )}
                     </li>
@@ -339,14 +344,23 @@ export default function EjerciciosPage() {
               <p className="mt-1 text-sm text-slate-600">
                 Bloquea un mes cuando lo des por terminado (por ejemplo, después de presentar el IVA). El estado «Cerrado» lo pone el cierre del ejercicio.
               </p>
-              {ejercicioCerrado && (
-                <p className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-                  El ejercicio está cerrado: sus meses no se pueden desbloquear. Para volver a tocarlo, deshaz el cierre en{' '}
-                  <Link href={enlaceCierre(ejercicioSel.label)} className="font-medium text-emerald-700 underline">
-                    Cierre y traspaso de saldos
-                  </Link>
-                  .
+              {cerradoSinAsientos ? (
+                <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                  El ejercicio se marcó como cerrado sin hacer el cierre, así que sus meses no se pueden tocar.{' '}
+                  {reabrirPermitido
+                    ? 'Pulsa «Reabrir» en la lista de arriba y después ciérralo en Cierre y traspaso de saldos.'
+                    : 'Pide al administrador de la empresa que lo reabra.'}
                 </p>
+              ) : (
+                ejercicioCerrado && (
+                  <p className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                    El ejercicio está cerrado: sus meses no se pueden tocar. Para volver a tocarlo, deshaz el cierre en{' '}
+                    <Link href={enlaceCierre(ejercicioSel.label)} className="font-medium text-emerald-700 underline">
+                      Cierre y traspaso de saldos
+                    </Link>
+                    .
+                  </p>
+                )
               )}
               {!periodos ? (
                 <p className="mt-3 text-sm text-slate-500">Cargando meses…</p>
@@ -354,9 +368,21 @@ export default function EjerciciosPage() {
                 <ul className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
                   {periodos.map((p) => {
                     const presentados = p.modelosPresentados ?? [];
+                    // En un ejercicio cerrado ningun mes admite cambios, aunque conste abierto.
+                    const textoEstado = ejercicioCerrado
+                      ? p.estado === 'cerrado'
+                        ? 'Cerrado'
+                        : 'Cerrado con el ejercicio'
+                      : p.estado === 'abierto'
+                        ? 'Abierto'
+                        : p.estado === 'bloqueado'
+                          ? 'Bloqueado'
+                          : 'Cerrado';
                     return (
                       <li key={p.mes} className="flex items-center gap-3 rounded-lg border border-slate-200 px-3 py-2">
-                        {p.estado === 'abierto' ? (
+                        {ejercicioCerrado ? (
+                          <LockKey size={18} className="shrink-0 text-slate-500" aria-hidden />
+                        ) : p.estado === 'abierto' ? (
                           <LockKeyOpen size={18} className="shrink-0 text-emerald-600" aria-hidden />
                         ) : (
                           <LockKey size={18} className={`shrink-0 ${p.estado === 'cerrado' ? 'text-slate-500' : 'text-amber-600'}`} aria-hidden />
@@ -364,11 +390,11 @@ export default function EjerciciosPage() {
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-medium text-slate-900">{MESES[p.mes - 1]}</p>
                           <p className="text-xs text-slate-500">
-                            {p.estado === 'abierto' ? 'Abierto' : p.estado === 'bloqueado' ? 'Bloqueado' : 'Cerrado'}
+                            {textoEstado}
                             {presentados.length > 0 && ` · ${presentados.join(', ')} presentado`}
                           </p>
                         </div>
-                        {editar && p.estado === 'abierto' && (
+                        {editar && p.estado === 'abierto' && !ejercicioCerrado && (
                           <button
                             type="button"
                             onClick={() => cambiarMes(p.mes, 'bloqueado')}
