@@ -50,6 +50,14 @@ interface Cliente {
   monedaPreferida?: string | null;
 }
 
+/** Lo que se usa de GET /ajustes-facturacion (Configuracion > Facturacion). */
+interface AjustesFacturacionApi {
+  formaPago: 'TRANSFERENCIA' | 'GIRO' | 'CONTADO';
+  diasVencimiento: number;
+  irpfDefecto: number;
+  empresaEspanola: boolean;
+}
+
 interface Serie {
   id: string;
   codigo: string;
@@ -130,7 +138,8 @@ interface Revision {
 }
 
 const IVAS = [21, 10, 5, 4, 0];
-const IRPFS = [0, 7, 15, 19];
+// Los mismos que admite el IRPF habitual de Configuracion > Facturacion (1 y 2 %: actividades agricolas y ganaderas).
+const IRPFS = [0, 1, 2, 7, 15, 19];
 const FORMAS_PAGO = [
   ['TRANSFERENCIA', 'Transferencia bancaria'],
   ['GIRO', 'Giro / recibo domiciliado'],
@@ -193,6 +202,10 @@ function FormularioFactura() {
   const [formaPago, setFormaPago] = useState('TRANSFERENCIA');
   const [fechaEmision, setFechaEmision] = useState(hoy());
   const [fechaVencimiento, setFechaVencimiento] = useState(masDias(hoy(), 30));
+  // Dias de vencimiento de Configuracion > Facturacion. Mientras no se toque el
+  // vencimiento a mano, sigue a la fecha de emision.
+  const [diasVencimiento, setDiasVencimiento] = useState(30);
+  const [vencimientoTocado, setVencimientoTocado] = useState(false);
   const [fechaOperacion, setFechaOperacion] = useState('');
   const [irpf, setIrpf] = useState(0);
   const [observaciones, setObservaciones] = useState('');
@@ -231,10 +244,12 @@ function FormularioFactura() {
   useEffect(() => {
     (async () => {
       try {
-        const [cli, ser, prod] = await Promise.all([
+        const [cli, ser, prod, ajustes] = await Promise.all([
           apiFetch<{ items: Cliente[] } | Cliente[]>(companyPath('/clientes?limit=1000')),
           apiFetch<Serie[]>(companyPath('/series?tipoDocumento=FACTURA')),
           apiFetch<{ items: Producto[] }>(companyPath('/productos?limit=1000&activos=true')).catch(() => ({ items: [] })),
+          // Valores por defecto (Configuracion > Facturacion). Si no se pueden leer, los de siempre.
+          apiFetch<AjustesFacturacionApi>(companyPath('/ajustes-facturacion')).catch(() => null),
         ]);
         setClientes(Array.isArray(cli) ? cli : cli.items ?? []);
         const activas = ser.filter((s) => s.activa);
@@ -256,6 +271,7 @@ function FormularioFactura() {
           setFormaPago(invoice.formaPago ?? 'TRANSFERENCIA');
           setFechaEmision(invoice.fechaEmision);
           setFechaVencimiento(invoice.fechaVencimiento);
+          setVencimientoTocado(true);
           setFechaOperacion(invoice.fechaOperacion ?? '');
           setObservaciones(invoice.observaciones ?? '');
           setIrpf(invoice.lineas.find((l) => l.tipoRetencion)?.tipoRetencion ?? 0);
@@ -284,6 +300,13 @@ function FormularioFactura() {
           );
         } else {
           setSerie((activas.find((s) => s.porDefecto) ?? activas[0])?.codigo ?? '');
+          if (ajustes) {
+            setFormaPago(ajustes.formaPago);
+            setDiasVencimiento(ajustes.diasVencimiento);
+            setFechaVencimiento(masDias(hoy(), ajustes.diasVencimiento));
+            // Fuera de España no hay IRPF (el servidor ya lo devuelve a 0).
+            setIrpf(ajustes.empresaEspanola ? Number(ajustes.irpfDefecto) || 0 : 0);
+          }
         }
       } catch (e) {
         setError(errorMessage(e));
@@ -715,6 +738,14 @@ function FormularioFactura() {
             <p id="serie" className={`${campo} bg-slate-50 text-slate-600`}>
               {numeroProforma ? `Proforma ${numeroProforma}` : 'Proformas (P): el número se asigna al guardar'}
             </p>
+          ) : series.length === 0 && !cargando ? (
+            <p id="serie" className="mt-1 rounded-lg border border-amber-200 bg-amber-50 p-2 text-sm text-amber-900">
+              No hay ninguna serie de facturas activa.{' '}
+              <Link href="/dashboard/configuracion/series" className="font-medium underline">
+                Actívala o crea una en Configuración
+              </Link>
+              .
+            </p>
           ) : (
             <select id="serie" className={campo} value={serie} onChange={(e) => setSerie(e.target.value)}>
               {series.map((s) => (
@@ -880,11 +911,29 @@ function FormularioFactura() {
         </div>
         <div>
           <label className={etiqueta} htmlFor="emision">Fecha de emisión</label>
-          <input id="emision" type="date" className={campo} value={fechaEmision} onChange={(e) => setFechaEmision(e.target.value)} />
+          <input
+            id="emision"
+            type="date"
+            className={campo}
+            value={fechaEmision}
+            onChange={(e) => {
+              setFechaEmision(e.target.value);
+              if (!vencimientoTocado && /^\d{4}-\d{2}-\d{2}$/.test(e.target.value)) setFechaVencimiento(masDias(e.target.value, diasVencimiento));
+            }}
+          />
         </div>
         <div>
           <label className={etiqueta} htmlFor="vencimiento">Vencimiento</label>
-          <input id="vencimiento" type="date" className={campo} value={fechaVencimiento} onChange={(e) => setFechaVencimiento(e.target.value)} />
+          <input
+            id="vencimiento"
+            type="date"
+            className={campo}
+            value={fechaVencimiento}
+            onChange={(e) => {
+              setFechaVencimiento(e.target.value);
+              setVencimientoTocado(true);
+            }}
+          />
         </div>
         <div>
           <label className={etiqueta} htmlFor="operacion">
