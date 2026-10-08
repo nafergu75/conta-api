@@ -19,13 +19,13 @@ interface Proveedor {
   id: string;
   nombreFiscal: string;
   nifCif: string;
-  email?: string;
-  telefono?: string;
-  direccion?: string;
-  provincia?: string;
-  pais?: string;
-  municipio?: string;
-  cp?: string;
+  email?: string | null;
+  telefono?: string | null;
+  direccion?: string | null;
+  provincia?: string | null;
+  pais?: string | null;
+  municipio?: string | null;
+  cp?: string | null;
   activo?: boolean;
   companyId?: string;
 }
@@ -65,7 +65,11 @@ export default function DetalleProveedorPage() {
         return;
       }
 
-      if (!res.ok) throw new Error(`Error ${res.status}`);
+      if (!res.ok) {
+        // El motivo del servidor (403 sin permiso, 404...), no solo el codigo.
+        const j = await res.json().catch(() => null);
+        throw new Error(res.status === 404 ? 'Error 404' : j?.message || j?.error || `Error ${res.status}`);
+      }
 
       const data = await res.json();
       const prov = data.data || data;
@@ -93,7 +97,7 @@ export default function DetalleProveedorPage() {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
-          <p className="text-slate-600 font-medium mb-4">Proveedor no encontrado</p>
+          <p className="text-slate-600 font-medium mb-4">{error && error !== 'Error 404' ? error : 'Proveedor no encontrado'}</p>
           <button
             onClick={() => router.push('/dashboard/proveedores')}
             className="inline-flex items-center gap-2 px-4 py-2 text-accent-600 hover:text-accent-700 font-semibold"
@@ -144,7 +148,7 @@ export default function DetalleProveedorPage() {
       {/* Header */}
       <header className="sticky top-0 z-40 h-16 bg-white border-b border-slate-200 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 md:px-8 h-full flex items-center justify-between">
-          <div className="flex items-center gap-4">
+          <div className="flex min-w-0 items-center gap-4">
             <button
               onClick={() => router.push('/dashboard/proveedores')}
               className="p-2 text-slate-500 hover:text-slate-900 transition-colors"
@@ -152,9 +156,9 @@ export default function DetalleProveedorPage() {
             >
               <ArrowLeft size={20} />
             </button>
-            <div>
-              <h1 className="font-semibold text-slate-900">{proveedor.nombreFiscal}</h1>
-              <p className="text-sm text-slate-500 font-mono">{proveedor.nifCif}</p>
+            <div className="min-w-0">
+              <h1 className="font-semibold text-slate-900 truncate">{proveedor.nombreFiscal}</h1>
+              <p className="text-sm text-slate-500 font-mono truncate">{proveedor.nifCif}</p>
             </div>
           </div>
 

@@ -1,381 +1,360 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { getToken, clearSession, getCompanyId } from '@/lib/auth';
-import { CheckCircle, XCircle, Clock, Eye, ArrowRight } from '@phosphor-icons/react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Tooltip } from '@/app/dashboard/components/Tooltip';
+import { ArrowRight, CheckCircle, Clock, Eye, XCircle, type Icon as IconoPhosphor } from '@phosphor-icons/react';
+import { apiFetch, companyPath, errorMessage } from '@/lib/api';
+import { getUser, tieneAlgunPermiso } from '@/lib/auth';
+import { formatoImporte } from '@/lib/moneda';
+import { fechaCorta } from '@/lib/compras';
 import { ConfirmationModal } from '@/components/dashboard/ConfirmationModal';
-import { Toast, ToastContainer, ToastType } from '@/components/dashboard/Toast';
+import { ToastContainer, type ToastType } from '@/components/dashboard/Toast';
 
-interface JournalEntry {
+/**
+ * Motor contable: listado de asientos. Por defecto enseña los que esperan
+ * aprobación (borradores, como los del lector de gastos, y pendientes de
+ * revisar). GET /accounting/journal-entries devuelve los asientos con sus
+ * lineas, sin debe ni haber sumados: se suman aqui.
+ */
+
+interface LineaAsiento {
+  debe: number | string | null;
+  haber: number | string | null;
+}
+
+interface Asiento {
   id: string;
   numeroAsiento: string;
   fecha: string;
-  estado: 'DRAFT' | 'PENDING_REVIEW' | 'POSTED' | 'REVERSED';
-  concepto: string;
-  debe: number;
-  haber: number;
+  descripcion?: string;
+  estado: string;
   origen?: string;
-  facturaId?: string;
+  invoiceId?: string | null;
+  invoiceType?: string | null;
+  lineas?: LineaAsiento[];
 }
 
-const API = '/api/conta';
+const APROBABLES = ['DRAFT', 'PENDING_REVIEW'];
 
-const ESTADO_CONFIG = {
+const ESTADO_CONFIG: Record<string, { color: string; icon: IconoPhosphor; label: string; ayuda: string }> = {
   DRAFT: {
-    color: 'bg-amber-50 text-amber-700 border-amber-200',
+    color: 'bg-amber-50 text-amber-800 border-amber-200',
     icon: Clock,
     label: 'Borrador',
-    tooltip: 'Asiento en borrador, no contabilizado aún.',
+    ayuda: 'Todavía no cuenta en la contabilidad: revísalo y apruébalo.',
   },
   PENDING_REVIEW: {
     color: 'bg-blue-50 text-blue-700 border-blue-200',
     icon: Eye,
-    label: 'Pendiente revisión',
-    tooltip: 'Esperando aprobación manual antes de contabilizar.',
+    label: 'Pendiente de revisar',
+    ayuda: 'Espera a que alguien lo revise y lo apruebe.',
   },
   POSTED: {
     color: 'bg-emerald-50 text-emerald-700 border-emerald-200',
     icon: CheckCircle,
-    label: 'Aprobado',
-    tooltip: 'Contabilizado correctamente en el sistema.',
+    label: 'En firme',
+    ayuda: 'Ya cuenta en la contabilidad.',
   },
   REVERSED: {
     color: 'bg-rose-50 text-rose-700 border-rose-200',
     icon: XCircle,
-    label: 'Rechazado',
-    tooltip: 'Asiento anulado o reversado.',
+    label: 'Anulado',
+    ayuda: 'Asiento anulado: no cuenta en la contabilidad.',
   },
 };
 
+const ORIGEN: Record<string, string> = {
+  FACTURA_INGRESO: 'Factura de venta',
+  FACTURA_GASTO: 'Factura de gasto',
+  TESORERIA: 'Tesorería',
+  AJUSTE_MANUAL: 'Asiento manual',
+};
+
+/** 'PENDIENTES' junta borradores y pendientes de revisar (el servidor filtra un estado cada vez). */
+type FiltroEstado = 'PENDIENTES' | '' | 'DRAFT' | 'PENDING_REVIEW' | 'POSTED' | 'REVERSED';
+
+const num = (v: unknown) => Number(v) || 0;
+const importe = (n: number) => formatoImporte(n, 'EUR', { sinSimbolo: true });
+/** La fecha llega como ISO (DateTime): se toma el dia tal cual, sin pasar por la hora local. */
+const fecha = (iso: string) => fechaCorta(String(iso ?? '').slice(0, 10)) || '—';
+const sumas = (a: Asiento) => ({
+  debe: (a.lineas ?? []).reduce((s, l) => s + num(l.debe), 0),
+  haber: (a.lineas ?? []).reduce((s, l) => s + num(l.haber), 0),
+});
+const estadoDe = (estado: string) =>
+  ESTADO_CONFIG[estado] ?? { color: 'bg-slate-100 text-slate-700 border-slate-200', icon: Clock, label: estado || 'Sin estado', ayuda: '' };
+
+const campo =
+  'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-accent-600 focus:border-accent-600';
+
 export default function MotorContablePage() {
-  const router = useRouter();
+  const puedeAprobar = tieneAlgunPermiso(getUser(), ['contabilidad:write']);
 
-  // Empresa activa de la sesion (la que devolvio el login).
-  const companyId = getCompanyId();
-
-  const [asientos, setAsientos] = useState<JournalEntry[]>([]);
+  const [asientos, setAsientos] = useState<Asiento[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [filtros, setFiltros] = useState({
-    estado: 'PENDING_REVIEW',
-    desde: '',
-    hasta: '',
-  });
-  const [confirmModal, setConfirmModal] = useState({ isOpen: false, asientoId: '', isLoading: false });
+  const [estado, setEstado] = useState<FiltroEstado>('PENDIENTES');
+  const [desde, setDesde] = useState('');
+  const [hasta, setHasta] = useState('');
+  const [confirmar, setConfirmar] = useState<{ asiento: Asiento | null; cargando: boolean }>({ asiento: null, cargando: false });
   const [toasts, setToasts] = useState<Array<{ id: string; type: ToastType; title: string; message?: string }>>([]);
 
-  useEffect(() => {
-    const loadAsientos = async () => {
-      const token = getToken();
-      if (!token) {
-        router.replace('/login');
-        return;
-      }
-
-      try {
-        setLoading(true);
-        const params = new URLSearchParams();
-        if (filtros.estado) params.append('estado', filtros.estado);
-        if (filtros.desde) params.append('desde', filtros.desde);
-        if (filtros.hasta) params.append('hasta', filtros.hasta);
-
-        const res = await fetch(
-          `${API}/companies/${companyId}/accounting/journal-entries?${params}`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-
-        if (res.status === 401) {
-          clearSession();
-          router.replace('/login');
-          return;
-        }
-
-        if (!res.ok) throw new Error('Error cargando asientos');
-        const data = await res.json();
-        setAsientos(data.data || data || []);
-        setError('');  // Limpiar error anterior si lo hay
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Error desconocido');
-      } finally {
-        setLoading(false);
-      }
+  const cargar = useCallback(async () => {
+    const pedir = (e: string) => {
+      const params = new URLSearchParams();
+      if (e) params.set('estado', e);
+      if (desde) params.set('desde', desde);
+      if (hasta) params.set('hasta', hasta);
+      return apiFetch<Asiento[]>(companyPath(`/accounting/journal-entries?${params}`));
     };
+    try {
+      setLoading(true);
+      const listas = await Promise.all(estado === 'PENDIENTES' ? APROBABLES.map(pedir) : [pedir(estado)]);
+      const todos = listas.flatMap((l) => (Array.isArray(l) ? l : []));
+      // Los que esperan aprobacion primero; dentro de cada grupo, los mas recientes arriba.
+      todos.sort((a, b) => {
+        const pa = APROBABLES.includes(a.estado) ? 0 : 1;
+        const pb = APROBABLES.includes(b.estado) ? 0 : 1;
+        return pa - pb || String(b.fecha).localeCompare(String(a.fecha));
+      });
+      setAsientos(todos);
+      setError('');
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }, [estado, desde, hasta]);
 
-    if (companyId) loadAsientos();
-  }, [companyId, filtros, router]);
+  useEffect(() => {
+    cargar();
+  }, [cargar]);
 
   const addToast = (type: ToastType, title: string, message?: string) => {
-    const id = Math.random().toString(36).substr(2, 9);
+    const id = Math.random().toString(36).slice(2, 11);
     setToasts((prev) => [...prev, { id, type, title, message }]);
   };
 
-  const removeToast = (id: string) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id));
-  };
-
-  const handleApproveClick = (asientoId: string) => {
-    setConfirmModal({ isOpen: true, asientoId, isLoading: false });
-  };
-
-  const handleApproveConfirm = async () => {
-    setConfirmModal((prev) => ({ ...prev, isLoading: true }));
-    const token = getToken();
-    if (!token) {
-      setConfirmModal({ isOpen: false, asientoId: '', isLoading: false });
-      return;
-    }
-
+  const aprobar = async () => {
+    const a = confirmar.asiento;
+    if (!a) return;
+    setConfirmar({ asiento: a, cargando: true });
     try {
-      const res = await fetch(
-        `${API}/companies/${companyId}/accounting/journal-entries/${confirmModal.asientoId}/approve`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ observaciones: 'Aprobado desde dashboard' }),
-        }
+      await apiFetch(companyPath(`/accounting/journal-entries/${encodeURIComponent(a.id)}/approve`), {
+        method: 'POST',
+        body: JSON.stringify({ observaciones: 'Aprobado desde el listado del Motor contable' }),
+      });
+      addToast(
+        'success',
+        'Asiento aprobado',
+        a.origen === 'FACTURA_GASTO' ? 'La factura ya cuenta en el IVA y en los modelos.' : 'El asiento ya está en firme.',
       );
-
-      if (res.status === 401) {
-        clearSession();
-        setConfirmModal({ isOpen: false, asientoId: '', isLoading: false });
-        return;
-      }
-
-      if (!res.ok) throw new Error('Error aprobando asiento');
-
-      setAsientos(asientos.map((a) =>
-        a.id === confirmModal.asientoId ? { ...a, estado: 'POSTED' } : a
-      ));
-      addToast('success', 'Asiento aprobado', 'El asiento se ha contabilizado correctamente');
-      setConfirmModal({ isOpen: false, asientoId: '', isLoading: false });
+      setConfirmar({ asiento: null, cargando: false });
+      await cargar();
     } catch (err) {
-      addToast('error', 'Error al aprobar', err instanceof Error ? err.message : 'Error desconocido');
-      setConfirmModal((prev) => ({ ...prev, isLoading: false }));
+      addToast('error', 'No se pudo aprobar', errorMessage(err));
+      setConfirmar({ asiento: a, cargando: false });
     }
   };
+
+  const enlaceFactura = (a: Asiento) =>
+    a.invoiceId
+      ? a.invoiceType === 'GASTO' || a.origen === 'FACTURA_GASTO'
+        ? `/dashboard/compras/${a.invoiceId}`
+        : `/dashboard/facturas/${a.invoiceId}`
+      : null;
+
+  const pendientes = asientos.filter((a) => APROBABLES.includes(a.estado)).length;
+
+  const BotonAprobar = ({ a }: { a: Asiento }) =>
+    puedeAprobar && APROBABLES.includes(a.estado) ? (
+      <button
+        type="button"
+        onClick={() => setConfirmar({ asiento: a, cargando: false })}
+        className="inline-flex items-center gap-1 rounded-lg bg-accent-600 px-3 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-accent-700"
+      >
+        <CheckCircle size={16} /> Aprobar
+      </button>
+    ) : null;
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="mx-auto max-w-6xl p-4 pb-24 md:p-8">
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Motor Contable</h1>
-        <p className="text-gray-600 mt-2">Generación automática y gestión de asientos contables</p>
-      </div>
-
-      {error && (
-        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-md text-red-700">
-          {error}
-        </div>
-      )}
-
-      {/* Filtros */}
-      <div className="bg-white border border-gray-200 rounded-lg p-4 mb-6">
-        <h2 className="text-lg font-semibold mb-4">Filtros</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Estado
-            </label>
-            <select
-              value={filtros.estado}
-              onChange={(e) => setFiltros({ ...filtros, estado: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-            >
-              <option value="">Todos</option>
-              <option value="DRAFT">Borrador</option>
-              <option value="PENDING_REVIEW">Revisión</option>
-              <option value="POSTED">Contabilizado</option>
-              <option value="REVERSED">Reversado</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Desde
-            </label>
-            <input
-              type="date"
-              value={filtros.desde}
-              onChange={(e) => setFiltros({ ...filtros, desde: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Hasta
-            </label>
-            <input
-              type="date"
-              value={filtros.hasta}
-              onChange={(e) => setFiltros({ ...filtros, hasta: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Ejemplos de uso */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-        <h3 className="font-semibold text-blue-900 mb-2">📌 Ejemplos de Uso</h3>
-        <ul className="text-sm text-blue-800 space-y-1 list-disc list-inside">
-          <li>Los asientos se crean automáticamente al contabilizar facturas</li>
-          <li>Estado DRAFT = esperando revisión manual antes de aprobar</li>
-          <li>Click en "Aprobar" cambia a POSTED y se registra en contabilidad</li>
-          <li>Filtro por estado para seguimiento de asientos pendientes</li>
-        </ul>
-      </div>
-
-      {/* Tabla de asientos */}
-      <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-        {loading ? (
-          <div className="p-8 text-center text-gray-500">Cargando asientos...</div>
-        ) : asientos.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">
-            No hay asientos en este filtro. Contabiliza facturas para generar asientos.
-          </div>
-        ) : (
-          <table className="w-full">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
-                  # Asiento
-                </th>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
-                  Fecha
-                </th>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
-                  Concepto
-                </th>
-                <th className="px-6 py-3 text-right text-sm font-semibold text-gray-900">
-                  Debe (€)
-                </th>
-                <th className="px-6 py-3 text-right text-sm font-semibold text-gray-900">
-                  Haber (€)
-                </th>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
-                  Estado
-                </th>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
-                  Acciones
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {asientos.map((asiento) => {
-                const config = ESTADO_CONFIG[asiento.estado];
-                const Icon = config.icon;
-                return (
-                  <tr key={asiento.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 text-sm font-mono text-gray-700">
-                      {asiento.numeroAsiento}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-600">
-                      {new Date(asiento.fecha).toLocaleDateString()}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-700">
-                      {asiento.concepto}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-right font-mono text-gray-700">
-                      {asiento.debe.toFixed(2)}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-right font-mono text-gray-700">
-                      {asiento.haber.toFixed(2)}
-                    </td>
-                    <td className="px-6 py-4 text-sm">
-                      <div className="flex items-center gap-2">
-                        <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold ${config.color}`}>
-                          <Icon size={14} />
-                          {config.label}
-                        </span>
-                        <Tooltip text={config.tooltip} position="left" />
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-sm space-x-2">
-                      <Link
-                        href={`/dashboard/motor-contable/${asiento.id}`}
-                        className="text-blue-600 hover:text-blue-900 font-medium inline-flex items-center gap-1"
-                      >
-                        Ver detalle <ArrowRight size={14} />
-                      </Link>
-                      {asiento.estado === 'PENDING_REVIEW' && (
-                        <>
-                          <span className="text-gray-300">|</span>
-                          <button
-                            onClick={() => handleApproveClick(asiento.id)}
-                            className="text-green-600 hover:text-green-900 font-medium"
-                          >
-                            Aprobar
-                          </button>
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      {/* Estadísticas */}
-      <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
-          <div className="text-2xl font-bold text-gray-900">
-            {asientos.filter((a) => a.estado === 'PENDING_REVIEW').length}
-          </div>
-          <div className="text-sm text-gray-600">Pendientes revisión</div>
-        </div>
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
-          <div className="text-2xl font-bold text-gray-900">
-            {asientos.filter((a) => a.estado === 'POSTED').length}
-          </div>
-          <div className="text-sm text-gray-600">Contabilizados</div>
-        </div>
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
-          <div className="text-2xl font-bold text-gray-900">
-            €{asientos
-              .filter((a) => a.estado === 'POSTED')
-              .reduce((sum, a) => sum + a.debe, 0)
-              .toFixed(2)}
-          </div>
-          <div className="text-sm text-gray-600">Total debe</div>
-        </div>
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
-          <div className="text-2xl font-bold text-gray-900">
-            €{asientos
-              .filter((a) => a.estado === 'POSTED')
-              .reduce((sum, a) => sum + a.haber, 0)
-              .toFixed(2)}
-          </div>
-          <div className="text-sm text-gray-600">Total haber</div>
-        </div>
-      </div>
-
-      <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
-        <p>
-          <strong>Documentación:</strong> Los asientos se generan automáticamente según las reglas
-          contables definidas. Requieren aprobación manual antes de registrarse definitivamente.
+        <h1 className="text-2xl font-bold text-slate-900 md:text-3xl">Motor contable</h1>
+        <p className="mt-2 text-slate-600">
+          Asientos de las facturas. Los que están en borrador (por ejemplo, los del lector de gastos) no cuentan en el IVA ni en los
+          modelos hasta que los apruebes.
         </p>
       </div>
 
-      {/* Confirmation Modal */}
+      {error && <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-red-700">{error}</div>}
+
+      {/* Filtros */}
+      <div className="mb-6 grid grid-cols-1 gap-4 rounded-lg border border-slate-200 bg-white p-4 sm:grid-cols-3">
+        <div>
+          <label htmlFor="mc-estado" className="mb-1 block text-sm font-medium text-slate-700">
+            Estado
+          </label>
+          <select id="mc-estado" value={estado} onChange={(e) => setEstado(e.target.value as FiltroEstado)} className={campo}>
+            <option value="PENDIENTES">Pendientes de aprobar</option>
+            <option value="DRAFT">Borrador</option>
+            <option value="PENDING_REVIEW">Pendiente de revisar</option>
+            <option value="POSTED">En firme</option>
+            <option value="REVERSED">Anulado</option>
+            <option value="">Todos</option>
+          </select>
+        </div>
+        <div>
+          <label htmlFor="mc-desde" className="mb-1 block text-sm font-medium text-slate-700">
+            Desde
+          </label>
+          <input id="mc-desde" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} className={campo} />
+        </div>
+        <div>
+          <label htmlFor="mc-hasta" className="mb-1 block text-sm font-medium text-slate-700">
+            Hasta
+          </label>
+          <input id="mc-hasta" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} className={campo} />
+        </div>
+      </div>
+
+      {!loading && pendientes > 0 && (
+        <p role="status" className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          {pendientes === 1 ? 'Hay 1 asiento esperando tu aprobación.' : `Hay ${pendientes} asientos esperando tu aprobación.`}
+          {!puedeAprobar && ' Para aprobarlos hace falta el permiso de escritura en Contabilidad.'}
+        </p>
+      )}
+
+      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+        {loading ? (
+          <div className="p-8 text-center text-slate-500">Cargando asientos...</div>
+        ) : asientos.length === 0 ? (
+          <div className="p-8 text-center text-slate-500">
+            {estado === 'PENDIENTES' ? 'No hay asientos esperando aprobación.' : 'No hay asientos con este filtro.'}
+          </div>
+        ) : (
+          <>
+            {/* Escritorio: tabla */}
+            <table className="hidden w-full text-sm lg:table">
+              <thead className="border-b border-slate-200 bg-slate-50">
+                <tr>
+                  <th className="px-4 py-3 text-left font-semibold text-slate-700">Asiento</th>
+                  <th className="px-4 py-3 text-left font-semibold text-slate-700">Fecha</th>
+                  <th className="px-4 py-3 text-left font-semibold text-slate-700">Concepto</th>
+                  <th className="px-4 py-3 text-right font-semibold text-slate-700">Debe</th>
+                  <th className="px-4 py-3 text-right font-semibold text-slate-700">Haber</th>
+                  <th className="px-4 py-3 text-left font-semibold text-slate-700">Estado</th>
+                  <th className="px-4 py-3 text-right font-semibold text-slate-700">
+                    <span className="sr-only">Acciones</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {asientos.map((a) => {
+                  const cfg = estadoDe(a.estado);
+                  const Icono = cfg.icon;
+                  const s = sumas(a);
+                  const fac = enlaceFactura(a);
+                  return (
+                    <tr key={a.id} className="hover:bg-slate-50">
+                      <td className="px-4 py-3 font-mono text-slate-700 break-all">{a.numeroAsiento}</td>
+                      <td className="px-4 py-3 whitespace-nowrap text-slate-600">{fecha(a.fecha)}</td>
+                      <td className="px-4 py-3 text-slate-700">
+                        <div className="break-words">{a.descripcion || '—'}</div>
+                        <div className="text-xs text-slate-500">
+                          {ORIGEN[a.origen ?? ''] ?? a.origen}
+                          {fac && (
+                            <>
+                              {' · '}
+                              <Link href={fac} className="text-blue-600 hover:underline">
+                                Ver la factura
+                              </Link>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono whitespace-nowrap text-slate-700">{importe(s.debe)}</td>
+                      <td className="px-4 py-3 text-right font-mono whitespace-nowrap text-slate-700">{importe(s.haber)}</td>
+                      <td className="px-4 py-3">
+                        <span title={cfg.ayuda} className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold whitespace-nowrap ${cfg.color}`}>
+                          <Icono size={14} />
+                          {cfg.label}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end gap-3">
+                          <Link href={`/dashboard/motor-contable/${a.id}`} className="inline-flex items-center gap-1 font-medium whitespace-nowrap text-blue-600 hover:text-blue-800">
+                            Ver <ArrowRight size={14} />
+                          </Link>
+                          <BotonAprobar a={a} />
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+
+            {/* Movil y tablet: tarjetas */}
+            <ul className="divide-y divide-slate-200 lg:hidden">
+              {asientos.map((a) => {
+                const cfg = estadoDe(a.estado);
+                const Icono = cfg.icon;
+                const s = sumas(a);
+                const fac = enlaceFactura(a);
+                return (
+                  <li key={a.id} className="space-y-2 p-4 text-sm">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="font-mono font-semibold text-slate-900 break-all">{a.numeroAsiento}</p>
+                        <p className="text-slate-600">
+                          {fecha(a.fecha)} · {ORIGEN[a.origen ?? ''] ?? a.origen}
+                        </p>
+                      </div>
+                      <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold ${cfg.color}`}>
+                        <Icono size={14} />
+                        {cfg.label}
+                      </span>
+                    </div>
+                    {a.descripcion && <p className="text-slate-700 break-words">{a.descripcion}</p>}
+                    <p className="font-mono text-slate-700">
+                      Debe {importe(s.debe)} · Haber {importe(s.haber)}
+                    </p>
+                    <div className="flex flex-wrap items-center gap-3 pt-1">
+                      <Link href={`/dashboard/motor-contable/${a.id}`} className="inline-flex items-center gap-1 font-medium text-blue-600 hover:text-blue-800">
+                        Ver el asiento <ArrowRight size={14} />
+                      </Link>
+                      {fac && (
+                        <Link href={fac} className="font-medium text-blue-600 hover:text-blue-800">
+                          Ver la factura
+                        </Link>
+                      )}
+                      <BotonAprobar a={a} />
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </>
+        )}
+      </div>
+
       <ConfirmationModal
-        isOpen={confirmModal.isOpen}
+        isOpen={!!confirmar.asiento}
         title="Aprobar asiento"
-        message="¿Estás seguro de que deseas aprobar este asiento? Se contabilizará inmediatamente."
+        message={
+          confirmar.asiento?.origen === 'FACTURA_GASTO'
+            ? `¿Aprobar el asiento ${confirmar.asiento.numeroAsiento}? Quedará en firme y la factura contará en el IVA y en los modelos.`
+            : `¿Aprobar el asiento ${confirmar.asiento?.numeroAsiento ?? ''}? Quedará en firme.`
+        }
         confirmLabel="Aprobar"
         cancelLabel="Cancelar"
-        isLoading={confirmModal.isLoading}
-        onConfirm={handleApproveConfirm}
-        onCancel={() => setConfirmModal({ isOpen: false, asientoId: '', isLoading: false })}
+        isLoading={confirmar.cargando}
+        onConfirm={aprobar}
+        onCancel={() => setConfirmar({ asiento: null, cargando: false })}
       />
 
-      {/* Toast Container */}
-      <ToastContainer toasts={toasts} onClose={removeToast} />
+      <ToastContainer toasts={toasts} onClose={(id) => setToasts((prev) => prev.filter((t) => t.id !== id))} />
     </div>
   );
 }

@@ -1,23 +1,24 @@
 'use client';
 
 import { useState } from 'react';
-import { Trash } from '@phosphor-icons/react';
-import { getToken, clearSession } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
-
-const API = '/api/conta';
+import { PencilSimple, Trash } from '@phosphor-icons/react';
+import { ApiError, apiFetch, campoDelError, errorMessage } from '@/lib/api';
+import { getUser, tieneAlgunPermiso } from '@/lib/auth';
+import { nombrePais, PAISES, PAISES_UE, pareceNifIvaUe } from '@/lib/fiscal';
+import { paisDelPrefijo } from '@/lib/compras';
 
 interface Proveedor {
   id: string;
   nombreFiscal: string;
   nifCif: string;
-  email?: string;
-  telefono?: string;
-  direccion?: string;
-  provincia?: string;
-  pais?: string;
-  municipio?: string;
-  cp?: string;
+  email?: string | null;
+  telefono?: string | null;
+  direccion?: string | null;
+  provincia?: string | null;
+  pais?: string | null;
+  municipio?: string | null;
+  cp?: string | null;
   activo?: boolean;
 }
 
@@ -27,263 +28,264 @@ interface SupplierDatosTabProps {
   onUpdate?: (proveedor: Proveedor) => void;
 }
 
+const datosDe = (p: Proveedor) => ({
+  nombreFiscal: p.nombreFiscal || '',
+  nifCif: p.nifCif || '',
+  email: p.email || '',
+  telefono: p.telefono || '',
+  direccion: p.direccion || '',
+  provincia: p.provincia || '',
+  pais: p.pais || 'ES',
+  municipio: p.municipio || '',
+  cp: p.cp || '',
+  activo: p.activo !== false,
+});
+
+/**
+ * Datos del proveedor. Se guardan todos (antes se perdian la direccion, la
+ * provincia, el municipio, el CP y el pais) con PATCH; un email o un telefono
+ * vacios se borran. Borrar un proveedor con facturas da 409: se ofrece
+ * desactivarlo.
+ */
 export function SupplierDatosTab({ proveedor, companyId, onUpdate }: SupplierDatosTabProps) {
   const router = useRouter();
+  const puedeEscribir = tieneAlgunPermiso(getUser(), ['compras:write']);
+  const ruta = `/companies/${encodeURIComponent(companyId)}/proveedores/${encodeURIComponent(proveedor.id)}`;
+
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [campo, setCampo] = useState<string | undefined>();
+  const [aviso, setAviso] = useState<string | null>(null);
+  const [ofrecerDesactivar, setOfrecerDesactivar] = useState(false);
+  const [d, setD] = useState(() => datosDe(proveedor));
 
-  // Estados del formulario
-  const [nombre, setNombre] = useState(proveedor.nombreFiscal || '');
-  const [nif, setNif] = useState(proveedor.nifCif || '');
-  const [email, setEmail] = useState(proveedor.email || '');
-  const [telefono, setTelefono] = useState(proveedor.telefono || '');
-  const [direccion, setDireccion] = useState(proveedor.direccion || '');
-  const [provincia, setProvincia] = useState(proveedor.provincia || '');
-  const [pais, setPais] = useState(proveedor.pais || 'ES');
-  const [municipio, setMunicipio] = useState(proveedor.municipio || '');
-  const [cp, setCp] = useState(proveedor.cp || '');
+  const set = (k: Exclude<keyof typeof d, 'activo'>) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const v = e.target.value;
+    setD((prev) => {
+      const sig = { ...prev, [k]: v };
+      if (k === 'nifCif' && prev.pais === 'ES' && pareceNifIvaUe(v)) {
+        const p = paisDelPrefijo(v);
+        if (p && p !== 'ES') sig.pais = p;
+      }
+      return sig;
+    });
+  };
 
-  const handleGuardar = async () => {
+  const guardar = async (cambios: Record<string, unknown>, texto: string) => {
     setError(null);
+    setCampo(undefined);
+    setAviso(null);
+    setOfrecerDesactivar(false);
     setSaving(true);
     try {
-      const res = await fetch(`${API}/companies/${companyId}/proveedores/${proveedor.id}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${getToken()}`,
-        },
-        body: JSON.stringify({
-          nombreFiscal: nombre,
-          nifCif: nif,
-          email: email || undefined,
-          telefono: telefono || undefined,
-          direccion: direccion || undefined,
-          provincia: provincia || undefined,
-          pais: pais || 'ES',
-          municipio: municipio || undefined,
-          cp: cp || undefined,
-        }),
-      });
-
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j.message || `Error ${res.status}`);
-      }
-
-      const data = await res.json();
-      const updated = data.data || data;
+      const actualizado = await apiFetch<Proveedor>(ruta, { method: 'PATCH', body: JSON.stringify(cambios) });
+      setD(datosDe(actualizado));
       setEditing(false);
-      onUpdate?.(updated);
-      alert('Proveedor actualizado correctamente');
+      onUpdate?.(actualizado);
+      setAviso(texto);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al guardar');
+      setError(errorMessage(err));
+      setCampo(campoDelError(err));
     } finally {
       setSaving(false);
     }
   };
 
+  const handleGuardar = () =>
+    guardar(
+      {
+        nombreFiscal: d.nombreFiscal.trim(),
+        nifCif: d.nifCif.trim(),
+        // Vacios: se borran (antes no se podian vaciar).
+        email: d.email.trim(),
+        telefono: d.telefono.trim(),
+        direccion: d.direccion.trim(),
+        provincia: d.provincia.trim(),
+        municipio: d.municipio.trim(),
+        cp: d.cp.trim(),
+        pais: d.pais || 'ES',
+        activo: d.activo,
+      },
+      'Datos del proveedor guardados.',
+    );
+
   const handleEliminar = async () => {
-    if (!confirm('¿Estás seguro de que deseas eliminar este proveedor? Esta acción no se puede deshacer.')) {
-      return;
-    }
-
+    if (!confirm(`¿Borrar el proveedor ${proveedor.nombreFiscal}? No se puede deshacer.`)) return;
+    setError(null);
+    setAviso(null);
     try {
-      const res = await fetch(`${API}/companies/${companyId}/proveedores/${proveedor.id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${getToken()}` },
-      });
-
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j.message || `Error ${res.status}`);
-      }
-
-      alert('Proveedor eliminado correctamente');
+      await apiFetch(ruta, { method: 'DELETE' });
       router.push('/dashboard/proveedores');
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Error al eliminar');
+      setError(errorMessage(err));
+      setOfrecerDesactivar(err instanceof ApiError && err.status === 409);
     }
   };
 
+  const es = d.pais === 'ES';
+  const ue = !es && PAISES_UE.has(d.pais);
   const inputClass =
-    'rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-accent-600 focus:border-accent-600 bg-white disabled:bg-slate-100 disabled:cursor-not-allowed';
+    'w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-accent-600 focus:border-accent-600 bg-white disabled:bg-slate-100 disabled:cursor-not-allowed aria-[invalid=true]:border-red-500 aria-[invalid=true]:bg-red-50';
+  const label = 'text-sm font-medium text-slate-700 mb-2 block';
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <h2 className="text-lg font-semibold text-slate-900">Datos Básicos del Proveedor</h2>
-        <div className="flex gap-2">
-          {editing ? (
-            <>
-              <button
-                onClick={() => {
-                  setEditing(false);
-                  setError(null);
-                }}
-                className="px-4 py-2 border border-slate-300 text-slate-700 font-semibold rounded-lg hover:bg-slate-50 transition-colors"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleGuardar}
-                disabled={saving}
-                className="px-4 py-2 bg-accent-600 text-white font-semibold rounded-lg hover:bg-accent-700 active:scale-[0.98] transition-all disabled:opacity-60 disabled:pointer-events-none"
-              >
-                {saving ? 'Guardando...' : 'Guardar cambios'}
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                onClick={() => setEditing(true)}
-                className="px-4 py-2 border border-slate-300 text-slate-700 font-semibold rounded-lg hover:bg-slate-50 transition-colors"
-              >
-                ✏️ Editar
-              </button>
-              <button
-                onClick={handleEliminar}
-                className="p-2 text-slate-400 hover:text-rose-600 transition-colors"
-                aria-label="Eliminar"
-              >
-                <Trash size={20} />
-              </button>
-            </>
-          )}
-        </div>
+      {/* Cabecera */}
+      <div className="flex flex-wrap justify-between items-center gap-3">
+        <h2 className="text-lg font-semibold text-slate-900">Datos del proveedor</h2>
+        {puedeEscribir && (
+          <div className="flex gap-2">
+            {editing ? (
+              <>
+                <button
+                  onClick={() => {
+                    setEditing(false);
+                    setError(null);
+                    setCampo(undefined);
+                    setD(datosDe(proveedor));
+                  }}
+                  className="px-4 py-2 border border-slate-300 text-slate-700 font-semibold rounded-lg hover:bg-slate-50 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleGuardar}
+                  disabled={saving}
+                  className="px-4 py-2 bg-accent-600 text-white font-semibold rounded-lg hover:bg-accent-700 active:scale-[0.98] transition-all disabled:opacity-60 disabled:pointer-events-none"
+                >
+                  {saving ? 'Guardando...' : 'Guardar cambios'}
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => {
+                    setEditing(true);
+                    setAviso(null);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 border border-slate-300 text-slate-700 font-semibold rounded-lg hover:bg-slate-50 transition-colors"
+                >
+                  <PencilSimple size={16} /> Editar
+                </button>
+                <button onClick={handleEliminar} className="p-2 text-slate-400 hover:text-rose-600 transition-colors" aria-label="Borrar el proveedor" title="Borrar">
+                  <Trash size={20} />
+                </button>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
+      {aviso && (
+        <div role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800 p-4 text-sm">
+          {aviso}
+        </div>
+      )}
       {error && (
-        <div className="rounded-lg border border-rose-200 bg-rose-50 text-rose-700 p-4">
-          {error}
+        <div role="alert" className="flex flex-wrap items-center gap-3 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 p-4 text-sm">
+          <span className="min-w-0 flex-1">{error}</span>
+          {ofrecerDesactivar && d.activo && (
+            <button
+              type="button"
+              onClick={() => guardar({ activo: false }, 'Proveedor desactivado: ya no sale al registrar facturas de gasto.')}
+              className="rounded-lg bg-amber-600 px-3 py-1.5 font-semibold text-white hover:bg-amber-700"
+            >
+              Desactivar
+            </button>
+          )}
         </div>
       )}
 
-      {/* Formulario */}
-      <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-6 space-y-6">
-        {/* Datos Básicos */}
+      <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-4 md:p-6 space-y-6">
         <div>
           <h3 className="text-base font-semibold text-slate-900 mb-4">Identificación</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="text-sm font-medium text-slate-700 mb-2 block">Nombre Fiscal</label>
-              <input
-                type="text"
-                value={nombre}
-                onChange={e => setNombre(e.target.value)}
-                disabled={!editing}
-                className={inputClass}
-              />
+              <label htmlFor="sd-nombre" className={label}>
+                Nombre fiscal
+              </label>
+              <input id="sd-nombre" type="text" value={d.nombreFiscal} onChange={set('nombreFiscal')} disabled={!editing} aria-invalid={campo === 'nombreFiscal'} className={inputClass} />
             </div>
             <div>
-              <label className="text-sm font-medium text-slate-700 mb-2 block">NIF/CIF</label>
-              <input
-                type="text"
-                value={nif}
-                onChange={e => setNif(e.target.value)}
-                disabled={!editing}
-                className={inputClass}
-              />
+              <label htmlFor="sd-pais" className={label}>
+                País
+              </label>
+              {editing ? (
+                <select id="sd-pais" value={d.pais} onChange={set('pais')} aria-invalid={campo === 'pais'} className={inputClass}>
+                  {/* Un pais guardado que no esta en la lista se conserva. */}
+                  {!PAISES.some(([c]) => c === d.pais) && <option value={d.pais}>{d.pais}</option>}
+                  {PAISES.map(([c, n]) => (
+                    <option key={c} value={c}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input id="sd-pais" type="text" value={nombrePais(d.pais) || d.pais} disabled className={inputClass} />
+              )}
+            </div>
+            <div>
+              <label htmlFor="sd-nif" className={label}>
+                {es ? 'NIF/CIF' : ue ? 'NIF-IVA (con el prefijo del país)' : 'Identificación fiscal (Tax ID)'}
+              </label>
+              <input id="sd-nif" type="text" value={d.nifCif} onChange={set('nifCif')} disabled={!editing} aria-invalid={campo === 'nifCif'} className={`${inputClass} font-mono`} />
+            </div>
+            <div className="flex items-end">
+              <label className={`flex items-center gap-2 text-sm ${editing ? 'cursor-pointer text-slate-700' : 'text-slate-500'}`}>
+                <input type="checkbox" checked={d.activo} disabled={!editing} onChange={(e) => setD((prev) => ({ ...prev, activo: e.target.checked }))} className="h-4 w-4 accent-emerald-600" />
+                Activo (sale al registrar facturas de gasto)
+              </label>
             </div>
           </div>
         </div>
 
-        {/* Contacto */}
         <div className="border-t border-slate-200 pt-6">
           <h3 className="text-base font-semibold text-slate-900 mb-4">Contacto</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="text-sm font-medium text-slate-700 mb-2 block">Email</label>
-              <input
-                type="email"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                disabled={!editing}
-                className={inputClass}
-              />
+              <label htmlFor="sd-email" className={label}>
+                Email
+              </label>
+              <input id="sd-email" type="email" value={d.email} onChange={set('email')} disabled={!editing} aria-invalid={campo === 'email'} className={inputClass} />
             </div>
             <div>
-              <label className="text-sm font-medium text-slate-700 mb-2 block">Teléfono</label>
-              <input
-                type="tel"
-                value={telefono}
-                onChange={e => setTelefono(e.target.value)}
-                disabled={!editing}
-                className={inputClass}
-              />
+              <label htmlFor="sd-tel" className={label}>
+                Teléfono
+              </label>
+              <input id="sd-tel" type="tel" value={d.telefono} onChange={set('telefono')} disabled={!editing} aria-invalid={campo === 'telefono'} className={inputClass} />
             </div>
           </div>
         </div>
 
-        {/* Dirección */}
         <div className="border-t border-slate-200 pt-6">
-          <h3 className="text-base font-semibold text-slate-900 mb-4">Localización</h3>
+          <h3 className="text-base font-semibold text-slate-900 mb-4">Dirección</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="md:col-span-2">
-              <label className="text-sm font-medium text-slate-700 mb-2 block">Dirección</label>
-              <input
-                type="text"
-                value={direccion}
-                onChange={e => setDireccion(e.target.value)}
-                disabled={!editing}
-                className={inputClass}
-              />
+              <label htmlFor="sd-dir" className={label}>
+                Dirección
+              </label>
+              <input id="sd-dir" type="text" value={d.direccion} onChange={set('direccion')} disabled={!editing} aria-invalid={campo === 'direccion'} className={inputClass} />
             </div>
             <div>
-              <label className="text-sm font-medium text-slate-700 mb-2 block">Municipio</label>
-              <input
-                type="text"
-                value={municipio}
-                onChange={e => setMunicipio(e.target.value)}
-                disabled={!editing}
-                className={inputClass}
-              />
+              <label htmlFor="sd-cp" className={label}>
+                Código postal
+              </label>
+              <input id="sd-cp" type="text" inputMode={es ? 'numeric' : 'text'} value={d.cp} onChange={set('cp')} disabled={!editing} aria-invalid={campo === 'cp'} className={inputClass} />
             </div>
             <div>
-              <label className="text-sm font-medium text-slate-700 mb-2 block">Provincia</label>
-              <input
-                type="text"
-                value={provincia}
-                onChange={e => setProvincia(e.target.value)}
-                disabled={!editing}
-                className={inputClass}
-              />
+              <label htmlFor="sd-mun" className={label}>
+                Municipio
+              </label>
+              <input id="sd-mun" type="text" value={d.municipio} onChange={set('municipio')} disabled={!editing} aria-invalid={campo === 'municipio'} className={inputClass} />
             </div>
             <div>
-              <label className="text-sm font-medium text-slate-700 mb-2 block">Código Postal</label>
-              <input
-                type="text"
-                value={cp}
-                onChange={e => setCp(e.target.value)}
-                disabled={!editing}
-                className={inputClass}
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium text-slate-700 mb-2 block">País</label>
-              <input
-                type="text"
-                value={pais}
-                onChange={e => setPais(e.target.value)}
-                disabled={!editing}
-                className={inputClass}
-              />
+              <label htmlFor="sd-prov" className={label}>
+                {es ? 'Provincia' : 'Región o estado'}
+              </label>
+              <input id="sd-prov" type="text" value={d.provincia} onChange={set('provincia')} disabled={!editing} aria-invalid={campo === 'provincia'} className={inputClass} />
             </div>
           </div>
-        </div>
-      </div>
-
-      {/* Info adicional */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-slate-50 rounded-lg border border-slate-200 p-4">
-          <p className="text-xs text-slate-600 mb-1">Estado</p>
-          <p className="text-lg font-semibold text-slate-900">{proveedor.activo !== false ? '✅ Activo' : '❌ Inactivo'}</p>
-        </div>
-        <div className="bg-slate-50 rounded-lg border border-slate-200 p-4">
-          <p className="text-xs text-slate-600 mb-1">Identificador</p>
-          <p className="text-sm font-mono text-slate-900">{proveedor.id}</p>
         </div>
       </div>
     </div>

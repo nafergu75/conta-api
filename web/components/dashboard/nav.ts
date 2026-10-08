@@ -105,8 +105,9 @@ export const NAV_GROUPS: NavGroup[] = [
           'POST /companies/:id/proveedores',
           'PUT /companies/:id/proveedores/:id',
         ],
+        requiredRoles: ['compras:read', 'contabilidad:read'],
       },
-      // La Bandeja OCR (slug 'ocr') y el lector de gastos están fuera del menú hasta que funcionen: ver esRutaDesactivada.
+      // La Bandeja OCR (slug 'ocr') está fuera del menú hasta que funcione: ver esRutaDesactivada.
       {
         label: 'Analytics OCR',
         slug: 'ocr/analytics',
@@ -122,8 +123,22 @@ export const NAV_GROUPS: NavGroup[] = [
         label: 'Compras',
         slug: 'compras',
         description: 'Facturas recibidas y gastos de proveedor.',
-        implemented: false,
-        endpoints: ['GET /companies/:id/compras', 'POST /companies/:id/compras'],
+        implemented: true,
+        endpoints: [
+          'GET /companies/:id/expense-invoices',
+          'POST /companies/:id/expense-invoices',
+          'PUT /companies/:id/expense-invoices/:id',
+          'POST /companies/:id/expense-invoices/:id/anular',
+        ],
+        requiredRoles: ['compras:read', 'contabilidad:read'],
+      },
+      {
+        label: 'Lector de gastos',
+        slug: 'compras/lector-gastos',
+        description: 'Lee con IA una factura en PDF o foto y la registra tras revisarla.',
+        implemented: true,
+        endpoints: ['POST /companies/:id/gastos-extractor/extraer-ia', 'POST /companies/:id/gastos-extractor/confirmar'],
+        requiredRoles: ['compras:write'],
       },
     ],
   },
@@ -509,13 +524,14 @@ export function esRutaSoloEspana(href: string): boolean {
 
 /**
  * Pantallas retiradas hasta que funcionen: la Bandeja OCR (todo /dashboard/ocr
- * salvo Analytics OCR: la subida falla) y el lector de gastos (no guardaba el
- * gasto). No están en el menú, Carmen no enlaza a ellas y quien entre por la URL
- * ve un aviso (los layout.tsx de cada carpeta).
+ * salvo Analytics OCR: la subida falla). No está en el menú, Carmen no enlaza a
+ * ella y quien entre por la URL ve un aviso (app/dashboard/ocr/layout.tsx). El
+ * lector de gastos (/dashboard/compras/lector-gastos) ya registra la factura y
+ * vuelve a estar en el menú.
  */
 export function esRutaDesactivada(href: string): boolean {
   const ruta = href.split(/[?#]/)[0].replace(/\/+$/, '');
   const dentroDe = (r: string) => ruta === r || ruta.startsWith(`${r}/`);
   if (dentroDe('/dashboard/ocr/analytics')) return false;
-  return dentroDe('/dashboard/ocr') || dentroDe('/dashboard/compras/lector-gastos');
+  return dentroDe('/dashboard/ocr');
 }
