@@ -171,14 +171,18 @@ export default function ProveedoresPage() {
             </div>
           ) : (
             proveedores.map((proveedor) => (
-              <Link
+              <div
                 key={proveedor.id}
-                href={`/dashboard/proveedores/${proveedor.id}`}
-                className="block rounded-xl bg-white border border-slate-200 p-5 hover:border-emerald-200 hover:bg-slate-50 transition-colors focus:outline-none focus:ring-2 focus:ring-accent-600"
+                className="relative rounded-xl bg-white border border-slate-200 p-5 hover:border-emerald-200 hover:bg-slate-50 transition-colors focus-within:ring-2 focus-within:ring-accent-600"
               >
                 <div className="flex items-start justify-between gap-2 mb-3">
                   <div className="min-w-0">
-                    <h3 className="font-semibold text-slate-900 break-words">{proveedor.nombreFiscal}</h3>
+                    <h3 className="font-semibold text-slate-900 break-words">
+                      {/* El enlace cubre toda la tarjeta (after:inset-0); la papelera queda por encima y fuera de el. */}
+                      <Link href={`/dashboard/proveedores/${proveedor.id}`} className="after:absolute after:inset-0 after:rounded-xl focus:outline-none">
+                        {proveedor.nombreFiscal}
+                      </Link>
+                    </h3>
                     <p className="text-sm font-mono text-slate-500 break-all">{proveedor.nifCif}</p>
                     <div className="mt-1 flex flex-wrap gap-1.5">
                       {proveedor.activo === false && <span className="rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">Inactivo</span>}
@@ -190,12 +194,8 @@ export default function ProveedoresPage() {
                   {puedeEscribir && (
                     <button
                       type="button"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        borrar(proveedor);
-                      }}
-                      className="p-1.5 text-slate-400 hover:text-rose-600 transition-colors shrink-0"
+                      onClick={() => borrar(proveedor)}
+                      className="relative z-10 p-1.5 text-slate-400 hover:text-rose-600 transition-colors shrink-0"
                       aria-label={`Borrar el proveedor ${proveedor.nombreFiscal}`}
                       title="Borrar"
                     >
@@ -222,7 +222,7 @@ export default function ProveedoresPage() {
                     </p>
                   )}
                 </div>
-              </Link>
+              </div>
             ))
           )}
         </section>
@@ -265,6 +265,13 @@ function NuevoProveedorModal({ onClose, onCreated }: { onClose: () => void; onCr
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [campo, setCampo] = useState<string | undefined>();
+
+  // Escape cierra la ventana.
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', esc);
+    return () => window.removeEventListener('keydown', esc);
+  }, [onClose]);
 
   const set = (k: keyof typeof d) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const v = e.target.value;
@@ -317,7 +324,7 @@ function NuevoProveedorModal({ onClose, onCreated }: { onClose: () => void; onCr
             <label htmlFor="np-nombre" className={label}>
               Nombre fiscal *
             </label>
-            <input id="np-nombre" required value={d.nombreFiscal} onChange={set('nombreFiscal')} aria-invalid={campo === 'nombreFiscal'} className={inputClass} />
+            <input id="np-nombre" autoFocus required value={d.nombreFiscal} onChange={set('nombreFiscal')} aria-invalid={campo === 'nombreFiscal'} className={inputClass} />
           </div>
           <div className="flex flex-col gap-1.5">
             <label htmlFor="np-pais" className={label}>

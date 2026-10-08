@@ -337,6 +337,13 @@ function ModalAnular({ gasto, onCerrar, onAnulada }: { gasto: GastoDetalle; onCe
   const [error, setError] = useState('');
   const [campo, setCampo] = useState<string | undefined>();
 
+  // Escape cierra la ventana, como la de «Registrar pago».
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && onCerrar();
+    window.addEventListener('keydown', esc);
+    return () => window.removeEventListener('keydown', esc);
+  }, [onCerrar]);
+
   const anular = async (e: React.FormEvent) => {
     e.preventDefault();
     if (motivo.trim().length < 3) {
@@ -390,7 +397,7 @@ function ModalAnular({ gasto, onCerrar, onAnulada }: { gasto: GastoDetalle; onCe
         <label htmlFor="anular-motivo" className="mb-1 block text-sm font-medium text-slate-700">
           Motivo *
         </label>
-        <textarea id="anular-motivo" rows={3} maxLength={500} value={motivo} onChange={(e) => setMotivo(e.target.value)} aria-invalid={campo === 'motivo'} className={campoCls} />
+        <textarea id="anular-motivo" autoFocus rows={3} maxLength={500} value={motivo} onChange={(e) => setMotivo(e.target.value)} aria-invalid={campo === 'motivo'} className={campoCls} />
         {conContraasiento && (
           <div className="mt-4">
             <label htmlFor="anular-fecha" className="mb-1 block text-sm font-medium text-slate-700">
