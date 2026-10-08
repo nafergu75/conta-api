@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { CaretDown, CaretRight, MagnifyingGlass, Plus, Trash, WarningCircle, X } from '@phosphor-icons/react';
 import { ApiError, apiFetch, campoDelError, companyPath, errorMessage } from '@/lib/api';
 import { formatoImporte, parseImporte } from '@/lib/moneda';
-import { PAISES, pareceNifIvaUe } from '@/lib/fiscal';
+import { PAISES, pareceNifIvaUe, useEmpresaEspanola } from '@/lib/fiscal';
 import {
   calcularTotales,
   conflictoGasto,
@@ -193,11 +193,16 @@ export default function FormFacturaGasto({
   }, []);
 
   const paisProveedor = proveedor?.pais ?? 'ES';
-  const extranjero = !esEspana(paisProveedor);
+  const proveedorExtranjero = !esEspana(paisProveedor);
+  // La empresa, con la misma regla que Configuracion y el servidor (pais de /legal-config).
+  // null mientras carga: no se cambia nada hasta saberlo.
+  const empresaExtranjera = useEmpresaEspanola() === false;
+  /** Sin IVA español ni retención: proveedor de fuera de España o empresa no establecida en España. */
+  const extranjero = proveedorExtranjero || empresaExtranjera;
   const retenciones = TIPO_GASTO_INFO[tipoGasto].retenciones;
   const conRetencion = retenciones.length > 1 && !extranjero;
 
-  // Un proveedor de fuera de España no cobra IVA español ni lleva retención: se ponen a 0.
+  // Sin IVA español ni retención (proveedor o empresa de fuera de España): se ponen a 0.
   useEffect(() => {
     if (extranjero) setLineas((ls) => (ls.some((l) => l.tipoIva !== 0 || l.tipoRetencion !== 0) ? ls.map((l) => ({ ...l, tipoIva: 0, tipoRetencion: 0 })) : ls));
   }, [extranjero]);
@@ -381,10 +386,16 @@ export default function FormFacturaGasto({
           }}
           marca={marca}
         />
-        {extranjero && (
+        {empresaExtranjera ? (
           <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-            Proveedor de fuera de España: la factura va sin IVA español y sin retención.
+            Tu empresa no está establecida en España: sus gastos van sin IVA español y sin retención de IRPF.
           </p>
+        ) : (
+          proveedorExtranjero && (
+            <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+              Proveedor de fuera de España: la factura va sin IVA español y sin retención.
+            </p>
+          )
         )}
       </section>
 
