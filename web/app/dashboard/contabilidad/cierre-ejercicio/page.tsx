@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowCounterClockwise, CheckCircle, LockKey, LockKeyOpen } from '@phosphor-icons/react';
+import Link from 'next/link';
+import { ArrowCounterClockwise, ArrowRight, CheckCircle, LockKey, LockKeyOpen } from '@phosphor-icons/react';
 import { Tooltip } from '@/app/dashboard/components/Tooltip';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
@@ -36,7 +37,15 @@ interface VistaCierre {
   puedeCerrar: boolean;
   puedeDeshacer: boolean;
   motivoNoDeshacer: string | null;
+  /**
+   * Adonde ir en vez de deshacer: en un ejercicio cerrado sin asientos que se
+   * puede reabrir, Configuracion > Ejercicios y periodos.
+   */
+  enlaceNoDeshacer?: string | null;
 }
+
+/** Solo rutas de la propia app (el enlace lo da el servidor). */
+const enlaceInterno = (e: string | null | undefined) => (e && e.startsWith('/dashboard/') ? e : null);
 
 const NOMBRE_TIPO: Record<string, string> = {
   REGULARIZACION: 'Regularización',
@@ -296,7 +305,22 @@ export default function CierreEjercicioPage() {
                 <ArrowCounterClockwise size={16} /> {ocupado ? 'Deshaciendo...' : 'Deshacer cierre'}
               </button>
             ) : (
-              vista.motivoNoDeshacer && <p className="text-sm text-slate-500">{vista.motivoNoDeshacer}</p>
+              vista.motivoNoDeshacer && (
+                <p className="text-sm text-slate-500">
+                  {vista.motivoNoDeshacer}
+                  {enlaceInterno(vista.enlaceNoDeshacer) && (
+                    <>
+                      {' '}
+                      <Link
+                        href={enlaceInterno(vista.enlaceNoDeshacer) as string}
+                        className="inline-flex items-center gap-1 font-medium text-emerald-700 hover:underline"
+                      >
+                        Ir a Ejercicios y periodos <ArrowRight size={14} />
+                      </Link>
+                    </>
+                  )}
+                </p>
+              )
             ))}
         </div>
       )}
