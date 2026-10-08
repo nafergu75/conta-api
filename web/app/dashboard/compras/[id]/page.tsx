@@ -7,7 +7,18 @@ import { ArrowLeft, PencilSimple, Prohibit, X } from '@phosphor-icons/react';
 import { getCompanyId, getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { ApiError, apiFetch, campoDelError, companyPath, errorMessage } from '@/lib/api';
 import { formatoImporte } from '@/lib/moneda';
-import { claseEstadoGasto, claseEstadoPago, esTipoGasto, fechaCorta, hoyIso, textoEstadoAsiento, TIPO_GASTO_INFO, type GastoDetalle } from '@/lib/compras';
+import {
+  claseEstadoGasto,
+  claseEstadoPago,
+  conflictoGasto,
+  esTipoGasto,
+  fechaCorta,
+  hoyIso,
+  textoEstadoAsiento,
+  TIPO_GASTO_INFO,
+  type ConflictoGasto,
+  type GastoDetalle,
+} from '@/lib/compras';
 import ContabilizarButton from '@/components/ContabilizarButton';
 import CobrosFactura from '@/components/CobrosFactura';
 
@@ -289,7 +300,7 @@ export default function GastoDetailPage() {
       </div>
 
       {/* Contabilizacion */}
-      <div className="mb-6 rounded-lg border border-slate-200 bg-white p-4 md:p-6">
+      <div id="contabilizacion" className="mb-6 scroll-mt-20 rounded-lg border border-slate-200 bg-white p-4 md:p-6">
         <h2 className="mb-3 font-semibold text-slate-900">Contabilización</h2>
         {gasto.asiento ? (
           <p className="text-sm text-slate-700">
@@ -334,6 +345,15 @@ export default function GastoDetailPage() {
         <ModalAnular
           gasto={gasto}
           onCerrar={() => setAnulando(false)}
+          onIrAContabilizar={() => {
+            setAnulando(false);
+            // Se recarga: la ficha ensena ya el boton Contabilizar con lo que hay ahora.
+            loadGasto().then(() => document.getElementById('contabilizacion')?.scrollIntoView({ block: 'start', behavior: 'smooth' }));
+          }}
+          onVolverAAbrir={() => {
+            setAnulando(false);
+            loadGasto();
+          }}
           onAnulada={(contraasiento) => {
             setAnulando(false);
             setAviso(contraasiento ? 'Factura anulada con un contraasiento: el libro de IVA y los modelos la restan en el periodo de la anulación.' : 'Factura anulada: su asiento y su anotación en el libro de IVA quedan sin efecto.');
@@ -345,13 +365,30 @@ export default function GastoDetailPage() {
   );
 }
 
-function ModalAnular({ gasto, onCerrar, onAnulada }: { gasto: GastoDetalle; onCerrar: () => void; onAnulada: (contraasiento: boolean) => void }) {
+function ModalAnular({
+  gasto,
+  onCerrar,
+  onAnulada,
+  onIrAContabilizar,
+  onVolverAAbrir,
+}: {
+  gasto: GastoDetalle;
+  onCerrar: () => void;
+  onAnulada: (contraasiento: boolean) => void;
+  /** 409 { accion: 'contabilizar' }: factura anterior de un trimestre declarado. */
+  onIrAContabilizar: () => void;
+  /** 409 de factura cambiada mientras tanto. */
+  onVolverAAbrir: () => void;
+}) {
   const conContraasiento = gasto.acciones.anular.conContraasiento;
   const [motivo, setMotivo] = useState('');
   const [fecha, setFecha] = useState(hoyIso());
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState('');
   const [campo, setCampo] = useState<string | undefined>();
+  const [conflicto, setConflicto] = useState<ConflictoGasto | null>(null);
+  // El contraasiento no puede ser anterior a la factura (el servidor da 400 en 'fecha').
+  const fechaMinima = (gasto.fechaRegistro || gasto.fechaEmision || '').slice(0, 10) || undefined;
 
   // Escape cierra la ventana, como la de «Registrar pago».
   useEffect(() => {
@@ -370,6 +407,7 @@ function ModalAnular({ gasto, onCerrar, onAnulada }: { gasto: GastoDetalle; onCe
     setGuardando(true);
     setError('');
     setCampo(undefined);
+    setConflicto(null);
     try {
       const r = await apiFetch<{ contraasiento: boolean }>(companyPath(`/expense-invoices/${encodeURIComponent(gasto.id)}/anular`), {
         method: 'POST',
@@ -379,6 +417,7 @@ function ModalAnular({ gasto, onCerrar, onAnulada }: { gasto: GastoDetalle; onCe
     } catch (err) {
       setError(errorMessage(err));
       setCampo(campoDelError(err));
+      setConflicto(conflictoGasto(err));
     } finally {
       setGuardando(false);
     }
@@ -419,10 +458,33 @@ function ModalAnular({ gasto, onCerrar, onAnulada }: { gasto: GastoDetalle; onCe
             <label htmlFor="anular-fecha" className="mb-1 block text-sm font-medium text-slate-700">
               Fecha del contraasiento
             </label>
-            <input id="anular-fecha" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} aria-invalid={campo === 'fecha'} className={campoCls} />
+            <input
+              id="anular-fecha"
+              type="date"
+              value={fecha}
+              min={fechaMinima}
+              onChange={(e) => setFecha(e.target.value)}
+              aria-invalid={campo === 'fecha'}
+              className={campoCls}
+            />
+            {fechaMinima && <p className="mt-1 text-xs text-slate-500">No puede ser anterior al {fechaCorta(fechaMinima)}.</p>}
           </div>
         )}
-        {error && <p className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>}
+        {error && (
+          <div role="alert" className="mt-4 flex flex-col gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+            <p>{error}</p>
+            {conflicto?.contabilizar && (
+              <button type="button" onClick={onIrAContabilizar} className="self-start font-semibold underline">
+                Ir a Contabilizar
+              </button>
+            )}
+            {conflicto?.cambiada && (
+              <button type="button" onClick={onVolverAAbrir} className="self-start font-semibold underline">
+                Volver a abrirla
+              </button>
+            )}
+          </div>
+        )}
         <div className="mt-5 flex gap-3">
           <button type="button" onClick={onCerrar} className="flex-1 rounded-lg border border-slate-300 py-2.5 font-semibold text-slate-700 hover:bg-slate-50">
             Cancelar
