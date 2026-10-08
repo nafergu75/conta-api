@@ -69,14 +69,18 @@ interface TipoCambioApi {
   aviso?: string;
 }
 const fecha = (iso: string) => (iso ? new Date(`${iso.slice(0, 10)}T00:00:00`).toLocaleDateString('es-ES') : '');
-const hoy = () => new Date().toISOString().slice(0, 10);
+/** Hoy en la hora del navegador (toISOString da la fecha en UTC: de 00:00 a 02:00 en España saldría ayer). */
+const hoy = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 
 const boton =
   'inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50';
 
 const TEXTOS = {
-  INGRESO: { ruta: 'income-invoices', recurso: 'cobros', uno: 'cobro', titulo: 'Cobros', registrar: 'Registrar cobro', hecho: 'Cobro registrado.', nada: 'Todavía no hay cobros.' },
-  GASTO: { ruta: 'expense-invoices', recurso: 'pagos', uno: 'pago', titulo: 'Pagos', registrar: 'Registrar pago', hecho: 'Pago registrado.', nada: 'Todavía no hay pagos.' },
+  INGRESO: { ruta: 'income-invoices', recurso: 'cobros', uno: 'cobro', titulo: 'Cobros', registrar: 'Registrar cobro', hecho: 'Cobro registrado.', nada: 'Todavía no hay cobros.', sinBancos: 'No hay cuentas bancarias activas: créalas en Tesorería para cobrar por banco.' },
+  GASTO: { ruta: 'expense-invoices', recurso: 'pagos', uno: 'pago', titulo: 'Pagos', registrar: 'Registrar pago', hecho: 'Pago registrado.', nada: 'Todavía no hay pagos.', sinBancos: 'No hay cuentas bancarias activas: créalas en Tesorería para pagar desde el banco.' },
 } as const;
 
 export default function CobrosFactura({
@@ -415,7 +419,7 @@ function ModalCobro({
             </select>
           )}
           {cuentas && cuentas.length === 0 && (
-            <p className="mt-1 text-xs text-slate-500">No hay cuentas bancarias activas: créalas en Tesorería para cobrar por banco.</p>
+            <p className="mt-1 text-xs text-slate-500">{t.sinBancos}</p>
           )}
         </div>
         {enDivisa && (
