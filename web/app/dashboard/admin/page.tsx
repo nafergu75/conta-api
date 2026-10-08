@@ -108,6 +108,14 @@ interface UsuarioAdmin {
   creadoEn?: string;
   /** Todavia no ha cambiado la contrasena provisional que le dio un administrador. */
   debeCambiarContrasena?: boolean;
+  /**
+   * Hasta cuando vale la contrasena provisional que le puso un administrador
+   * (ISO). null si no tiene provisional o si es la suya de siempre marcada para
+   * cambiar (esa no caduca).
+   */
+  contrasenaProvisionalHasta?: string | null;
+  /** La provisional ya no vale: no puede entrar hasta que se le genere otra. */
+  contrasenaProvisionalCaducada?: boolean;
   empresas: AccesoEmpresa[];
 }
 
@@ -128,6 +136,14 @@ type Pestana = 'empresas' | 'usuarios';
 const normalizar = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
 const fechaCorta = (iso?: string) => (iso ? new Date(iso).toLocaleDateString('es-ES') : '');
+
+/** "15 de octubre de 2026 a las 10:30" (hora de Espana). */
+const fechaYHora = (iso: string) => {
+  const d = new Date(iso);
+  const dia = d.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Madrid' });
+  const hora = d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Madrid' });
+  return `${dia} a las ${hora}`;
+};
 
 const CLASE_INPUT =
   'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-accent-600 focus:outline-none focus:ring-2 focus:ring-accent-600';
@@ -205,6 +221,30 @@ function Modal({
         {children}
       </div>
     </div>
+  );
+}
+
+/** Etiqueta de la contrasena: provisional pendiente o ya caducada. */
+function EtiquetaContrasena({ usuario }: { usuario: UsuarioAdmin }) {
+  if (!usuario.debeCambiarContrasena) return null;
+  if (usuario.contrasenaProvisionalCaducada) {
+    return (
+      <span title="No puede entrar con ella: genérale otra">
+        <Etiqueta tono="rojo">Contraseña provisional caducada</Etiqueta>
+      </span>
+    );
+  }
+  const hasta = usuario.contrasenaProvisionalHasta;
+  return (
+    <span
+      title={
+        hasta
+          ? `Todavía no ha puesto su propia contraseña. La provisional vale hasta el ${fechaYHora(hasta)}.`
+          : 'Todavía no ha puesto su propia contraseña'
+      }
+    >
+      <Etiqueta tono="ambar">Contraseña provisional</Etiqueta>
+    </span>
   );
 }
 
@@ -555,11 +595,7 @@ export default function AdministracionPage() {
                       <div className="mt-1 flex flex-wrap gap-1.5">
                         {u.esAdminGlobal && <Etiqueta tono="indigo">Administrador global</Etiqueta>}
                         {!u.activo && <Etiqueta tono="rojo">Desactivado</Etiqueta>}
-                        {u.debeCambiarContrasena && (
-                          <span title="Todavía no ha puesto su propia contraseña">
-                            <Etiqueta tono="ambar">Contraseña provisional</Etiqueta>
-                          </span>
-                        )}
+                        <EtiquetaContrasena usuario={u} />
                       </div>
                     </div>
                     <div className="flex min-w-0 flex-wrap gap-1.5">
@@ -1092,6 +1128,30 @@ function ModalNuevoUsuario({
   );
 }
 
+/** En que punto esta la contrasena del usuario, dicho en una frase. */
+function EstadoContrasena({ usuario }: { usuario: UsuarioAdmin }) {
+  if (!usuario.debeCambiarContrasena) return null;
+  const hasta = usuario.contrasenaProvisionalHasta;
+  if (usuario.contrasenaProvisionalCaducada) {
+    return (
+      <p role="status" className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
+        <WarningCircle size={18} className="mt-0.5 shrink-0" />
+        <span>
+          Su contraseña provisional caducó{hasta ? ` el ${fechaYHora(hasta)}` : ''} sin que la cambiara, así que ya no puede entrar. Genérale otra y
+          pásasela.
+        </span>
+      </p>
+    );
+  }
+  return (
+    <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+      {hasta
+        ? `Tiene una contraseña provisional que todavía no ha cambiado. Vale hasta el ${fechaYHora(hasta)}; si no entra antes, tendrás que generarle otra.`
+        : 'Tiene que cambiar su contraseña la próxima vez que entre. Puede seguir entrando con la que tiene, que no caduca.'}
+    </p>
+  );
+}
+
 function PanelUsuario({
   usuario,
   empresas,
@@ -1256,8 +1316,12 @@ function PanelUsuario({
     );
   };
 
+  const caducada = usuario.contrasenaProvisionalCaducada === true;
+
   const generarProvisional = () => {
-    const pregunta = `Se creará una contraseña provisional para ${usuario.email}. La que tiene ahora dejará de servir y se cerrarán sus sesiones abiertas. ¿Seguir?`;
+    const pregunta = caducada
+      ? `Se creará una contraseña provisional nueva para ${usuario.email}. Valdrá 7 días. ¿Seguir?`
+      : `Se creará una contraseña provisional para ${usuario.email}. La que tiene ahora dejará de servir y se cerrarán sus sesiones abiertas. ¿Seguir?`;
     if (!window.confirm(pregunta)) return;
     setProvisional(null);
     hacer(
@@ -1270,17 +1334,26 @@ function PanelUsuario({
     );
   };
 
+  /** Le marca la contrasena que ya tiene para que la cambie al entrar, sin tocarla. */
+  const pedirCambio = () => {
+    const pregunta =
+      `¿Pedir a ${usuario.email} que cambie su contraseña?\n\n` +
+      'Su contraseña actual no cambia y la sigue usando para entrar, pero antes de hacer nada más tendrá que poner una nueva. ' +
+      'Si ahora tiene la sesión abierta, se le pedirá en cuanto haga algo.';
+    if (!window.confirm(pregunta)) return;
+    hacer(
+      () => apiFetch<UsuarioAdmin>(base, { method: 'PATCH', body: JSON.stringify({ exigirCambioContrasena: true }) }),
+      'Hecho: la próxima vez que use la aplicación tendrá que poner una contraseña nueva.',
+    );
+  };
+
   return (
     <Modal titulo={usuario.email} onClose={onClose} ancho="max-w-2xl" confirmarAlCerrar={provisional ? PREGUNTA_COPIADA : undefined}>
       <div className="flex flex-col gap-5">
         <div className="flex flex-wrap gap-1.5">
           {usuario.esAdminGlobal && <Etiqueta tono="indigo">Administrador global</Etiqueta>}
           {usuario.activo ? <Etiqueta tono="verde">Activo</Etiqueta> : <Etiqueta tono="rojo">Desactivado</Etiqueta>}
-          {usuario.debeCambiarContrasena && (
-            <span title="Todavía no ha puesto su propia contraseña">
-              <Etiqueta tono="ambar">Contraseña provisional</Etiqueta>
-            </span>
-          )}
+          <EtiquetaContrasena usuario={usuario} />
           {esYo && <Etiqueta tono="gris">Eres tú</Etiqueta>}
         </div>
 
@@ -1504,11 +1577,27 @@ function PanelUsuario({
               <ContrasenaProvisional contrasena={provisional} email={usuario.email} onHecho={() => setProvisional(null)} />
             ) : (
               <>
-                <button type="button" onClick={generarProvisional} disabled={ocupado} className={`${BOTON_SECUNDARIO_ALTO} self-start`}>
-                  <Key size={14} /> Generar contraseña provisional
-                </button>
+                <EstadoContrasena usuario={usuario} />
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={generarProvisional}
+                    disabled={ocupado}
+                    className={caducada ? BOTON_PRIMARIO : BOTON_SECUNDARIO_ALTO}
+                  >
+                    <Key size={14} /> {caducada ? 'Generar otra contraseña provisional' : 'Generar contraseña provisional'}
+                  </button>
+                  {!usuario.debeCambiarContrasena && (
+                    <button type="button" onClick={pedirCambio} disabled={ocupado} className={BOTON_SECUNDARIO_ALTO}>
+                      <ArrowCounterClockwise size={14} /> Pedir que cambie su contraseña
+                    </button>
+                  )}
+                </div>
                 <p className="text-xs text-slate-500">
-                  La verás una sola vez. Al entrar con ella tendrá que poner una suya, que tú no conocerás.
+                  La contraseña provisional la verás una sola vez y vale 7 días. Al entrar con ella tendrá que poner una suya, que tú no
+                  conocerás.
+                  {!usuario.debeCambiarContrasena &&
+                    ' Si solo quieres que cambie la que ya tiene (por ejemplo, porque se la pusiste tú), usa «Pedir que cambie su contraseña».'}
                 </p>
               </>
             )}
