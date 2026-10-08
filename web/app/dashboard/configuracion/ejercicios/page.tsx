@@ -124,6 +124,20 @@ export default function EjerciciosPage() {
   // la salida es «Reabrir» (solo el administrador) y despues cerrarlo bien.
   const cerradoSinAsientos = ejercicioSel?.estadoEfectivo === 'CERRADO_SIN_ASIENTOS';
 
+  /**
+   * Que hacer con un ejercicio cerrado sin asientos. El servidor dice si se
+   * puede reabrir (puedeReabrir) y, si no, por que (motivoNoReabrir): un año
+   * sin asientos o con un ejercicio posterior ya cerrado se queda cerrado.
+   */
+  const queHacerSinAsientos = (e: EjercicioConfig, dondeBoton: string): string => {
+    if (e.puedeReabrir !== true) {
+      return e.motivoNoReabrir || 'Ahora mismo no se puede reabrir.';
+    }
+    return reabrirPermitido
+      ? `Pulsa «Reabrir»${dondeBoton} y después ciérralo en Cierre y traspaso de saldos.`
+      : 'Pide al administrador de la empresa que lo reabra para cerrarlo bien.';
+  };
+
   const crear = async () => {
     if (!nuevoAnio) return;
     setOcupado('crear');
@@ -151,7 +165,8 @@ export default function EjerciciosPage() {
         ok: true,
         texto: (
           <>
-            Ejercicio {reabrir.label} reabierto. Para cerrarlo bien (regularización, cierre y apertura del siguiente), ve a{' '}
+            Ejercicio {reabrir.label} reabierto. Sus meses quedan bloqueados: si tienes que ajustar algo, desbloquea solo ese mes aquí abajo. Para
+            cerrarlo bien (regularización, cierre y apertura del siguiente), ve a{' '}
             <Link href={enlaceCierre(reabrir.label)} className="font-medium underline">
               Cierre y traspaso de saldos
             </Link>
@@ -311,7 +326,7 @@ export default function EjerciciosPage() {
                         </button>
                         <Etiqueta tono={estado.tono}>{estado.texto}</Etiqueta>
                         <div className="flex-1" />
-                        {e.estadoEfectivo === 'CERRADO_SIN_ASIENTOS' && reabrirPermitido && (
+                        {e.estadoEfectivo === 'CERRADO_SIN_ASIENTOS' && reabrirPermitido && e.puedeReabrir === true && (
                           <button type="button" onClick={() => setReabrir(e)} aria-label={`Reabrir el ejercicio ${e.label}`} className={claseBotonSecundario}>
                             <LockKeyOpen size={16} /> Reabrir
                           </button>
@@ -335,10 +350,7 @@ export default function EjerciciosPage() {
                       )}
                       {e.estadoEfectivo === 'CERRADO_SIN_ASIENTOS' && (
                         <p className="mt-1 text-xs text-amber-800">
-                          Se marcó como cerrado sin hacer la regularización ni el cierre.{' '}
-                          {reabrirPermitido
-                            ? 'Pulsa «Reabrir» y después ciérralo en Cierre y traspaso de saldos.'
-                            : 'Pide al administrador de la empresa que lo reabra para cerrarlo bien.'}
+                          Se marcó como cerrado sin hacer la regularización ni el cierre. {queHacerSinAsientos(e, '')}
                         </p>
                       )}
                     </li>
@@ -359,9 +371,7 @@ export default function EjerciciosPage() {
               {cerradoSinAsientos ? (
                 <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
                   El ejercicio se marcó como cerrado sin hacer el cierre, así que sus meses no se pueden tocar.{' '}
-                  {reabrirPermitido
-                    ? 'Pulsa «Reabrir» en la lista de arriba y después ciérralo en Cierre y traspaso de saldos.'
-                    : 'Pide al administrador de la empresa que lo reabra.'}
+                  {ejercicioSel && queHacerSinAsientos(ejercicioSel, ' en la lista de arriba')}
                 </p>
               ) : (
                 ejercicioCerrado && (
@@ -464,7 +474,7 @@ export default function EjerciciosPage() {
       <ConfirmationModal
         isOpen={!!reabrir}
         title={`Reabrir el ejercicio ${reabrir?.label ?? ''}`}
-        message="Se marcó como cerrado sin hacer la regularización ni el cierre. Al reabrirlo se pueden volver a registrar facturas y asientos de ese año y se borran los plazos de legalización y depósito. Los libros ya generados no se tocan."
+        message="Se marcó como cerrado sin hacer la regularización ni el cierre. Al reabrirlo, sus doce meses quedan bloqueados para que nada se apunte en él por error: si tienes que ajustar algo, desbloquea solo ese mes. Se borran los plazos de legalización y depósito; los libros ya generados no se tocan. Después, ciérralo en Cierre y traspaso de saldos."
         confirmLabel="Reabrir"
         isLoading={ocupado === 'reabrir'}
         onConfirm={hacerReabrir}

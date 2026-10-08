@@ -70,6 +70,10 @@ export interface EjercicioConfig {
   asientosBloqueados?: boolean;
   tieneAsientosCierre: boolean;
   estadoEfectivo: EstadoEfectivoEjercicio;
+  /** Solo en los cerrados sin asientos: si el servidor deja reabrirlo. */
+  puedeReabrir?: boolean;
+  /** Por que no se puede reabrir (ya cerrado uno posterior, o sin asientos). */
+  motivoNoReabrir?: string | null;
 }
 
 export interface PeriodoMes {
