@@ -16,7 +16,7 @@ import { claseEstadoGasto, claseEstadoPago, fechaCorta, type ListadoGastos } fro
 const POR_PAGINA = 25;
 
 type Estado = '' | 'sin_contabilizar' | 'pendiente_revision' | 'contabilizada' | 'anulada';
-type Pago = '' | 'pendiente' | 'parcial' | 'pagada' | 'vencida';
+type Pago = '' | 'pendiente' | 'parcial' | 'por_pagar' | 'pagada' | 'vencida';
 
 const campo =
   'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-accent-600 focus:border-accent-600';
@@ -89,7 +89,7 @@ export default function ComprasPage() {
     { texto: 'Todas', valor: c?.todas, activo: !estado && !pago, onClick: () => filtrar('', ''), color: 'text-slate-900' },
     { texto: 'Pendientes de revisar', valor: c?.pendientesRevision, activo: estado === 'pendiente_revision', onClick: () => filtrar('pendiente_revision', ''), color: 'text-amber-700' },
     { texto: 'Contabilizadas', valor: c?.contabilizadas, activo: estado === 'contabilizada', onClick: () => filtrar('contabilizada', ''), color: 'text-emerald-700' },
-    { texto: 'Pendientes de pago', valor: c?.pendientesPago, activo: pago === 'pendiente', onClick: () => filtrar('', 'pendiente'), color: 'text-blue-700' },
+    { texto: 'Pendientes de pago', valor: c?.pendientesPago, activo: pago === 'por_pagar', onClick: () => filtrar('', 'por_pagar'), color: 'text-blue-700' },
     { texto: 'Vencidas', valor: c?.vencidas, activo: pago === 'vencida', onClick: () => filtrar('', 'vencida'), color: 'text-rose-700' },
     { texto: 'Anuladas', valor: c?.anuladas, activo: estado === 'anulada', onClick: () => filtrar('anulada', ''), color: 'text-slate-600' },
   ];
@@ -184,6 +184,7 @@ export default function ComprasPage() {
             </label>
             <select id="co-pago" value={pago} onChange={(e) => filtrar(estado, e.target.value as Pago)} className={campo}>
               <option value="">Todos</option>
+              <option value="por_pagar">Sin pagar del todo</option>
               <option value="pendiente">Pendiente</option>
               <option value="parcial">Pagada en parte</option>
               <option value="pagada">Pagada</option>
