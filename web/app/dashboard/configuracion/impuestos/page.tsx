@@ -2,10 +2,12 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Percent } from '@phosphor-icons/react';
+import { Info, Percent } from '@phosphor-icons/react';
+import { ConfirmationModal } from '@/components/dashboard/ConfirmationModal';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import {
   claseBoton,
+  claseCampo,
   fechaCorta,
   MESES,
   puedeEditar,
@@ -19,9 +21,15 @@ import { useConfiguracion } from '../contexto';
 
 /**
  * Ajustes fiscales (solo empresas establecidas en España): lo que cambia el
- * calendario de modelos. Gran empresa obliga al SII; el SII o REDEME, a
- * declarar el IVA cada mes. Debajo, los modelos que salen en el ejercicio con
- * los valores que se estan eligiendo (vista previa sin guardar).
+ * calendario de modelos. Gran empresa y REDEME obligan al SII, y el SII y el
+ * IVA mensual van siempre juntos (las mismas reglas que el servidor). Debajo,
+ * los modelos que salen en el ejercicio con los valores que se estan eligiendo
+ * (vista previa sin guardar), con su estado, desde cuando se aplicaria el
+ * cambio y el aviso del servidor.
+ *
+ * El cambio vale desde el primer trimestre que aun no ha empezado. «Aplicar
+ * desde» lo adelanta a un trimestre ya empezado del año en curso (aplicarDesde
+ * del servidor), con confirmacion.
  * Ver: impuestos:read; cambiar: impuestos:write.
  */
 
@@ -39,13 +47,62 @@ const valoresDe = (a: AjustesFiscales): Valores => ({
   granEmpresa: a.granEmpresa,
 });
 
-/** Aplica las reglas al cambiar un valor, igual que el servidor (asi nunca se envia una combinacion imposible). */
-function conReglas(v: Valores): Valores {
-  const r = { ...v };
-  if (r.granEmpresa) r.sii = true;
-  if (r.sii || r.redeme) r.periodicidadIva = 'MENSUAL';
-  return r;
+/**
+ * Aplica las reglas al cambiar un valor, igual que el servidor (asi nunca se
+ * envia una combinacion imposible): gran empresa y REDEME llevan el SII, y el
+ * SII y el IVA mensual van juntos. Devuelve tambien que se ha marcado o
+ * desmarcado solo y por que, para decirlo en pantalla.
+ */
+function conReglas(v: Valores, cambio: Partial<Valores>): { valores: Valores; explicacion: string | null } {
+  const r = { ...v, ...cambio };
+  const antes = v;
+  if (r.granEmpresa || r.redeme) r.sii = true;
+  if (cambio.periodicidadIva === 'MENSUAL') r.sii = true;
+  if (cambio.sii === false) r.periodicidadIva = 'TRIMESTRAL';
+  if (r.sii) r.periodicidadIva = 'MENSUAL';
+
+  const marcoSii = r.sii && !antes.sii;
+  const pasoAMensual = r.periodicidadIva === 'MENSUAL' && antes.periodicidadIva !== 'MENSUAL';
+  let explicacion: string | null = null;
+  if (cambio.granEmpresa === true && (marcoSii || pasoAMensual)) {
+    explicacion =
+      'Hemos marcado también el SII y el IVA mensual: una gran empresa tiene que llevar los libros por el SII, y con el SII el IVA se declara cada mes.';
+  } else if (cambio.redeme === true && (marcoSii || pasoAMensual)) {
+    explicacion =
+      'Hemos marcado también el SII y el IVA mensual: las empresas inscritas en REDEME llevan los libros por el SII, y con el SII el IVA se declara cada mes.';
+  } else if (cambio.periodicidadIva === 'MENSUAL' && marcoSii) {
+    explicacion =
+      'Hemos marcado también el SII: el IVA mensual solo es para quien lleva los libros por el SII (gran empresa, REDEME o SII voluntario). Si no es tu caso, deja el IVA trimestral.';
+  } else if (cambio.sii === true && pasoAMensual) {
+    explicacion = 'Con el SII el IVA se declara cada mes: hemos pasado el IVA a mensual.';
+  } else if (cambio.sii === false && antes.periodicidadIva === 'MENSUAL') {
+    explicacion = 'Sin el SII el IVA se declara cada trimestre: hemos pasado el IVA a trimestral.';
+  }
+  return { valores: r, explicacion };
 }
+
+/** Estado de un modelo del calendario, con su etiqueta (vigente no lleva). */
+const ESTADO_MODELO: Record<string, { texto: string; tono: 'verde' | 'gris' | 'rojo' } | undefined> = {
+  presentado: { texto: 'Presentado', tono: 'verde' },
+  omitido: { texto: 'No se presenta', tono: 'gris' },
+  expirado: { texto: 'Plazo vencido', tono: 'rojo' },
+};
+
+const NOMBRE_TRIMESTRE: Record<string, string> = { '01': '1.er trimestre', '04': '2.º trimestre', '07': '3.er trimestre', '10': '4.º trimestre' };
+
+/** Hoy en España (AAAA-MM-DD), que es lo que usa el servidor. */
+const hoyEspana = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Madrid' });
+
+/**
+ * Trimestres del año en curso que ya han empezado: a esos se puede adelantar el
+ * cambio con «Aplicar desde». El que empieza hoy o despues ya lo coge solo.
+ */
+function trimestresEmpezados(hoy: string): string[] {
+  const anio = hoy.slice(0, 4);
+  return ['01', '04', '07', '10'].map((m) => `${anio}-${m}-01`).filter((f) => f < hoy);
+}
+
+const nombreInicio = (f: string) => `${NOMBRE_TRIMESTRE[f.slice(5, 7)] ?? ''} (desde el ${fechaCorta(f)})`;
 
 /** Periodo legible: '1T' -> '1.er trimestre', '05' -> 'Mayo', '0A' -> 'Anual'. */
 function nombrePeriodo(m: ModeloPrevisto): string {
@@ -72,7 +129,17 @@ export default function ImpuestosPage() {
   const [mensaje, setMensaje] = useState<MensajeConfig>(null);
   const [errorCarga, setErrorCarga] = useState('');
   const [guardando, setGuardando] = useState(false);
+  // Por que se ha marcado algo solo (SII, IVA mensual).
+  const [explicacion, setExplicacion] = useState<string | null>(null);
+  // '' = desde el primer trimestre que no ha empezado (lo normal).
+  const [aplicarDesde, setAplicarDesde] = useState('');
+  // De la vista previa: desde cuando se aplicaria y que avisa el servidor.
+  const [aplicadoDesde, setAplicadoDesde] = useState<string | null | undefined>(undefined);
+  const [avisoVista, setAvisoVista] = useState<string | null>(null);
+  const [confirmar, setConfirmar] = useState(false);
   const peticion = useRef(0);
+  const hoy = hoyEspana();
+  const empezados = trimestresEmpezados(hoy);
 
   useEffect(() => {
     // Se espera a saber el pais; si no se ha podido leer, el servidor decide (409 si no es española).
@@ -90,47 +157,69 @@ export default function ImpuestosPage() {
   // Vista previa del calendario con los valores aun sin guardar (no escribe nada).
   useEffect(() => {
     if (!ajustes || !valores) return;
-    if (iguales(valores, valoresDe(ajustes))) {
+    if (iguales(valores, valoresDe(ajustes)) && !aplicarDesde) {
       peticion.current++; // la vista previa que estuviera en camino ya no vale
       setCargandoVista(false);
       setModelos(ajustes.calendario.modelos);
       setEjercicio(ajustes.calendario.ejercicio);
+      setAplicadoDesde(undefined);
+      setAvisoVista(null);
       return;
     }
     const n = ++peticion.current;
     setCargandoVista(true);
     const t = setTimeout(() => {
-      apiFetch<{ ejercicio: number; modelos: ModeloPrevisto[] }>(companyPath('/ajustes-fiscales/vista-previa'), {
-        method: 'POST',
-        body: JSON.stringify(valores),
-      })
+      apiFetch<{ ejercicio: number; modelos: ModeloPrevisto[]; aplicadoDesde?: string | null; aviso?: string | null }>(
+        companyPath('/ajustes-fiscales/vista-previa'),
+        {
+          method: 'POST',
+          body: JSON.stringify(aplicarDesde ? { ...valores, aplicarDesde } : valores),
+        },
+      )
         .then((r) => {
           if (n !== peticion.current) return;
           setModelos(r.modelos);
           setEjercicio(r.ejercicio);
+          setAplicadoDesde(r.aplicadoDesde);
+          setAvisoVista(r.aviso ?? null);
         })
         .catch((e) => n === peticion.current && setMensaje({ ok: false, texto: errorMessage(e) }))
         .finally(() => n === peticion.current && setCargandoVista(false));
     }, 300);
     return () => clearTimeout(t);
-  }, [valores, ajustes]);
+  }, [valores, ajustes, aplicarDesde]);
 
-  const cambiar = (cambio: Partial<Valores>) => setValores((v) => (v ? conReglas({ ...v, ...cambio }) : v));
+  const cambiar = (cambio: Partial<Valores>) => {
+    if (!valores) return;
+    const r = conReglas(valores, cambio);
+    setValores(r.valores);
+    setExplicacion(r.explicacion);
+  };
 
-  const guardar = async (e: React.FormEvent) => {
+  // Adelantar el cambio a un trimestre ya empezado se confirma antes.
+  const alEnviar = (e: React.FormEvent) => {
     e.preventDefault();
+    if (aplicarDesde) setConfirmar(true);
+    else guardar();
+  };
+
+  const guardar = async () => {
     if (!valores) return;
     setGuardando(true);
     setMensaje(null);
     try {
       const r = await apiFetch<AjustesFiscales & { aviso: string | null }>(companyPath('/ajustes-fiscales'), {
         method: 'PUT',
-        body: JSON.stringify(valores),
+        body: JSON.stringify(aplicarDesde ? { ...valores, aplicarDesde } : valores),
       });
       setAjustes(r);
       setValores(valoresDe(r));
       setModelos(r.calendario.modelos);
       setEjercicio(r.calendario.ejercicio);
+      setExplicacion(null);
+      setAplicarDesde('');
+      setAplicadoDesde(undefined);
+      setAvisoVista(null);
       setMensaje({
         ok: true,
         texto: (
@@ -144,6 +233,7 @@ export default function ImpuestosPage() {
       setMensaje({ ok: false, texto: errorMessage(ex) });
     } finally {
       setGuardando(false);
+      setConfirmar(false);
     }
   };
 
@@ -175,6 +265,13 @@ export default function ImpuestosPage() {
 
   const off = !editar || guardando;
   const cambiado = !!ajustes && !!valores && !iguales(valores, valoresDe(ajustes));
+  // Desde cuando se aplicaria, dicho en una frase (solo con la vista previa a la vista).
+  const textoAplicado =
+    aplicadoDesde === undefined || cargandoVista
+      ? null
+      : aplicadoDesde === null
+        ? `Este año ya no cambia: el calendario nuevo se aplicará desde el 1 de enero de ${(ejercicio ?? Number(hoy.slice(0, 4))) + 1}.`
+        : `El calendario nuevo se aplicará desde el ${fechaCorta(aplicadoDesde)}.`;
 
   return (
     <>
@@ -184,7 +281,7 @@ export default function ImpuestosPage() {
       ) : !ajustes || !valores ? (
         errorCarga ? <Mensaje mensaje={{ ok: false, texto: errorCarga }} /> : <p className="text-sm text-slate-500">Cargando…</p>
       ) : (
-        <form onSubmit={guardar} className="space-y-6">
+        <form onSubmit={alEnviar} className="space-y-6">
           {!editar && <AvisoSoloLectura quien={QUIEN_EDITA.impuestos} />}
           {!ajustes.guardado && editar && (
             <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
@@ -199,8 +296,12 @@ export default function ImpuestosPage() {
               <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {(
                   [
-                    ['TRIMESTRAL', 'Cada trimestre', 'Lo habitual en pymes y autónomos.'],
-                    ['MENSUAL', 'Cada mes', 'Obligatorio con el SII o la inscripción en REDEME.'],
+                    [
+                      'TRIMESTRAL',
+                      'Cada trimestre',
+                      valores.sii ? 'Con el SII no se puede: desmarca antes el SII.' : 'Lo habitual en pymes y autónomos.',
+                    ],
+                    ['MENSUAL', 'Cada mes', 'Solo con el SII (gran empresa, REDEME o SII voluntario). Al elegirlo se marca también el SII.'],
                   ] as const
                 ).map(([valor, titulo, ayuda]) => {
                   const bloqueado = valor === 'TRIMESTRAL' && (valores.sii || valores.redeme);
@@ -236,17 +337,19 @@ export default function ImpuestosPage() {
                 onCambio={(v) => cambiar({ redeme: v })}
                 disabled={off}
                 titulo="Inscrita en REDEME"
-                ayuda="Registro de devolución mensual: pides cada mes la devolución del IVA. Obliga a declarar el IVA cada mes."
+                ayuda="Registro de devolución mensual: pides cada mes la devolución del IVA. Obliga a llevar los libros por el SII y a declarar el IVA cada mes."
               />
               <Casilla
                 marcada={valores.sii}
                 onCambio={(v) => cambiar({ sii: v })}
-                disabled={off || valores.granEmpresa}
+                disabled={off || valores.granEmpresa || valores.redeme}
                 titulo="Lleva los libros de IVA por el SII"
                 ayuda={
                   valores.granEmpresa
                     ? 'Una gran empresa tiene que llevarlos por el SII.'
-                    : 'Suministro inmediato de información. Obliga a declarar el IVA cada mes y quita los modelos 390 y 347.'
+                    : valores.redeme
+                      ? 'Con REDEME hay que llevarlos por el SII.'
+                      : 'Suministro inmediato de información. Obliga a declarar el IVA cada mes y quita los modelos 390 y 347.'
                 }
               />
               <Casilla
@@ -257,6 +360,13 @@ export default function ImpuestosPage() {
                 ayuda="Más de 6.010.121,04 € de volumen de operaciones el año anterior. Obliga al SII y a presentar cada mes también el 111 y el 115."
               />
             </div>
+
+            {explicacion && (
+              <p role="status" className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+                <Info size={18} className="mt-0.5 shrink-0" />
+                <span>{explicacion}</span>
+              </p>
+            )}
 
             <div className="space-y-2 border-t border-slate-100 pt-4">
               <p className="text-sm font-medium text-slate-700">Todavía no se aplican en los asientos</p>
@@ -287,21 +397,70 @@ export default function ImpuestosPage() {
               <p className="px-4 py-4 text-sm text-slate-500 md:px-5">No sale ningún modelo.</p>
             ) : (
               <ul className="divide-y divide-slate-100" aria-busy={cargandoVista}>
-                {modelos.map((m) => (
-                  <li key={`${m.codigo}-${m.periodo}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 text-sm md:px-5">
-                    <span className="w-12 font-mono font-semibold text-slate-900">{m.codigo}</span>
-                    <span className="w-28 text-slate-700">{nombrePeriodo(m)}</span>
-                    <span className="min-w-0 flex-1 text-slate-600">{m.descripcion}</span>
-                    {m.rellenoManual && <Etiqueta tono="ambar">Se rellena a mano</Etiqueta>}
-                    <span className="text-xs text-slate-500">Vence el {fechaCorta(m.fechaVencimiento)}</span>
-                  </li>
-                ))}
+                {modelos.map((m) => {
+                  const estado = m.estado ? ESTADO_MODELO[m.estado] : undefined;
+                  return (
+                    <li key={`${m.codigo}-${m.periodo}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 text-sm md:px-5">
+                      <span className="w-12 font-mono font-semibold text-slate-900">{m.codigo}</span>
+                      <span className="w-28 text-slate-700">{nombrePeriodo(m)}</span>
+                      <span className="min-w-0 flex-1 text-slate-600">{m.descripcion}</span>
+                      {m.rellenoManual && <Etiqueta tono="ambar">Se rellena a mano</Etiqueta>}
+                      {estado && <Etiqueta tono={estado.tono}>{estado.texto}</Etiqueta>}
+                      <span className="text-xs text-slate-500">
+                        {m.estado === 'expirado' ? 'Venció' : 'Vence'} el {fechaCorta(m.fechaVencimiento)}
+                      </span>
+                    </li>
+                  );
+                })}
               </ul>
             )}
-            <p className="border-t border-slate-100 px-4 py-2 text-xs text-slate-500 md:px-5">
-              Al guardar, los modelos ya presentados no cambian: el calendario nuevo se aplica desde el primer periodo libre.
-            </p>
+            <div className="space-y-2 border-t border-slate-100 px-4 py-3 text-xs text-slate-600 md:px-5">
+              {textoAplicado && <p className="font-medium text-slate-800">{textoAplicado}</p>}
+              {avisoVista && !cargandoVista && (
+                <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-sm text-amber-900">
+                  {avisoVista}
+                </p>
+              )}
+              <p>
+                Los modelos presentados u omitidos no cambian. Lo normal es que un cambio de régimen valga desde el primer trimestre que todavía no ha
+                empezado.
+              </p>
+            </div>
           </section>
+
+          {editar && empezados.length > 0 && (
+            <section aria-labelledby="aplicar-desde" className="rounded-xl border border-slate-200 bg-white p-4 md:p-5">
+              <h2 id="aplicar-desde" className="font-semibold text-slate-900">
+                Aplicar desde
+              </h2>
+              <p className="mt-1 text-sm text-slate-600">
+                Si el cambio vale desde un trimestre que ya ha empezado (por ejemplo, eres gran empresa desde enero y lo configuras ahora), elige desde
+                cuál. Los modelos de esos trimestres que no estén presentados se rehacen con el calendario nuevo.
+              </p>
+              <label htmlFor="aplicar-desde-select" className="mt-3 block text-sm font-medium text-slate-700">
+                ¿Desde cuándo vale?
+              </label>
+              <select
+                id="aplicar-desde-select"
+                value={aplicarDesde}
+                onChange={(e) => setAplicarDesde(e.target.value)}
+                disabled={off}
+                className={`${claseCampo} max-w-md`}
+              >
+                <option value="">Desde el primer trimestre que no ha empezado (lo normal)</option>
+                {empezados.map((f) => (
+                  <option key={f} value={f}>
+                    {nombreInicio(f)}
+                  </option>
+                ))}
+              </select>
+              {aplicarDesde && (
+                <p className="mt-2 text-sm text-amber-900">
+                  Al guardar te pediremos que lo confirmes: cambia modelos de periodos que ya han empezado.
+                </p>
+              )}
+            </section>
+          )}
 
           <Mensaje mensaje={mensaje} onCerrar={() => setMensaje(null)} />
 
@@ -314,6 +473,21 @@ export default function ImpuestosPage() {
           )}
         </form>
       )}
+
+      <ConfirmationModal
+        isOpen={confirmar}
+        title={aplicarDesde ? `Aplicar el cambio desde el ${fechaCorta(aplicarDesde)}` : 'Aplicar el cambio'}
+        message={
+          'Ese trimestre ya ha empezado. Los modelos que no estén presentados ni omitidos desde esa fecha se quitan y se rehacen con el calendario nuevo; ' +
+          'los presentados no se tocan. Hazlo solo si el régimen nuevo vale de verdad desde entonces. Si dudas, consúltalo con tu asesor.'
+        }
+        details={avisoVista ? <p>{avisoVista}</p> : undefined}
+        confirmLabel="Sí, aplicar desde esa fecha"
+        isDangerous
+        isLoading={guardando}
+        onConfirm={guardar}
+        onCancel={() => setConfirmar(false)}
+      />
     </>
   );
 }

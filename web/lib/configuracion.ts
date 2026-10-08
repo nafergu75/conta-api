@@ -124,6 +124,8 @@ export interface ModeloPrevisto {
   descripcion: string;
   fechaVencimiento: string;
   rellenoManual: boolean;
+  /** vigente o expirado (segun hoy), presentado u omitido. Falta en servidores antiguos. */
+  estado?: 'vigente' | 'expirado' | 'presentado' | 'omitido';
 }
 
 export interface AjustesFiscales {
