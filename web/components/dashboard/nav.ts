@@ -372,11 +372,12 @@ export const NAV_GROUPS: NavGroup[] = [
       {
         label: 'Registro Mercantil',
         slug: 'registro-mercantil',
+        // Libros y cuentas anuales del Registro Mercantil español.
+        soloEspana: true,
         description: 'Libros oficiales y cuentas anuales para depósito.',
         implemented: true,
         endpoints: [
           'GET /companies/:id/fiscal-years',
-          'POST /fiscal-years/:fyId/close',
           'POST /fiscal-years/:fyId/books/generate',
           'POST /fiscal-years/:fyId/legalization-package',
           'POST /fiscal-years/:fyId/annual-accounts/generate',
@@ -462,14 +463,17 @@ export const NAV_GROUPS: NavGroup[] = [
         endpoints: ['GET /companies/:id/archivo', 'POST /companies/:id/archivo'],
       },
       {
+        // Sin requiredRoles: la portada la ve cualquiera con acceso a la empresa;
+        // cada bloque se ve o se edita segun los permisos de su area.
         label: 'Configuración',
         slug: 'configuracion',
-        description: 'Empresa, ejercicios fiscales, series y usuarios.',
-        implemented: false,
+        description: 'Ejercicios, series, facturación, impuestos y accesos.',
+        implemented: true,
         endpoints: [
           'GET /companies/:id/fiscal-years',
           'GET /companies/:id/series',
-          'GET /users',
+          'GET /companies/:id/ajustes-facturacion',
+          'GET /companies/:id/ajustes-fiscales',
         ],
       },
     ],

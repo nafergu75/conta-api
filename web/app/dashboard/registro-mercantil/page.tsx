@@ -1,7 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import {
+  ArrowRight,
   Books,
   CalendarCheck,
   CaretDown,
@@ -16,18 +18,21 @@ import {
   X,
 } from '@phosphor-icons/react';
 import { Tooltip } from '@/app/dashboard/components/Tooltip';
-import { ConfirmationModal } from '@/components/dashboard/ConfirmationModal';
 import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { DatosMemoria } from './DatosMemoria';
 
 /**
- * Registro Mercantil: cierre del ejercicio, legalizacion de libros (4 meses
- * desde el cierre) y deposito de cuentas anuales (7 meses), con el historial de
+ * Registro Mercantil: legalizacion de libros (4 meses desde el cierre) y
+ * deposito de cuentas anuales (7 meses), con el historial de
  * versiones y presentaciones. La presentacion se hace en sede.registradores.org
  * con el certificado de la empresa; aqui se preparan los ficheros y se anota el
- * numero de entrada y el CSV del justificante.
+ * numero de entrada y el CSV del justificante. El ejercicio se cierra en
+ * Contabilidad > Cierre y traspaso de saldos (regularizacion, cierre y
+ * apertura): aqui solo se enlaza.
  */
+
+const enlaceCierre = (anio: string) => `/dashboard/contabilidad/cierre-ejercicio?ejercicio=${encodeURIComponent(anio)}`;
 
 interface Ejercicio {
   id: string;
@@ -161,7 +166,6 @@ export default function RegistroMercantilPage() {
   const [error, setError] = useState('');
   const [aviso, setAviso] = useState<{ tipo: 'ok' | 'error'; texto: string } | null>(null);
   const [ocupado, setOcupado] = useState('');
-  const [confirmarCierre, setConfirmarCierre] = useState(false);
   const [dialogo, setDialogo] = useState<Dialogo | null>(null);
   const [verMemoria, setVerMemoria] = useState(false);
 
@@ -219,7 +223,7 @@ export default function RegistroMercantilPage() {
     try {
       const fy = await apiFetch<Ejercicio>(companyPath('/fiscal-years'), {
         method: 'POST',
-        body: JSON.stringify({ label: anio, fechaInicio: `${anio}-01-01`, fechaFin: `${anio}-12-31` }),
+        body: JSON.stringify({ anio: Number(anio) }),
       });
       await cargarEjercicios(fy.id);
       setAviso({ tipo: 'ok', texto: `Ejercicio ${anio} creado.` });
@@ -229,11 +233,6 @@ export default function RegistroMercantilPage() {
       setOcupado('');
     }
   };
-
-  const cerrar = () =>
-    accion('cerrar', () => apiFetch(`/fiscal-years/${fyId}/close`, { method: 'POST', body: '{}' }), `Ejercicio ${ejercicio?.label} cerrado.`).then(() =>
-      setConfirmarCierre(false),
-    );
 
   const generarLibros = () => {
     const tipos = libros.length ? libros.map((l) => l.type) : ['DIARIO', 'INVENTARIOS_CUENTAS_ANUALES', 'ACTAS'];
@@ -355,14 +354,13 @@ export default function RegistroMercantilPage() {
               <p className="mt-1 text-sm text-slate-600">
                 {cerrado ? `Cierre: ${fecha(ejercicio.closingDate)}` : `Del ${fecha(ejercicio.fechaInicio)} al ${fecha(ejercicio.fechaFin)}`}
               </p>
-              {!cerrado && puedeEditar && (
-                <button
-                  onClick={() => setConfirmarCierre(true)}
-                  className="mt-3 rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700"
-                >
-                  Cerrar ejercicio
-                </button>
-              )}
+              {/* El cierre (regularizacion, cierre y apertura del siguiente) se hace en su pantalla. */}
+              <Link
+                href={enlaceCierre(ejercicio.label)}
+                className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-blue-600 hover:text-blue-700"
+              >
+                {cerrado ? 'Ver o deshacer el cierre' : 'Cerrar en Cierre y traspaso de saldos'} <ArrowRight size={14} />
+              </Link>
             </div>
             <Plazo titulo="Legalización de libros" fechaLimite={ejercicio.legalizationDeadline} hecho={legalizado} />
             <Plazo titulo="Depósito de cuentas anuales (plazo máximo)" fechaLimite={ejercicio.accountsDepositDeadline} hecho={depositado} />
@@ -397,7 +395,11 @@ export default function RegistroMercantilPage() {
             </header>
             {!cerrado && (
               <p className="px-5 pt-4 text-sm text-slate-600">
-                Los libros se generan cuando el ejercicio está cerrado. Al cerrarlo se bloquean los asientos de ese año.
+                Los libros se generan cuando el ejercicio está cerrado. El cierre se hace en{' '}
+                <Link href={enlaceCierre(ejercicio.label)} className="font-medium text-blue-600 underline">
+                  Cierre y traspaso de saldos
+                </Link>
+                : regulariza, cierra el año, abre el siguiente y bloquea los asientos de ese año.
               </p>
             )}
             <ul className="divide-y divide-slate-100">
@@ -595,17 +597,6 @@ export default function RegistroMercantilPage() {
           </section>
         </>
       )}
-
-      <ConfirmationModal
-        isOpen={confirmarCierre}
-        title={`Cerrar el ejercicio ${ejercicio?.label ?? ''}`}
-        message="Se bloquean los asientos de este ejercicio y empiezan a contar los plazos: legalización de libros en 4 meses y depósito de cuentas como tarde en 7."
-        confirmLabel="Cerrar ejercicio"
-        isDangerous
-        isLoading={ocupado === 'cerrar'}
-        onConfirm={cerrar}
-        onCancel={() => setConfirmarCierre(false)}
-      />
 
       {dialogo && (
         <DialogoRegistro

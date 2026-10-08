@@ -124,4 +124,6 @@ body {
 .dark .zona-app input::placeholder, .dark .zona-app textarea::placeholder { color: #6b6b6b; }
 /* Un campo marcado como no valido se ve en rojo tambien de noche (la regla de arriba pisaria .bg-red-50). */
 .dark .zona-app input[aria-invalid=true]:not([type=checkbox]):not([type=radio]), .dark .zona-app select[aria-invalid=true], .dark .zona-app textarea[aria-invalid=true] { border-color: rgba(239,68,68,.7); background-color: rgba(239,68,68,.14); }
+/* Un campo desactivado (modo lectura) se distingue tambien de noche: la regla general de campos pisaria disabled:bg-slate-50. */
+.dark .zona-app input:disabled:not([type=checkbox]):not([type=radio]), .dark .zona-app select:disabled, .dark .zona-app textarea:disabled { background-color: #1a1a1a; color: #8f8f8f; border-color: #2a2a2a; cursor: not-allowed; }
 .dark .zona-app .shadow-sm, .dark .zona-app .shadow, .dark .zona-app .shadow-lg, .dark .zona-app .shadow-xl { --tw-shadow-color: rgba(0,0,0,.6); }

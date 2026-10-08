@@ -162,7 +162,11 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         // El grupo de la pagina actual se abre solo; el resto, como lo dejo el usuario.
         const contieneActual = visibleItems.some((item) => {
           const href = item.slug ? `/dashboard/${item.slug}` : '/dashboard';
-          return pathname === href || (item.subItems ?? []).some((s) => pathname === `/dashboard/${s.slug}`);
+          return (
+            pathname === href ||
+            (item.slug === 'configuracion' && pathname.startsWith(`${href}/`)) ||
+            (item.subItems ?? []).some((s) => pathname === `/dashboard/${s.slug}`)
+          );
         });
         const abierto = abiertos[group.title] ?? contieneActual;
         const idLista = `grupo-${group.title.replace(/\W+/g, '-')}`;
@@ -231,21 +235,24 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                   );
                 }
 
+                // Configuracion tiene subpantallas (ejercicios, series...): sigue marcada en ellas.
+                const activo = active || (item.slug === 'configuracion' && pathname.startsWith(`${href}/`));
                 return (
                   <li key={item.slug || 'resumen'}>
                     <Link
                       href={href}
                       onClick={onNavigate}
+                      aria-current={activo ? 'page' : undefined}
                       className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
-                        active
+                        activo
                           ? 'bg-emerald-50 text-emerald-800 font-semibold'
                           : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                       }`}
                     >
                       <Icon
                         size={18}
-                        weight={active ? 'duotone' : 'regular'}
-                        className={active ? 'text-accent-600' : 'text-slate-400'}
+                        weight={activo ? 'duotone' : 'regular'}
+                        className={activo ? 'text-accent-600' : 'text-slate-400'}
                       />
                       <span className="flex-1">{item.label}</span>
                       {!item.implemented && (
