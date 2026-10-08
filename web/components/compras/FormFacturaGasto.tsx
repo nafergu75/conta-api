@@ -169,6 +169,8 @@ export default function FormFacturaGasto({
   const [campoError, setCampoError] = useState<string | undefined>();
   const [facturaRepetidaId, setFacturaRepetidaId] = useState<string | null>(null);
   const [proveedorRepetidoId, setProveedorRepetidoId] = useState<string | null>(null);
+  /** Sube en cada intento fallido de guardar: lleva la pantalla y el foco al campo que falla. */
+  const [intentoFallido, setIntentoFallido] = useState(0);
 
   const paisProveedor = proveedor?.pais ?? 'ES';
   const extranjero = !esEspana(paisProveedor);
@@ -201,6 +203,24 @@ export default function FormFacturaGasto({
   const totalNoCuadra = modo === 'lector' && Number.isFinite(totalDoc) && Math.abs(totalDoc - totales.total) > 0.02;
 
   const inv = (campo: string) => !!campoError && (campoError === campo || campoError.startsWith(`${campo}.`));
+  /** aria-invalid y, si hay mensaje, aria-describedby al cuadro del error: el lector de pantalla lee el motivo. */
+  const marca = (...campos: string[]) => {
+    const mal = campos.some(inv);
+    return { 'aria-invalid': mal, 'aria-describedby': mal && error ? 'fg-error' : undefined };
+  };
+
+  // Tras un error, el campo que falla se pone a la vista y recibe el foco (en el movil
+  // el aviso queda junto al boton y el campo, muy arriba). Si no se sabe cual es, el aviso.
+  useEffect(() => {
+    if (!intentoFallido) return;
+    const id = idDelCampo(campoError, lineas);
+    const el = (id && document.getElementById(id)) || document.getElementById('fg-error');
+    if (!el) return;
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    el.focus({ preventScroll: true });
+    // Solo al fallar un intento, no cada vez que cambian las lineas o el campo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [intentoFallido]);
   const fmt = (n: number) => formatoImporte(n, monedaCuenta);
 
   const cambiarLinea = (clave: number, cambios: Partial<LineaForm>) => setLineas((ls) => ls.map((l) => (l.clave === clave ? { ...l, ...cambios } : l)));
@@ -221,6 +241,7 @@ export default function FormFacturaGasto({
     const falta = (mensaje: string, campo: string) => {
       setError(mensaje);
       setCampoError(campo);
+      setIntentoFallido((n) => n + 1);
     };
     if (!proveedor) return falta('Elige el proveedor de la factura o da de alta uno nuevo.', 'proveedor');
     if (proveedor.tipo === 'nuevo' && !proveedor.nombreFiscal.trim()) return falta('Escribe el nombre del proveedor.', 'proveedor.nombreFiscal');
@@ -282,8 +303,13 @@ export default function FormFacturaGasto({
         onGuardado({ factura });
       }
     } catch (err) {
+      const campo = normalizarCampo(campoDelError(err));
       setError(errorMessage(err));
-      setCampoError(campoDelError(err));
+      setCampoError(campo);
+      // Campos plegados: se despliegan para poder marcarlos.
+      if (campo === 'fechaRegistro') setMostrarRegistro(true);
+      if (campo === 'cuentaGasto' || /^lineas\.\d+\.cuenta$/.test(campo ?? '')) setMostrarCuenta(true);
+      setIntentoFallido((n) => n + 1);
       if (err instanceof ApiError && err.status === 409 && err.detalles && typeof err.detalles === 'object') {
         const d = err.detalles as { facturaId?: unknown; proveedorId?: unknown };
         if (typeof d.facturaId === 'string') setFacturaRepetidaId(d.facturaId);
@@ -331,7 +357,7 @@ export default function FormFacturaGasto({
               setCampoError(undefined);
             }
           }}
-          inv={inv}
+          marca={marca}
         />
         {extranjero && (
           <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
@@ -353,7 +379,7 @@ export default function FormFacturaGasto({
               value={numero}
               onChange={(e) => setNumero(e.target.value)}
               maxLength={60}
-              aria-invalid={inv('numeroFacturaProveedor')}
+              {...marca('numeroFacturaProveedor')}
               className={campoBase}
               autoComplete="off"
             />
@@ -363,7 +389,7 @@ export default function FormFacturaGasto({
             <label htmlFor="fg-fecha" className={etiqueta}>
               Fecha de la factura *
             </label>
-            <input id="fg-fecha" type="date" value={fechaEmision} onChange={(e) => cambiarFecha(e.target.value)} aria-invalid={inv('fechaEmision')} className={campoBase} />
+            <input id="fg-fecha" type="date" value={fechaEmision} onChange={(e) => cambiarFecha(e.target.value)} {...marca('fechaEmision')} className={campoBase} />
           </div>
           <div>
             <label htmlFor="fg-venc" className={etiqueta}>
@@ -377,7 +403,7 @@ export default function FormFacturaGasto({
                 setFechaVencimiento(e.target.value);
                 setVencTocado(true);
               }}
-              aria-invalid={inv('fechaVencimiento')}
+              {...marca('fechaVencimiento')}
               className={campoBase}
             />
             {!vencTocado && <p className={ayuda}>A 30 días de la fecha de la factura.</p>}
@@ -392,7 +418,7 @@ export default function FormFacturaGasto({
                 <label htmlFor="fg-registro" className={etiqueta}>
                   Fecha de registro
                 </label>
-                <input id="fg-registro" type="date" value={fechaRegistro} onChange={(e) => setFechaRegistro(e.target.value)} aria-invalid={inv('fechaRegistro')} className={campoBase} />
+                <input id="fg-registro" type="date" value={fechaRegistro} onChange={(e) => setFechaRegistro(e.target.value)} {...marca('fechaRegistro')} className={campoBase} />
               </div>
             )}
           </div>
@@ -413,7 +439,7 @@ export default function FormFacturaGasto({
           )}
         </div>
 
-        <fieldset className="mt-5" aria-invalid={inv('tipoGasto')}>
+        <fieldset id="fg-tipo" tabIndex={-1} className="mt-5 focus:outline-none" {...marca('tipoGasto')}>
           <legend className={etiqueta}>Tipo de gasto *</legend>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {TIPOS_GASTO.map((t) => (
@@ -451,7 +477,7 @@ export default function FormFacturaGasto({
                 value={cuenta}
                 placeholder={`${TIPO_GASTO_INFO[tipoGasto].cuenta} (la del tipo de gasto)`}
                 onChange={(e) => setCuenta(e.target.value.replace(/[^\d]/g, ''))}
-                aria-invalid={inv('cuentaGasto') || inv('lineas.0.cuenta')}
+                {...marca('cuentaGasto', 'lineas.0.cuenta')}
                 className={campoBase}
               />
               <datalist id="fg-cuentas">
@@ -484,7 +510,7 @@ export default function FormFacturaGasto({
                     id={`fg-desc-${l.clave}`}
                     value={l.descripcion}
                     onChange={(e) => cambiarLinea(l.clave, { descripcion: e.target.value })}
-                    aria-invalid={inv(`${c}.descripcion`)}
+                    {...marca(`${c}.descripcion`)}
                     className={campoBase}
                   />
                 </div>
@@ -497,7 +523,7 @@ export default function FormFacturaGasto({
                     inputMode="decimal"
                     value={l.cantidad}
                     onChange={(e) => cambiarLinea(l.clave, { cantidad: e.target.value })}
-                    aria-invalid={inv(`${c}.cantidad`)}
+                    {...marca(`${c}.cantidad`)}
                     className={`${campoBase} text-right`}
                   />
                 </div>
@@ -511,7 +537,7 @@ export default function FormFacturaGasto({
                     value={l.precio}
                     placeholder="0,00"
                     onChange={(e) => cambiarLinea(l.clave, { precio: e.target.value })}
-                    aria-invalid={inv(`${c}.precioUnitario`)}
+                    {...marca(`${c}.precioUnitario`)}
                     className={`${campoBase} text-right`}
                   />
                 </div>
@@ -524,7 +550,7 @@ export default function FormFacturaGasto({
                     value={l.tipoIva}
                     disabled={extranjero}
                     onChange={(e) => cambiarLinea(l.clave, { tipoIva: Number(e.target.value) })}
-                    aria-invalid={inv(`${c}.tipoIva`)}
+                    {...marca(`${c}.tipoIva`)}
                     className={campoBase}
                   >
                     {TIPOS_IVA_GASTO.map((t) => (
@@ -543,7 +569,7 @@ export default function FormFacturaGasto({
                       id={`fg-irpf-${l.clave}`}
                       value={l.tipoRetencion}
                       onChange={(e) => cambiarLinea(l.clave, { tipoRetencion: Number(e.target.value) })}
-                      aria-invalid={inv(`${c}.tipoRetencion`)}
+                      {...marca(`${c}.tipoRetencion`)}
                       className={campoBase}
                     >
                       {retenciones.map((t) => (
@@ -618,6 +644,7 @@ export default function FormFacturaGasto({
               value={totalDocumento}
               onChange={(e) => setTotalDocumento(e.target.value)}
               aria-invalid={inv('totalDocumento') || totalNoCuadra}
+              aria-describedby={inv('totalDocumento') && error ? 'fg-error' : undefined}
               className={`${campoBase} text-right`}
             />
             {totalNoCuadra ? (
@@ -634,12 +661,12 @@ export default function FormFacturaGasto({
         <label htmlFor="fg-obs" className={etiqueta}>
           Observaciones
         </label>
-        <textarea id="fg-obs" rows={2} maxLength={2000} value={observaciones} onChange={(e) => setObservaciones(e.target.value)} aria-invalid={inv('observaciones')} className={campoBase} />
+        <textarea id="fg-obs" rows={2} maxLength={2000} value={observaciones} onChange={(e) => setObservaciones(e.target.value)} {...marca('observaciones')} className={campoBase} />
       </section>
 
       {/* 5. Errores y boton */}
       {error && (
-        <div role="alert" className="flex flex-col gap-2 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+        <div id="fg-error" role="alert" tabIndex={-1} className="flex flex-col gap-2 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 focus:outline-none">
           <p className="flex items-start gap-2">
             <WarningCircle size={18} className="mt-0.5 shrink-0" />
             {/* El servidor ya lo explica («Esta factura ya está registrada: ...», «Ya existe un proveedor con ese NIF: ...»). */}
@@ -690,13 +717,13 @@ function SelectorProveedor({
   valor,
   textoNuevo,
   onCambio,
-  inv,
+  marca,
 }: {
   valor: ProveedorElegido | null;
   /** Texto sobre el proveedor nuevo (el lector: «No está dado de alta: se creará al registrar la factura.»). */
   textoNuevo?: string;
   onCambio: (p: ProveedorElegido | null) => void;
-  inv: (campo: string) => boolean;
+  marca: (...campos: string[]) => { 'aria-invalid': boolean; 'aria-describedby': string | undefined };
 }) {
   const [q, setQ] = useState('');
   const [resultados, setResultados] = useState<ProveedorBuscado[]>([]);
@@ -769,13 +796,13 @@ function SelectorProveedor({
             <label htmlFor="fg-pnombre" className={etiqueta}>
               Nombre fiscal *
             </label>
-            <input id="fg-pnombre" value={valor.nombreFiscal} onChange={set('nombreFiscal')} aria-invalid={inv('proveedor.nombreFiscal')} className={campoBase} />
+            <input id="fg-pnombre" value={valor.nombreFiscal} onChange={set('nombreFiscal')} {...marca('proveedor.nombreFiscal')} className={campoBase} />
           </div>
           <div>
             <label htmlFor="fg-ppais" className={etiqueta}>
               País
             </label>
-            <select id="fg-ppais" value={valor.pais} onChange={set('pais')} aria-invalid={inv('proveedor.pais')} className={campoBase}>
+            <select id="fg-ppais" value={valor.pais} onChange={set('pais')} {...marca('proveedor.pais')} className={campoBase}>
               {PAISES.map(([c, n]) => (
                 <option key={c} value={c}>
                   {n}
@@ -787,31 +814,31 @@ function SelectorProveedor({
             <label htmlFor="fg-pnif" className={etiqueta}>
               {es ? 'NIF/CIF *' : ue ? 'NIF-IVA (con el prefijo del país) *' : 'Identificación fiscal (Tax ID) *'}
             </label>
-            <input id="fg-pnif" value={valor.nifCif} onChange={set('nifCif')} aria-invalid={inv('proveedor.nifCif') || inv('proveedor.nuevo')} className={`${campoBase} font-mono`} autoComplete="off" />
+            <input id="fg-pnif" value={valor.nifCif} onChange={set('nifCif')} {...marca('proveedor.nifCif', 'proveedor.nuevo')} className={`${campoBase} font-mono`} autoComplete="off" />
           </div>
           <div className="md:col-span-2">
             <label htmlFor="fg-pdir" className={etiqueta}>
               Dirección
             </label>
-            <input id="fg-pdir" value={valor.direccion} onChange={set('direccion')} aria-invalid={inv('proveedor.direccion')} className={campoBase} />
+            <input id="fg-pdir" value={valor.direccion} onChange={set('direccion')} {...marca('proveedor.direccion')} className={campoBase} />
           </div>
           <div>
             <label htmlFor="fg-pcp" className={etiqueta}>
               Código postal
             </label>
-            <input id="fg-pcp" inputMode={es ? 'numeric' : 'text'} value={valor.cp} onChange={set('cp')} aria-invalid={inv('proveedor.cp')} className={campoBase} />
+            <input id="fg-pcp" inputMode={es ? 'numeric' : 'text'} value={valor.cp} onChange={set('cp')} {...marca('proveedor.cp')} className={campoBase} />
           </div>
           <div>
             <label htmlFor="fg-pmun" className={etiqueta}>
               Municipio
             </label>
-            <input id="fg-pmun" value={valor.municipio} onChange={set('municipio')} aria-invalid={inv('proveedor.municipio')} className={campoBase} />
+            <input id="fg-pmun" value={valor.municipio} onChange={set('municipio')} {...marca('proveedor.municipio')} className={campoBase} />
           </div>
           <div>
             <label htmlFor="fg-pprov" className={etiqueta}>
               {es ? 'Provincia' : 'Región o estado'}
             </label>
-            <input id="fg-pprov" value={valor.provincia} onChange={set('provincia')} aria-invalid={inv('proveedor.provincia')} className={campoBase} />
+            <input id="fg-pprov" value={valor.provincia} onChange={set('provincia')} {...marca('proveedor.provincia')} className={campoBase} />
           </div>
         </div>
       </div>
@@ -830,7 +857,7 @@ function SelectorProveedor({
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Nombre o NIF"
-          aria-invalid={inv('proveedor')}
+          {...marca('proveedor')}
           className={`${campoBase} pl-9`}
           autoComplete="off"
         />
@@ -874,4 +901,58 @@ function SelectorProveedor({
       </button>
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Del campo de un error (details.campo) al control de la pantalla
+// ---------------------------------------------------------------------------
+
+/** Zod devuelve proveedor.nuevo.nifCif; la pantalla usa proveedor.nifCif. */
+function normalizarCampo(campo: string | undefined): string | undefined {
+  return campo?.replace(/^proveedor\.nuevo\./, 'proveedor.');
+}
+
+const ID_CAMPO: Record<string, string> = {
+  proveedor: 'fg-buscar',
+  'proveedor.nombreFiscal': 'fg-pnombre',
+  'proveedor.nifCif': 'fg-pnif',
+  'proveedor.nuevo': 'fg-pnif',
+  'proveedor.pais': 'fg-ppais',
+  'proveedor.direccion': 'fg-pdir',
+  'proveedor.cp': 'fg-pcp',
+  'proveedor.municipio': 'fg-pmun',
+  'proveedor.provincia': 'fg-pprov',
+  numeroFacturaProveedor: 'fg-numero',
+  fechaEmision: 'fg-fecha',
+  fechaVencimiento: 'fg-venc',
+  fechaRegistro: 'fg-registro',
+  tipoGasto: 'fg-tipo',
+  cuentaGasto: 'fg-cuenta',
+  observaciones: 'fg-obs',
+  totalDocumento: 'fg-totaldoc',
+};
+
+const ID_LINEA: Record<string, string> = {
+  descripcion: 'fg-desc',
+  cantidad: 'fg-cant',
+  precioUnitario: 'fg-precio',
+  descuentoPorcentaje: 'fg-precio',
+  tipoIva: 'fg-iva',
+  tipoRetencion: 'fg-irpf',
+};
+
+/** Id del control que corresponde a un campo de error (lineas.N.x usa la clave de la linea N). */
+function idDelCampo(campo: string | undefined, lineas: Array<{ clave: number }>): string | undefined {
+  if (!campo) return undefined;
+  if (ID_CAMPO[campo]) return ID_CAMPO[campo];
+  if (campo === 'lineas') return lineas[0] ? `fg-precio-${lineas[0].clave}` : undefined;
+  const m = /^lineas\.(\d+)\.(\w+)/.exec(campo);
+  if (m) {
+    if (m[2] === 'cuenta') return 'fg-cuenta';
+    const linea = lineas[Number(m[1])];
+    return linea ? `${ID_LINEA[m[2]] ?? 'fg-desc'}-${linea.clave}` : undefined;
+  }
+  // Otro dato del proveedor nuevo: al menos se lleva la vista a su bloque.
+  if (campo.startsWith('proveedor.')) return 'fg-pnombre';
+  return undefined;
 }
