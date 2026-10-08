@@ -2,8 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
+import { EVENTO_SESION, getUser, tieneAlgunPermiso, type SessionUser } from '@/lib/auth';
 import { CuentaBancariaCard } from '../components/CuentaBancariaCard';
-import { Plus } from '@phosphor-icons/react';
+import { Info, Plus } from '@phosphor-icons/react';
+
+/** Quien no puede dar de alta cuentas (el servidor pide tesoreria:write). */
+const PIDE_AL_ADMIN = 'Pide al administrador de la empresa que dé de alta la cuenta bancaria.';
 
 interface CuentaBancaria {
   id: string;
@@ -31,10 +35,19 @@ export default function CuentasPage() {
   });
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  // La sesion vive en localStorage: se lee tras montar (igual que el menu).
+  const [user, setUser] = useState<SessionUser | null>(null);
 
   useEffect(() => {
     fetchCuentas();
+    setUser(getUser());
+    const alActualizar = () => setUser(getUser());
+    window.addEventListener(EVENTO_SESION, alActualizar);
+    return () => window.removeEventListener(EVENTO_SESION, alActualizar);
   }, []);
+
+  // El administrador (global o de la empresa) siempre puede: su permiso es '*'.
+  const puedeCrear = tieneAlgunPermiso(user, ['tesoreria:write']);
 
   const fetchCuentas = async () => {
     try {
@@ -95,14 +108,23 @@ export default function CuentasPage() {
           <h1 className="text-3xl font-bold text-slate-900">Cuentas Bancarias</h1>
           <p className="mt-2 text-slate-600">Gestión de cuentas bancarias de la empresa</p>
         </div>
-        <button
-          onClick={() => setShowForm(!showForm)}
-          className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 font-medium text-white transition hover:bg-blue-700"
-        >
-          <Plus size={20} />
-          Nueva cuenta
-        </button>
+        {puedeCrear && (
+          <button
+            onClick={() => setShowForm(!showForm)}
+            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 font-medium text-white transition hover:bg-blue-700"
+          >
+            <Plus size={20} />
+            Nueva cuenta
+          </button>
+        )}
       </div>
+
+      {user && !puedeCrear && cuentas.length > 0 && (
+        <p className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+          <Info size={18} className="mt-0.5 shrink-0 text-slate-500" />
+          <span>¿Falta alguna cuenta? {PIDE_AL_ADMIN}</span>
+        </p>
+      )}
 
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
@@ -116,7 +138,7 @@ export default function CuentasPage() {
         </div>
       )}
 
-      {showForm && (
+      {showForm && puedeCrear && (
         <form
           onSubmit={handleSubmit}
           className="rounded-lg border border-slate-200 bg-white p-6 space-y-4"
@@ -225,12 +247,16 @@ export default function CuentasPage() {
       {cuentas.length === 0 ? (
         <div className="rounded-lg border border-slate-200 bg-white p-8 text-center">
           <p className="text-slate-500">No hay cuentas bancarias configuradas</p>
-          <button
-            onClick={() => setShowForm(true)}
-            className="mt-4 text-blue-600 hover:text-blue-700 font-medium"
-          >
-            Crear primera cuenta
-          </button>
+          {puedeCrear ? (
+            <button
+              onClick={() => setShowForm(true)}
+              className="mt-4 text-blue-600 hover:text-blue-700 font-medium"
+            >
+              Crear primera cuenta
+            </button>
+          ) : (
+            user && <p className="mt-3 text-sm text-slate-600">{PIDE_AL_ADMIN}</p>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
