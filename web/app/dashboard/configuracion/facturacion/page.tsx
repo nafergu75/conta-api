@@ -117,11 +117,15 @@ export default function FacturacionPage() {
   const off = !editar || guardando;
   const cuentas = ajustes?.cuentasBancarias ?? [];
   const moneda = ajustes?.monedaCuenta ?? 'EUR';
-  // La que saldria en una factura en la moneda de la empresa (misma regla que el servidor:
-  // la elegida; si no, la primera activa en esa moneda y, si no hay, la primera activa).
+  // La que saldria en una factura en la moneda de la empresa (misma regla que el servidor,
+  // cuentaParaFactura: la elegida si es de la moneda de la factura; si no, la primera
+  // activa en esa moneda y, si no hay, la primera activa).
+  const elegida = form ? (cuentas.find((c) => c.id === form.cuentaBancariaId) ?? null) : null;
   const cuentaMuestra = form
-    ? (cuentas.find((c) => c.id === form.cuentaBancariaId) ?? cuentas.find((c) => c.moneda === moneda) ?? cuentas[0] ?? null)
+    ? ((elegida && elegida.moneda === moneda ? elegida : null) ?? cuentas.find((c) => c.moneda === moneda) ?? cuentas[0] ?? null)
     : null;
+  // Hay cuentas en mas de una moneda: las facturas en otra moneda llevan la suya.
+  const variasMonedas = new Set(cuentas.map((c) => c.moneda)).size > 1;
   // Solo la transferencia lleva cuenta en la factura (igual que el PDF del servidor).
   const conCuenta = form?.formaPago === 'TRANSFERENCIA';
   const altaCuentas = tieneAlgunPermiso(user, ['tesoreria:write']);
@@ -314,6 +318,16 @@ export default function FacturacionPage() {
                 )}
               </p>
               {form.textoPie.trim() && <p className="mt-2 whitespace-pre-line text-[11px] leading-snug text-slate-500">{form.textoPie.trim()}</p>}
+              {conCuenta && form.mostrarIban && cuentaMuestra && (
+                <p className="mt-2 border-t border-slate-200 pt-2 text-[11px] text-slate-500">
+                  Así sale en una factura en {moneda}.{' '}
+                  {elegida && elegida.moneda !== moneda
+                    ? `La cuenta elegida está en ${elegida.moneda}: sale en las facturas en ${elegida.moneda}, y en las de ${moneda} sale la primera cuenta activa en ${moneda}.`
+                    : variasMonedas
+                      ? 'Las facturas en otra moneda llevan la primera cuenta activa en esa moneda.'
+                      : 'Una factura en otra moneda llevaría la primera cuenta activa en esa moneda, si la das de alta.'}
+                </p>
+              )}
             </div>
           </section>
 
