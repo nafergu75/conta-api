@@ -72,6 +72,9 @@ export default function GastoDetailPage() {
 
   const fmt = (n: number) => formatoImporte(Number(n) || 0, gasto.monedaCuenta);
   const anulada = gasto.estado === 'ANULADA';
+  const porPagos = (m?: string | null) => !!m && m.startsWith('La factura tiene pagos');
+  const bloqueadaPorPagos =
+    !gasto.acciones.editar.permitido && !gasto.acciones.anular.permitido && porPagos(gasto.acciones.editar.motivo) && porPagos(gasto.acciones.anular.motivo);
   // Sin cuenta en las lineas, el asiento usa la del tipo de gasto.
   const cuenta =
     gasto.cuentaGasto ?? (gasto.lineas.some((l) => l.accountCode) ? 'Varias (ver líneas)' : esTipoGasto(gasto.tipoGasto) ? TIPO_GASTO_INFO[gasto.tipoGasto].cuenta : null);
@@ -133,9 +136,22 @@ export default function GastoDetailPage() {
               <Prohibit size={16} /> Anular
             </button>
           </div>
-          {!gasto.acciones.editar.permitido && gasto.acciones.editar.motivo && <p className="text-sm text-slate-600">{gasto.acciones.editar.motivo}</p>}
-          {!gasto.acciones.anular.permitido && gasto.acciones.anular.motivo && gasto.acciones.anular.motivo !== gasto.acciones.editar.motivo && (
-            <p className="text-sm text-slate-600">{gasto.acciones.anular.motivo}</p>
+          {bloqueadaPorPagos ? (
+            // Los dos motivos dicen casi lo mismo («...antes de modificarla» / «...antes de anularla»): uno solo, y dónde están los pagos.
+            <p className="text-sm text-slate-600">
+              Tiene pagos registrados: para modificarla o anularla, anula antes sus pagos (más abajo, en{' '}
+              <a href="#pagos" className="font-semibold text-blue-600 hover:underline">
+                Pagos
+              </a>
+              ).
+            </p>
+          ) : (
+            <>
+              {!gasto.acciones.editar.permitido && gasto.acciones.editar.motivo && <p className="text-sm text-slate-600">{gasto.acciones.editar.motivo}</p>}
+              {!gasto.acciones.anular.permitido && gasto.acciones.anular.motivo && gasto.acciones.anular.motivo !== gasto.acciones.editar.motivo && (
+                <p className="text-sm text-slate-600">{gasto.acciones.anular.motivo}</p>
+              )}
+            </>
           )}
         </div>
       )}
@@ -309,7 +325,7 @@ export default function GastoDetailPage() {
 
       {/* Pagos: no en borradores del lector ni en anuladas */}
       {gasto.totalFactura > 0 && gasto.estado !== 'DRAFT' && !anulada && (
-        <div className="mb-6">
+        <div id="pagos" className="mb-6 scroll-mt-20">
           <CobrosFactura tipo="GASTO" facturaId={gastoId} puedeEditar={puedePagar} fechaFactura={gasto.fechaEmision} onCambio={loadGasto} />
         </div>
       )}
