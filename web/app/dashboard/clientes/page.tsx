@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus, MagnifyingGlass, X, Trash } from '@phosphor-icons/react';
-import { getToken, clearSession, getCompanyId } from '@/lib/auth';
+import { getToken, getCompanyId } from '@/lib/auth';
+import { apiFetch, companyPath } from '@/lib/api';
+import { mensajeSinAcceso, PantallaSinAcceso } from '@/components/dashboard/SinAcceso';
 import { nombrePais, PAISES, PAISES_UE, pareceNifIvaUe } from '@/lib/fiscal';
 
 const API = '/api/conta';
@@ -27,6 +29,8 @@ export default function ClientesPage() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
+  // Texto del 403 si su acceso no incluye clientes (null = si lo incluye).
+  const [sinAcceso, setSinAcceso] = useState<string | null>(null);
 
   const loadClientes = useCallback(async () => {
     const token = getToken();
@@ -36,20 +40,15 @@ export default function ClientesPage() {
     }
     setLoading(true);
     try {
-      const r = await fetch(`${API}/companies/${getCompanyId()}/clientes?limit=100`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (r.status === 401) {
-        clearSession();
-        router.replace('/login');
-        return;
-      }
-      if (!r.ok) throw new Error(`Error ${r.status}`);
-      const j = await r.json();
-      setClientes(j.data.items ?? j.data ?? []);
+      // apiFetch: un 401 lleva al login y la contraseña provisional, a cambiarla.
+      const d = await apiFetch<{ items?: Cliente[] } | Cliente[]>(companyPath('/clientes?limit=100'));
+      setClientes((Array.isArray(d) ? d : d?.items) ?? []);
       setError(null);
+      setSinAcceso(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error desconocido');
+      const sinPermiso = mensajeSinAcceso(e);
+      if (sinPermiso) setSinAcceso(sinPermiso);
+      else setError(e instanceof Error ? e.message : 'Error desconocido');
     } finally {
       setLoading(false);
     }
@@ -65,6 +64,8 @@ export default function ClientesPage() {
       c.nifCif.includes(search)
     );
   }, [clientes, search]);
+
+  if (sinAcceso) return <PantallaSinAcceso titulo="Clientes" mensaje={sinAcceso} />;
 
   return (
     <div>

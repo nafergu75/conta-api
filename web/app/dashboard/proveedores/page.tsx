@@ -7,6 +7,7 @@ import { ApiError, apiFetch, campoDelError, companyPath, errorMessage } from '@/
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { nombrePais, PAISES, PAISES_UE, pareceNifIvaUe } from '@/lib/fiscal';
 import { paisDelPrefijo } from '@/lib/compras';
+import { mensajeSinAcceso, PantallaSinAcceso } from '@/components/dashboard/SinAcceso';
 
 interface Proveedor {
   id: string;
@@ -41,6 +42,8 @@ export default function ProveedoresPage() {
   const [q, setQ] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [aviso, setAviso] = useState<{ texto: string; desactivar?: Proveedor } | null>(null);
+  // Texto del 403 si su acceso no incluye proveedores (null = si lo incluye).
+  const [sinAcceso, setSinAcceso] = useState<string | null>(null);
   const peticion = useRef(0);
 
   useEffect(() => {
@@ -63,8 +66,12 @@ export default function ProveedoresPage() {
         setTotal(Array.isArray(r) ? items.length : r.total ?? items.length);
         setPagina(p);
         setError(null);
+        setSinAcceso(null);
       } catch (e) {
-        if (n === peticion.current) setError(errorMessage(e));
+        if (n !== peticion.current) return;
+        const sin = mensajeSinAcceso(e);
+        if (sin) setSinAcceso(sin);
+        else setError(errorMessage(e));
       } finally {
         if (n === peticion.current) setLoading(false);
       }
@@ -98,6 +105,8 @@ export default function ProveedoresPage() {
       setAviso({ texto: errorMessage(e) });
     }
   };
+
+  if (sinAcceso) return <PantallaSinAcceso titulo="Proveedores" mensaje={sinAcceso} />;
 
   return (
     <div>

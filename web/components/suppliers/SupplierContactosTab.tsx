@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Trash, Plus, Check, X } from '@phosphor-icons/react';
 import { getToken } from '@/lib/auth';
+import { errorDeRespuesta } from '@/lib/api';
 
 const API = '/api/conta';
 
@@ -52,7 +53,7 @@ export function SupplierContactosTab({ supplierId, companyId }: SupplierContacto
         headers: { Authorization: `Bearer ${getToken()}` },
       });
 
-      if (!res.ok) throw new Error(`Error ${res.status}`);
+      if (!res.ok) throw await errorDeRespuesta(res);
 
       const data = await res.json();
       setContactos(data.data || data || []);
@@ -91,7 +92,7 @@ export function SupplierContactosTab({ supplierId, companyId }: SupplierContacto
         body: JSON.stringify(formData),
       });
 
-      if (!res.ok) throw new Error(`Error ${res.status}`);
+      if (!res.ok) throw await errorDeRespuesta(res);
 
       setCreando(false);
       resetForm();
@@ -110,7 +111,7 @@ export function SupplierContactosTab({ supplierId, companyId }: SupplierContacto
         headers: { Authorization: `Bearer ${getToken()}` },
       });
 
-      if (!res.ok) throw new Error(`Error ${res.status}`);
+      if (!res.ok) throw await errorDeRespuesta(res);
 
       await loadContactos();
     } catch (err) {

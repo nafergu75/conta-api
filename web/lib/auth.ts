@@ -27,6 +27,29 @@ export interface SessionUser {
   rolesPorEmpresa?: Record<string, string[]>;
   /** Administrador de la plataforma: ve y gestiona todas las empresas. */
   esAdminGlobal?: boolean;
+  /** Empresas en las que el acceso tiene permisos a medida (no los de su perfil). */
+  personalizadoPorEmpresa?: Record<string, boolean>;
+  /**
+   * La contrasena la puso un administrador (alta o restablecimiento): hasta
+   * que ponga una suya, el servidor solo le deja ver /auth/me y cambiarla.
+   */
+  debeCambiarContrasena?: boolean;
+}
+
+/** Pantalla en la que se pone una contrasena propia (obligatoria con la provisional). */
+export const RUTA_CAMBIAR_CONTRASENA = '/cambiar-contrasena';
+
+/** Areas de permisos de un acceso (GET /admin/permisos/catalogo). */
+export type Area = 'ventas' | 'compras' | 'contabilidad' | 'tesoreria' | 'impuestos' | 'nominas';
+/** Nivel en un area: "Modificar" incluye "Ver". */
+export type Nivel = 'ninguno' | 'ver' | 'modificar';
+export type Areas = Record<Area, Nivel>;
+
+/** Respuesta de GET /admin/permisos/catalogo. */
+export interface CatalogoPermisos {
+  areas: Array<{ clave: Area; nombre: string; descripcion: string }>;
+  niveles: Nivel[];
+  perfiles: Array<{ rol: string; nombre: string; todo: boolean; areas: Areas | null; descripcion?: string }>;
 }
 
 const ULTIMA_EMPRESA = (email: string) => `conta_empresa_${email}`;
@@ -145,7 +168,10 @@ export function rolEnEmpresaActiva(user: SessionUser | null): string | null {
   if (user.esAdminGlobal) return 'Administrador global';
   const activa = user.empresaActiva ?? user.companies?.[0];
   const roles = activa ? user.rolesPorEmpresa?.[activa] : undefined;
-  if (roles?.length) return roles.map(nombreRol).join(' · ');
+  if (roles?.length) {
+    const nombre = roles.map(nombreRol).join(' · ');
+    return activa && user.personalizadoPorEmpresa?.[activa] ? `${nombre} · a medida` : nombre;
+  }
   return null;
 }
 
@@ -163,7 +189,10 @@ export const EVENTO_SESION = 'conta:sesion-actualizada';
  * iniciada antes de un cambio de permisos no deja el menu a medias.
  */
 export function actualizarPermisos(datos: {
-  user: Pick<SessionUser, 'roles' | 'companies' | 'permisos' | 'permisosPorEmpresa' | 'rolesPorEmpresa' | 'esAdminGlobal'> & { email?: string };
+  user: Pick<
+    SessionUser,
+    'roles' | 'companies' | 'permisos' | 'permisosPorEmpresa' | 'rolesPorEmpresa' | 'esAdminGlobal' | 'personalizadoPorEmpresa' | 'debeCambiarContrasena'
+  > & { email?: string };
   empresas?: EmpresaSesion[];
 }): void {
   const u = getUser();
@@ -178,9 +207,57 @@ export function actualizarPermisos(datos: {
     permisosPorEmpresa: datos.user.permisosPorEmpresa ?? u.permisosPorEmpresa,
     rolesPorEmpresa: datos.user.rolesPorEmpresa ?? u.rolesPorEmpresa,
     esAdminGlobal: datos.user.esAdminGlobal ?? u.esAdminGlobal,
+    personalizadoPorEmpresa: datos.user.personalizadoPorEmpresa ?? u.personalizadoPorEmpresa,
+    debeCambiarContrasena: datos.user.debeCambiarContrasena ?? u.debeCambiarContrasena,
     empresas: datos.empresas?.length ? datos.empresas : u.empresas,
     empresaActiva: activa,
   };
   localStorage.setItem(USER_KEY, JSON.stringify(nuevo));
+  window.dispatchEvent(new Event(EVENTO_SESION));
+}
+
+/**
+ * Marca en la sesion guardada que el servidor exige cambiar la contrasena
+ * (403 CAMBIO_CONTRASENA_OBLIGATORIO). No borra la sesion: el token sigue
+ * valiendo para /auth/me y /auth/cambiar-contrasena.
+ */
+export function marcarCambioObligatorio(): void {
+  const u = getUser();
+  if (!u || u.debeCambiarContrasena) return;
+  localStorage.setItem(USER_KEY, JSON.stringify({ ...u, debeCambiarContrasena: true }));
+}
+
+/**
+ * Tras POST /auth/cambiar-contrasena: guarda el token nuevo (los anteriores
+ * dejan de valer) y los permisos que devuelve el servidor, sin la marca de
+ * contrasena provisional y conservando la empresa activa.
+ */
+export function marcarContrasenaCambiada(
+  token: string,
+  datos: { user?: Partial<SessionUser> & { email?: string }; empresas?: EmpresaSesion[] },
+): void {
+  const u = getUser();
+  const d = datos.user ?? {};
+  const email = d.email ?? u?.email ?? '';
+  const companies = d.companies ?? u?.companies ?? [];
+  const esAdminGlobal = d.esAdminGlobal ?? u?.esAdminGlobal ?? false;
+  const activa =
+    u?.empresaActiva && (esAdminGlobal || companies.includes(u.empresaActiva))
+      ? u.empresaActiva
+      : empresaInicial(email, companies, esAdminGlobal);
+  saveSession(token, {
+    ...(u ?? {}),
+    email,
+    roles: d.roles ?? u?.roles ?? [],
+    companies,
+    empresas: datos.empresas?.length ? datos.empresas : u?.empresas,
+    empresaActiva: activa,
+    permisos: d.permisos ?? u?.permisos,
+    permisosPorEmpresa: d.permisosPorEmpresa ?? u?.permisosPorEmpresa,
+    rolesPorEmpresa: d.rolesPorEmpresa ?? u?.rolesPorEmpresa,
+    personalizadoPorEmpresa: d.personalizadoPorEmpresa ?? u?.personalizadoPorEmpresa,
+    esAdminGlobal,
+    debeCambiarContrasena: false,
+  });
   window.dispatchEvent(new Event(EVENTO_SESION));
 }

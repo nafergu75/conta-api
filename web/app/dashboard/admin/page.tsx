@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
+  ArrowCounterClockwise,
   ArrowRight,
   Buildings,
+  CaretDown,
   CheckCircle,
   Key,
   MagnifyingGlass,
@@ -12,6 +14,7 @@ import {
   Plus,
   Power,
   ShieldCheck,
+  SlidersHorizontal,
   Trash,
   UserPlus,
   Users,
@@ -26,8 +29,25 @@ import {
   getUser,
   nombreRol,
   ROLES_EMPRESA,
+  RUTA_CAMBIAR_CONTRASENA,
+  type Areas,
+  type CatalogoPermisos,
   type SessionUser,
 } from '@/lib/auth';
+import EditorPermisos from '@/components/admin/EditorPermisos';
+import ContrasenaProvisional from '@/components/admin/ContrasenaProvisional';
+import {
+  areasDelPerfil,
+  areasParaEnviar,
+  difiereDelPerfil,
+  esAdministrador,
+  esEmpresaEspanola,
+  mismasAreas,
+  perfilDe,
+  resumenAreas,
+  resumenPerfil,
+  todoNinguno,
+} from '@/components/admin/permisos';
 import {
   CAMPOS_EMPRESA,
   Campo,
@@ -74,6 +94,10 @@ interface AccesoEmpresa {
   codigo: string | null;
   activa: boolean;
   rol: string;
+  /** Permisos a medida (no los de su perfil). */
+  personalizado?: boolean;
+  /** Lo que puede en cada area por este acceso. null con el perfil Administrador (todo). */
+  areas?: Areas | null;
 }
 
 interface UsuarioAdmin {
@@ -82,23 +106,26 @@ interface UsuarioAdmin {
   activo: boolean;
   esAdminGlobal: boolean;
   creadoEn?: string;
+  /** Todavia no ha cambiado la contrasena provisional que le dio un administrador. */
+  debeCambiarContrasena?: boolean;
   empresas: AccesoEmpresa[];
+}
+
+/** Respuesta del alta y del restablecimiento: la contrasena solo viene si la genero el servidor. */
+type UsuarioConProvisional = UsuarioAdmin & { contrasenaProvisional?: string };
+
+/** Respuesta de PUT /admin/usuarios/:userId/empresas/:companyId. */
+interface ResultadoAcceso {
+  rol: string;
+  personalizado: boolean;
+  areas: Areas | null;
+  cambiado: boolean;
 }
 
 type Pestana = 'empresas' | 'usuarios';
 
-const CONTRASENA_MIN = 12;
-
 /** Busqueda sin distinguir mayusculas ni tildes. */
 const normalizar = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-
-/** Contrasena aleatoria de 16 caracteres sin los que se confunden (0/O, 1/l/I). */
-function generarContrasena(): string {
-  const letras = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  const v = new Uint32Array(16);
-  crypto.getRandomValues(v);
-  return Array.from(v, (n) => letras[n % letras.length]).join('');
-}
 
 const fechaCorta = (iso?: string) => (iso ? new Date(iso).toLocaleDateString('es-ES') : '');
 
@@ -138,22 +165,30 @@ function Modal({
   onClose,
   children,
   ancho = 'max-w-md',
+  confirmarAlCerrar,
 }: {
   titulo: string;
   onClose: () => void;
   children: React.ReactNode;
   ancho?: string;
+  /** Si se pasa, cerrar con Escape, la X o un clic fuera pregunta esto antes. */
+  confirmarAlCerrar?: string;
 }) {
+  const cerrar = useCallback(() => {
+    if (confirmarAlCerrar && !window.confirm(confirmarAlCerrar)) return;
+    onClose();
+  }, [confirmarAlCerrar, onClose]);
+
   useEffect(() => {
     const alPulsar = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') cerrar();
     };
     window.addEventListener('keydown', alPulsar);
     return () => window.removeEventListener('keydown', alPulsar);
-  }, [onClose]);
+  }, [cerrar]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 sm:items-center sm:px-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 sm:items-center sm:px-4" onClick={cerrar}>
       <div
         role="dialog"
         aria-modal="true"
@@ -163,7 +198,7 @@ function Modal({
       >
         <div className="mb-4 flex items-start justify-between gap-3">
           <h2 className="min-w-0 break-words text-lg font-semibold text-slate-900">{titulo}</h2>
-          <button type="button" onClick={onClose} aria-label="Cerrar" className="p-1.5 text-slate-500 transition-colors hover:text-slate-900">
+          <button type="button" onClick={cerrar} aria-label="Cerrar" className="p-1.5 text-slate-500 transition-colors hover:text-slate-900">
             <X size={20} />
           </button>
         </div>
@@ -206,6 +241,9 @@ export default function AdministracionPage() {
   const [aviso, setAviso] = useState('');
   const [modal, setModal] = useState<'empresa' | 'usuario' | null>(null);
   const [gestionando, setGestionando] = useState<string | null>(null);
+  // Catalogo de areas y perfiles. Si no se puede cargar (servidor antiguo), los
+  // accesos se gestionan solo con el perfil y no se ensena «Permisos».
+  const [catalogo, setCatalogo] = useState<CatalogoPermisos | null>(null);
 
   useEffect(() => {
     setUser(getUser());
@@ -239,6 +277,13 @@ export default function AdministracionPage() {
   useEffect(() => {
     if (esAdmin) cargar();
   }, [esAdmin, cargar]);
+
+  useEffect(() => {
+    if (!esAdmin) return;
+    apiFetch<CatalogoPermisos>('/admin/permisos/catalogo')
+      .then((c) => setCatalogo(c && Array.isArray(c.areas) && Array.isArray(c.perfiles) ? c : null))
+      .catch(() => setCatalogo(null));
+  }, [esAdmin]);
 
   const reintentar = () => {
     setCargando(true);
@@ -510,6 +555,11 @@ export default function AdministracionPage() {
                       <div className="mt-1 flex flex-wrap gap-1.5">
                         {u.esAdminGlobal && <Etiqueta tono="indigo">Administrador global</Etiqueta>}
                         {!u.activo && <Etiqueta tono="rojo">Desactivado</Etiqueta>}
+                        {u.debeCambiarContrasena && (
+                          <span title="Todavía no ha puesto su propia contraseña">
+                            <Etiqueta tono="ambar">Contraseña provisional</Etiqueta>
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div className="flex min-w-0 flex-wrap gap-1.5">
@@ -519,11 +569,17 @@ export default function AdministracionPage() {
                         u.empresas.map((a) => (
                           <span
                             key={a.companyId}
-                            className="inline-flex max-w-full items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-700"
+                            title={a.personalizado ? 'Permisos a medida, distintos de los de su perfil' : undefined}
+                            className={`inline-flex max-w-full items-center gap-1 rounded-md border px-2 py-0.5 text-xs ${
+                              a.personalizado ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-slate-200 bg-slate-50 text-slate-700'
+                            }`}
                           >
                             <span className="truncate">{a.nombre}</span>
-                            <span className="text-slate-400">·</span>
-                            <span className="whitespace-nowrap font-medium">{nombreRol(a.rol)}</span>
+                            <span className={a.personalizado ? 'text-amber-600' : 'text-slate-400'}>·</span>
+                            <span className="whitespace-nowrap font-medium">
+                              {nombreRol(a.rol)}
+                              {a.personalizado && ' a medida'}
+                            </span>
                           </span>
                         ))
                       )}
@@ -566,11 +622,12 @@ export default function AdministracionPage() {
       {modal === 'usuario' && (
         <ModalNuevoUsuario
           empresas={empresas}
+          catalogo={catalogo}
           onClose={() => setModal(null)}
           onCreado={async (u) => {
-            setModal(null);
+            // El modal se queda abierto con la contrasena provisional y el boton Copiar.
             setError('');
-            setAviso(`Usuario ${u.email} creado. Pásale su contraseña inicial por un canal seguro (no por el mismo correo).`);
+            setAviso(`Usuario ${u.email} creado.`);
             await cargar();
           }}
         />
@@ -580,6 +637,7 @@ export default function AdministracionPage() {
         <PanelUsuario
           usuario={usuarioGestionado}
           empresas={empresas}
+          catalogo={catalogo}
           esYo={usuarioGestionado.email.toLowerCase() === miEmail}
           onClose={() => setGestionando(null)}
           onCambio={cargar}
@@ -799,65 +857,151 @@ function ModalNuevaEmpresa({
   );
 }
 
-function CampoContrasena({ id, valor, onChange }: { id: string; valor: string; onChange: (v: string) => void }) {
+const PREGUNTA_COPIADA = '¿Has copiado la contraseña? Después no se puede volver a ver.';
+
+/** Boton que abre o cierra el editor de permisos («Ajustar permisos (opcional)»). */
+function BotonAjustar({
+  abierto,
+  onClick,
+  controla,
+  personalizado,
+}: {
+  abierto: boolean;
+  onClick: () => void;
+  controla: string;
+  /** Hay casillas cambiadas: se guardan aunque el editor este plegado, y se dice. */
+  personalizado?: boolean;
+}) {
   return (
-    <div className="flex gap-2">
-      <input
-        id={id}
-        type="text"
-        autoComplete="new-password"
-        spellCheck={false}
-        value={valor}
-        onChange={(e) => onChange(e.target.value)}
-        minLength={CONTRASENA_MIN}
-        maxLength={128}
-        className={`${CLASE_INPUT} font-mono`}
-      />
-      <button type="button" onClick={() => onChange(generarContrasena())} className={`${BOTON_SECUNDARIO_ALTO} shrink-0`}>
-        Generar
-      </button>
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      aria-expanded={abierto}
+      aria-controls={controla}
+      className="inline-flex min-h-[44px] flex-wrap items-center gap-1.5 self-start rounded-lg px-1 text-sm font-medium text-slate-700 hover:text-slate-900"
+    >
+      <CaretDown size={14} className={`transition-transform ${abierto ? 'rotate-180' : ''}`} aria-hidden />
+      Ajustar permisos <span className="font-normal text-slate-500">(opcional)</span>
+      {personalizado && (
+        <span className="inline-flex items-center whitespace-nowrap rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+          Personalizado
+        </span>
+      )}
+    </button>
   );
 }
 
+const PREGUNTA_CAMBIO_PERFIL =
+  'Al cambiar de perfil se quitan los permisos que has marcado y se parte de los del perfil nuevo. ¿Seguir?';
+
+/** Una linea bajo el desplegable de perfil que dice lo que incluye. */
+function ResumenDelPerfil({ catalogo, rol, id }: { catalogo: CatalogoPermisos | null; rol: string; id?: string }) {
+  const texto = resumenPerfil(catalogo, rol);
+  return texto ? (
+    <p id={id} className="text-xs text-slate-500">
+      {texto}
+    </p>
+  ) : null;
+}
+
+/**
+ * Alta de un usuario. La contrasena la genera el servidor: se ensena una vez al
+ * terminar, con el boton Copiar, y es provisional (el usuario la cambia por una
+ * suya al entrar por primera vez).
+ */
 function ModalNuevoUsuario({
   empresas,
+  catalogo,
   onClose,
   onCreado,
 }: {
   empresas: EmpresaAdmin[];
+  catalogo: CatalogoPermisos | null;
   onClose: () => void;
-  onCreado: (u: UsuarioAdmin) => void;
+  onCreado: (u: UsuarioAdmin) => Promise<void>;
 }) {
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [companyId, setCompanyId] = useState('');
   const [rol, setRol] = useState('solo_lectura');
+  const [ajustar, setAjustar] = useState(false);
+  // null = los del perfil elegido.
+  const [areas, setAreas] = useState<Areas | null>(null);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState('');
+  // La contrasena provisional vive SOLO aqui: ni en el navegador ni en la URL.
+  const [creado, setCreado] = useState<{ email: string; contrasena?: string; acceso?: string } | null>(null);
+
+  const empresa = empresas.find((e) => e.id === companyId);
+  const puedeAjustar = !!catalogo && !!companyId && !esAdministrador(rol);
+  // Lo marcado se envia este el editor abierto o plegado: lo que se ve al
+  // reabrirlo es lo que se guarda (y el boton dice «Personalizado»).
+  const areasElegidas = puedeAjustar ? areas : null;
+  const vacio = !!areasElegidas && todoNinguno(areasElegidas);
+  const aMedidaAhora = puedeAjustar && difiereDelPerfil(catalogo, rol, areas);
+
+  const cambiarPerfil = (valor: string) => {
+    if (aMedidaAhora && !window.confirm(PREGUNTA_CAMBIO_PERFIL)) return;
+    setRol(valor);
+    setAreas(null); // Se vuelve a partir del perfil nuevo.
+  };
 
   const enviar = async (ev: React.FormEvent) => {
     ev.preventDefault();
     setError('');
-    if (password.length < CONTRASENA_MIN) {
-      setError(`La contraseña debe tener al menos ${CONTRASENA_MIN} caracteres.`);
+    if (vacio) {
+      setError('Marca al menos un permiso, o no le des acceso a la empresa.');
       return;
     }
+    const aMedida = companyId ? areasParaEnviar(catalogo, rol, areasElegidas) : null;
     setGuardando(true);
     try {
-      const u = await apiFetch<UsuarioAdmin>('/admin/usuarios', {
+      const u = await apiFetch<UsuarioConProvisional>('/admin/usuarios', {
         method: 'POST',
-        body: JSON.stringify({ email: email.trim(), password, ...(companyId ? { companyId, rol } : {}) }),
+        body: JSON.stringify({ email: email.trim(), ...(companyId ? { companyId, rol } : {}), ...(aMedida ? { areas: aMedida } : {}) }),
       });
-      onCreado(u);
+      // Con que acceso ha quedado, segun el servidor (no segun la pantalla).
+      const a = u.empresas?.[0];
+      const acceso = a
+        ? `Acceso a «${a.nombre}»: ${perfilDe(catalogo, a.rol)?.nombre ?? nombreRol(a.rol)}${a.personalizado ? ' a medida' : ''}.`
+        : 'Todavía no tiene acceso a ninguna empresa.';
+      setCreado({ email: u.email, contrasena: u.contrasenaProvisional, acceso });
+      setGuardando(false);
+      await onCreado(u);
     } catch (e) {
       setError(errorMessage(e));
       setGuardando(false);
     }
   };
 
+  if (creado) {
+    return (
+      <Modal titulo="Usuario creado" onClose={onClose} confirmarAlCerrar={creado.contrasena ? PREGUNTA_COPIADA : undefined}>
+        {creado.acceso && <p className="mb-3 text-sm text-slate-600">{creado.acceso}</p>}
+        {creado.contrasena ? (
+          <div className="flex flex-col gap-3">
+            <p className="text-sm text-slate-600">
+              Contraseña provisional de <strong className="break-all font-medium text-slate-900">{creado.email}</strong>:
+            </p>
+            <ContrasenaProvisional contrasena={creado.contrasena} email={creado.email} onHecho={onClose} />
+          </div>
+        ) : (
+          <div className="flex flex-col gap-4">
+            <p className="text-sm text-slate-600">
+              {creado.email} ya está dado de alta. La primera vez que entre tendrá que cambiar su contraseña por una suya.
+            </p>
+            <div className="flex justify-end">
+              <button type="button" onClick={onClose} className={BOTON_SECUNDARIO_ALTO}>
+                Hecho
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+    );
+  }
+
   return (
-    <Modal titulo="Nuevo usuario" onClose={onClose}>
+    <Modal titulo="Nuevo usuario" onClose={onClose} ancho={puedeAjustar && ajustar ? 'max-w-2xl' : 'max-w-md'}>
       <form onSubmit={enviar} className="flex flex-col gap-4">
         <div className="flex flex-col gap-1.5">
           <label htmlFor="usuario-email" className="text-sm font-medium text-slate-700">
@@ -873,13 +1017,9 @@ function ModalNuevoUsuario({
             className={CLASE_INPUT}
             autoFocus
           />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor="usuario-password" className="text-sm font-medium text-slate-700">
-            Contraseña inicial *
-          </label>
-          <CampoContrasena id="usuario-password" valor={password} onChange={setPassword} />
-          <p className="text-xs text-slate-500">Mínimo {CONTRASENA_MIN} caracteres. Cópiala antes de crear el usuario: después no se puede ver.</p>
+          <p className="text-xs text-slate-500">
+            La contraseña la crea la aplicación y la verás una sola vez al terminar. Es provisional: al entrar tendrá que poner una suya.
+          </p>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="flex flex-col gap-1.5">
@@ -898,9 +1038,16 @@ function ModalNuevoUsuario({
           </div>
           <div className="flex flex-col gap-1.5">
             <label htmlFor="usuario-rol" className="text-sm font-medium text-slate-700">
-              Rol
+              Perfil
             </label>
-            <select id="usuario-rol" value={rol} onChange={(e) => setRol(e.target.value)} disabled={!companyId} className={CLASE_INPUT}>
+            <select
+              id="usuario-rol"
+              value={rol}
+              onChange={(e) => cambiarPerfil(e.target.value)}
+              disabled={!companyId}
+              aria-describedby={companyId ? 'usuario-rol-resumen' : undefined}
+              className={CLASE_INPUT}
+            >
               {ROLES_EMPRESA.map((r) => (
                 <option key={r.valor} value={r.valor}>
                   {r.etiqueta}
@@ -909,12 +1056,34 @@ function ModalNuevoUsuario({
             </select>
           </div>
         </div>
+
+        {companyId && <ResumenDelPerfil catalogo={catalogo} rol={rol} id="usuario-rol-resumen" />}
+
+        {puedeAjustar && catalogo && (
+          <div className="flex flex-col gap-2">
+            <BotonAjustar abierto={ajustar} onClick={() => setAjustar((v) => !v)} controla="usuario-permisos" personalizado={aMedidaAhora} />
+            {ajustar && (
+              <div id="usuario-permisos">
+                <EditorPermisos
+                  catalogo={catalogo}
+                  rol={rol}
+                  areas={areas}
+                  onChange={setAreas}
+                  empresaEspanola={esEmpresaEspanola(empresa?.pais)}
+                  deshabilitado={guardando}
+                  onVolverAlPerfil={() => setAreas(null)}
+                />
+              </div>
+            )}
+          </div>
+        )}
+
         {error && <p className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</p>}
         <div className="flex justify-end gap-2">
           <button type="button" onClick={onClose} className={BOTON_SECUNDARIO}>
             Cancelar
           </button>
-          <button type="submit" disabled={guardando} className={BOTON_PRIMARIO}>
+          <button type="submit" disabled={guardando || vacio} className={BOTON_PRIMARIO}>
             {guardando ? 'Creando…' : 'Crear usuario'}
           </button>
         </div>
@@ -926,12 +1095,14 @@ function ModalNuevoUsuario({
 function PanelUsuario({
   usuario,
   empresas,
+  catalogo,
   esYo,
   onClose,
   onCambio,
 }: {
   usuario: UsuarioAdmin;
   empresas: EmpresaAdmin[];
+  catalogo: CatalogoPermisos | null;
   esYo: boolean;
   onClose: () => void;
   onCambio: () => Promise<void>;
@@ -941,19 +1112,27 @@ function PanelUsuario({
   const [ocupado, setOcupado] = useState(false);
   const [nuevaEmpresa, setNuevaEmpresa] = useState('');
   const [nuevoRol, setNuevoRol] = useState('solo_lectura');
-  const [contrasena, setContrasena] = useState('');
+  const [ajustarNuevo, setAjustarNuevo] = useState(false);
+  const [nuevasAreas, setNuevasAreas] = useState<Areas | null>(null);
+  // Acceso cuyo editor de permisos esta abierto y lo que se lleva marcado.
+  const [editando, setEditando] = useState<string | null>(null);
+  const [borrador, setBorrador] = useState<Areas | null>(null);
+  // Contrasena provisional recien generada: solo en este estado, se pierde al cerrar.
+  const [provisional, setProvisional] = useState<string | null>(null);
 
   const base = `/admin/usuarios/${encodeURIComponent(usuario.id)}`;
   const sinAcceso = empresas.filter((e) => !usuario.empresas.some((a) => a.companyId === e.id));
+  const paisDe = (companyId: string) => empresas.find((e) => e.id === companyId)?.pais;
+  const nombrePerfil = (rol: string) => catalogo?.perfiles.find((p) => p.rol === rol)?.nombre ?? nombreRol(rol);
 
-  const hacer = async (fn: () => Promise<unknown>, ok: string) => {
+  const hacer = async <T,>(fn: () => Promise<T>, ok: string | ((r: T) => string)) => {
     setError('');
     setAviso('');
     setOcupado(true);
     try {
-      await fn();
+      const r = await fn();
       await onCambio();
-      setAviso(ok);
+      setAviso(typeof ok === 'function' ? ok(r) : ok);
       return true;
     } catch (e) {
       setError(errorMessage(e));
@@ -963,32 +1142,94 @@ function PanelUsuario({
     }
   };
 
-  const ponerRol = (companyId: string, rol: string) =>
-    apiFetch(`${base}/empresas/${encodeURIComponent(companyId)}`, { method: 'PUT', body: JSON.stringify({ rol }) });
+  /**
+   * Sustituye el acceso entero: perfil y permisos (areas null = los del perfil).
+   * Con un servidor sin catalogo de permisos se manda solo el perfil.
+   */
+  const ponerAcceso = (companyId: string, rol: string, areas: Areas | null) =>
+    apiFetch<ResultadoAcceso>(`${base}/empresas/${encodeURIComponent(companyId)}`, {
+      method: 'PUT',
+      body: JSON.stringify(catalogo ? { rol, areas } : { rol }),
+    });
+
+  const perfilDelAcceso = (a: AccesoEmpresa) => areasDelPerfil(catalogo, a.rol);
+  const guardadas = (a: AccesoEmpresa) => a.areas ?? perfilDelAcceso(a);
+  const hayCambios = (a: AccesoEmpresa) => editando === a.companyId && !!borrador && !mismasAreas(borrador, guardadas(a));
 
   const cambiarRol = (a: AccesoEmpresa, rol: string) => {
     if (rol === a.rol) return;
-    if (!window.confirm(`¿Cambiar el rol de ${usuario.email} en «${a.nombre}» a ${nombreRol(rol)}?`)) return;
-    hacer(() => ponerRol(a.companyId, rol), `Ahora es ${nombreRol(rol)} en «${a.nombre}».`);
+    const pregunta = a.personalizado
+      ? `Al cambiar de perfil se pierden los permisos a medida en «${a.nombre}». ¿Seguir?`
+      : `¿Cambiar el perfil de ${usuario.email} en «${a.nombre}» a ${nombrePerfil(rol)}?`;
+    if (!window.confirm(pregunta)) return;
+    if (editando === a.companyId) setEditando(null);
+    hacer(() => ponerAcceso(a.companyId, rol, null), `Ahora es ${nombrePerfil(rol)} en «${a.nombre}».`);
+  };
+
+  const alternarEditor = (a: AccesoEmpresa) => {
+    if (editando === a.companyId) {
+      setEditando(null);
+      return;
+    }
+    setEditando(a.companyId);
+    setBorrador(guardadas(a));
+  };
+
+  const guardarPermisos = async (a: AccesoEmpresa) => {
+    if (!borrador || todoNinguno(borrador)) return;
+    const ok = await hacer(
+      () => ponerAcceso(a.companyId, a.rol, borrador),
+      (r) =>
+        r.personalizado
+          ? `Permisos de «${a.nombre}» guardados. Si tiene la sesión abierta, los verá al recargar la página.`
+          : 'Coincide con el perfil: queda sin personalizar.',
+    );
+    if (ok) setEditando(null);
+  };
+
+  const volverAlPerfil = async (a: AccesoEmpresa) => {
+    // Solo hay cambios sin guardar: se deshacen sin preguntar.
+    if (!a.personalizado) {
+      setBorrador(perfilDelAcceso(a));
+      return;
+    }
+    if (!window.confirm(`¿Quitar los permisos a medida y dejar los de ${nombrePerfil(a.rol)}?`)) return;
+    const ok = await hacer(
+      () => ponerAcceso(a.companyId, a.rol, null),
+      `En «${a.nombre}» vuelve a tener los permisos de ${nombrePerfil(a.rol)}. Si tiene la sesión abierta, los verá al recargar la página.`,
+    );
+    if (ok) setEditando(null);
   };
 
   const quitar = (a: AccesoEmpresa) => {
     if (!window.confirm(`¿Quitar a ${usuario.email} el acceso a «${a.nombre}»? No se borra ningún dato de la empresa.`)) return;
+    if (editando === a.companyId) setEditando(null);
     hacer(
       () => apiFetch(`${base}/empresas/${encodeURIComponent(a.companyId)}`, { method: 'DELETE' }),
       `Ya no tiene acceso a «${a.nombre}».`,
     );
   };
 
+  const puedeAjustarNuevo = !!catalogo && !!nuevaEmpresa && !esAdministrador(nuevoRol);
+  // Igual que en el alta: lo marcado cuenta aunque el editor este plegado.
+  const areasNuevas = puedeAjustarNuevo ? nuevasAreas : null;
+  const nuevoVacio = !!areasNuevas && todoNinguno(areasNuevas);
+  const nuevoAMedida = puedeAjustarNuevo && difiereDelPerfil(catalogo, nuevoRol, nuevasAreas);
+
   const darAcceso = async (ev: React.FormEvent) => {
     ev.preventDefault();
     const e = empresas.find((x) => x.id === nuevaEmpresa);
-    if (!e) return;
+    if (!e || nuevoVacio) return;
     const ok = await hacer(
-      () => ponerRol(e.id, nuevoRol),
-      `Acceso a «${e.nombre}» como ${nombreRol(nuevoRol)}. Si tiene la sesión abierta, lo verá al recargar la página.`,
+      () => ponerAcceso(e.id, nuevoRol, areasParaEnviar(catalogo, nuevoRol, areasNuevas)),
+      (r) =>
+        `Acceso a «${e.nombre}» como ${nombrePerfil(nuevoRol)}${r?.personalizado ? ' a medida' : ''}. Si tiene la sesión abierta, lo verá al recargar la página.`,
     );
-    if (ok) setNuevaEmpresa('');
+    if (ok) {
+      setNuevaEmpresa('');
+      setNuevasAreas(null);
+      setAjustarNuevo(false);
+    }
   };
 
   const alternarActivo = () => {
@@ -1004,7 +1245,7 @@ function PanelUsuario({
 
   const alternarAdmin = () => {
     const pregunta = usuario.esAdminGlobal
-      ? `¿Quitar el modo administrador global a ${usuario.email}? Seguirá entrando en sus empresas con el rol que tenga en cada una.`
+      ? `¿Quitar el modo administrador global a ${usuario.email}? Seguirá entrando en sus empresas con el perfil y los permisos que tenga en cada una.`
       : `¿Dar el modo administrador global a ${usuario.email}? Verá TODAS las empresas con todos los permisos y podrá gestionar usuarios.`;
     if (!window.confirm(pregunta)) return;
     hacer(
@@ -1015,31 +1256,31 @@ function PanelUsuario({
     );
   };
 
-  const restablecer = async (ev: React.FormEvent) => {
-    ev.preventDefault();
-    if (contrasena.length < CONTRASENA_MIN) {
-      setError(`La contraseña debe tener al menos ${CONTRASENA_MIN} caracteres.`);
-      return;
-    }
-    // Cambiar la contrasena cierra todas las sesiones abiertas con la anterior,
-    // tambien la propia: tras guardar la tuya, el panel te lleva a entrar de nuevo.
-    const pregunta = esYo
-      ? '¿Cambiar tu propia contraseña? Se cerrará tu sesión y tendrás que volver a entrar con la nueva.'
-      : `¿Cambiar la contraseña de ${usuario.email}? La actual dejará de servir y se le cierran las sesiones abiertas.`;
+  const generarProvisional = () => {
+    const pregunta = `Se creará una contraseña provisional para ${usuario.email}. La que tiene ahora dejará de servir y se cerrarán sus sesiones abiertas. ¿Seguir?`;
     if (!window.confirm(pregunta)) return;
-    const ok = await hacer(
-      () => apiFetch(base, { method: 'PATCH', body: JSON.stringify({ nuevaContrasena: contrasena }) }),
-      'Contraseña restablecida y sesiones abiertas cerradas. Pásasela por un canal seguro.',
+    setProvisional(null);
+    hacer(
+      async () => {
+        const r = await apiFetch<UsuarioConProvisional>(base, { method: 'PATCH', body: JSON.stringify({ restablecerContrasena: true }) });
+        setProvisional(r.contrasenaProvisional ?? null);
+        return r;
+      },
+      'Contraseña provisional creada. Sus sesiones abiertas se han cerrado.',
     );
-    if (ok) setContrasena('');
   };
 
   return (
-    <Modal titulo={usuario.email} onClose={onClose} ancho="max-w-2xl">
+    <Modal titulo={usuario.email} onClose={onClose} ancho="max-w-2xl" confirmarAlCerrar={provisional ? PREGUNTA_COPIADA : undefined}>
       <div className="flex flex-col gap-5">
         <div className="flex flex-wrap gap-1.5">
           {usuario.esAdminGlobal && <Etiqueta tono="indigo">Administrador global</Etiqueta>}
           {usuario.activo ? <Etiqueta tono="verde">Activo</Etiqueta> : <Etiqueta tono="rojo">Desactivado</Etiqueta>}
+          {usuario.debeCambiarContrasena && (
+            <span title="Todavía no ha puesto su propia contraseña">
+              <Etiqueta tono="ambar">Contraseña provisional</Etiqueta>
+            </span>
+          )}
           {esYo && <Etiqueta tono="gris">Eres tú</Etiqueta>}
         </div>
 
@@ -1056,69 +1297,174 @@ function PanelUsuario({
             <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-600">No tiene acceso a ninguna empresa.</p>
           ) : (
             <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200">
-              {usuario.empresas.map((a) => (
-                <li key={a.companyId} className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-slate-900">{a.nombre}</p>
-                    {!a.activa && <Etiqueta tono="gris">Empresa desactivada</Etiqueta>}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <label className="sr-only" htmlFor={`rol-${a.companyId}`}>
-                      Rol en {a.nombre}
-                    </label>
-                    <select
-                      id={`rol-${a.companyId}`}
-                      value={a.rol}
-                      disabled={ocupado}
-                      onChange={(e) => cambiarRol(a, e.target.value)}
-                      className={CLASE_SELECT_PEQUENO}
-                    >
-                      {ROLES_EMPRESA.map((r) => (
-                        <option key={r.valor} value={r.valor}>
-                          {r.etiqueta}
-                        </option>
-                      ))}
-                    </select>
-                    <button type="button" onClick={() => quitar(a)} disabled={ocupado} className={BOTON_PELIGRO} aria-label={`Quitar acceso a ${a.nombre}`}>
-                      <Trash size={14} /> Quitar
-                    </button>
-                  </div>
-                </li>
-              ))}
+              {usuario.empresas.map((a) => {
+                const abierto = editando === a.companyId;
+                const conPermisos = !!catalogo && !esAdministrador(a.rol);
+                const idEditor = `permisos-${a.companyId}`;
+                return (
+                  <li key={a.companyId} className="flex flex-col">
+                    <div className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-slate-900">{a.nombre}</p>
+                        {catalogo && (
+                          <p className="mt-0.5 text-xs text-slate-500">
+                            {a.personalizado && a.areas
+                              ? `Permisos distintos de los del perfil ${nombrePerfil(a.rol)}. ${resumenAreas(catalogo, a.areas)}`
+                              : resumenPerfil(catalogo, a.rol)}
+                          </p>
+                        )}
+                        {(a.personalizado || !a.activa) && (
+                          <div className="mt-1 flex flex-wrap gap-1.5">
+                            {a.personalizado && <Etiqueta tono="ambar">Personalizado</Etiqueta>}
+                            {!a.activa && <Etiqueta tono="gris">Empresa desactivada</Etiqueta>}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <label className="sr-only" htmlFor={`rol-${a.companyId}`}>
+                          Perfil en {a.nombre}
+                        </label>
+                        <select
+                          id={`rol-${a.companyId}`}
+                          value={a.rol}
+                          disabled={ocupado}
+                          onChange={(e) => cambiarRol(a, e.target.value)}
+                          className={CLASE_SELECT_PEQUENO}
+                        >
+                          {ROLES_EMPRESA.map((r) => (
+                            <option key={r.valor} value={r.valor}>
+                              {r.etiqueta}
+                            </option>
+                          ))}
+                        </select>
+                        {conPermisos && (
+                          <button
+                            type="button"
+                            onClick={() => alternarEditor(a)}
+                            disabled={ocupado}
+                            aria-expanded={abierto}
+                            aria-controls={idEditor}
+                            className={abierto ? BOTON_ENTRAR : BOTON_SECUNDARIO}
+                          >
+                            <SlidersHorizontal size={14} /> Permisos
+                          </button>
+                        )}
+                        <button type="button" onClick={() => quitar(a)} disabled={ocupado} className={BOTON_PELIGRO} aria-label={`Quitar acceso a ${a.nombre}`}>
+                          <Trash size={14} /> Quitar
+                        </button>
+                      </div>
+                    </div>
+
+                    {abierto && catalogo && (
+                      <div id={idEditor} className="flex flex-col gap-3 border-t border-slate-100 p-3">
+                        <EditorPermisos
+                          catalogo={catalogo}
+                          rol={a.rol}
+                          areas={borrador}
+                          onChange={setBorrador}
+                          empresaEspanola={esEmpresaEspanola(paisDe(a.companyId))}
+                          esAdminGlobal={usuario.esAdminGlobal}
+                          deshabilitado={ocupado}
+                        />
+                        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                          <button type="button" onClick={() => setEditando(null)} disabled={ocupado} className={BOTON_SECUNDARIO_ALTO}>
+                            Cancelar
+                          </button>
+                          {(a.personalizado || hayCambios(a)) && (
+                            <button type="button" onClick={() => volverAlPerfil(a)} disabled={ocupado} className={BOTON_SECUNDARIO_ALTO}>
+                              <ArrowCounterClockwise size={14} /> Volver al perfil
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => guardarPermisos(a)}
+                            disabled={ocupado || !hayCambios(a) || !borrador || todoNinguno(borrador)}
+                            className={BOTON_PRIMARIO}
+                          >
+                            {ocupado ? 'Guardando…' : 'Guardar permisos'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           )}
 
           {sinAcceso.length > 0 && (
-            <form onSubmit={darAcceso} className="flex flex-col gap-2 rounded-lg border border-dashed border-slate-300 p-3 sm:flex-row sm:items-end">
-              <div className="flex min-w-0 flex-1 flex-col gap-1">
-                <label htmlFor="acceso-empresa" className="text-xs font-medium text-slate-600">
-                  Dar acceso a
-                </label>
-                <select id="acceso-empresa" value={nuevaEmpresa} onChange={(e) => setNuevaEmpresa(e.target.value)} className={CLASE_INPUT}>
-                  <option value="">Elige una empresa</option>
-                  {sinAcceso.map((e) => (
-                    <option key={e.id} value={e.id}>
-                      {e.nombre}
-                      {e.activa ? '' : ' (desactivada)'}
-                    </option>
-                  ))}
-                </select>
+            <form onSubmit={darAcceso} className="flex flex-col gap-3 rounded-lg border border-dashed border-slate-300 p-3">
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                <div className="flex min-w-0 flex-col gap-1">
+                  <label htmlFor="acceso-empresa" className="text-xs font-medium text-slate-600">
+                    Dar acceso a
+                  </label>
+                  <select id="acceso-empresa" value={nuevaEmpresa} onChange={(e) => setNuevaEmpresa(e.target.value)} className={CLASE_INPUT}>
+                    <option value="">Elige una empresa</option>
+                    {sinAcceso.map((e) => (
+                      <option key={e.id} value={e.id}>
+                        {e.nombre}
+                        {e.activa ? '' : ' (desactivada)'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="acceso-rol" className="text-xs font-medium text-slate-600">
+                    Con el perfil
+                  </label>
+                  <select
+                    id="acceso-rol"
+                    value={nuevoRol}
+                    onChange={(e) => {
+                      if (nuevoAMedida && !window.confirm(PREGUNTA_CAMBIO_PERFIL)) return;
+                      setNuevoRol(e.target.value);
+                      setNuevasAreas(null); // Se vuelve a partir del perfil nuevo.
+                    }}
+                    aria-describedby={nuevaEmpresa ? 'acceso-rol-resumen' : undefined}
+                    className={CLASE_INPUT}
+                  >
+                    {ROLES_EMPRESA.map((r) => (
+                      <option key={r.valor} value={r.valor}>
+                        {r.etiqueta}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
-              <div className="flex flex-col gap-1">
-                <label htmlFor="acceso-rol" className="text-xs font-medium text-slate-600">
-                  Con el rol
-                </label>
-                <select id="acceso-rol" value={nuevoRol} onChange={(e) => setNuevoRol(e.target.value)} className={CLASE_INPUT}>
-                  {ROLES_EMPRESA.map((r) => (
-                    <option key={r.valor} value={r.valor}>
-                      {r.etiqueta}
-                    </option>
-                  ))}
-                </select>
+
+              {nuevaEmpresa && <ResumenDelPerfil catalogo={catalogo} rol={nuevoRol} id="acceso-rol-resumen" />}
+
+              {puedeAjustarNuevo && catalogo && (
+                <>
+                  <BotonAjustar
+                    abierto={ajustarNuevo}
+                    onClick={() => setAjustarNuevo((v) => !v)}
+                    controla="acceso-permisos"
+                    personalizado={nuevoAMedida}
+                  />
+                  {ajustarNuevo && (
+                    <div id="acceso-permisos">
+                      <EditorPermisos
+                        catalogo={catalogo}
+                        rol={nuevoRol}
+                        areas={nuevasAreas}
+                        onChange={setNuevasAreas}
+                        empresaEspanola={esEmpresaEspanola(paisDe(nuevaEmpresa))}
+                        esAdminGlobal={usuario.esAdminGlobal}
+                        deshabilitado={ocupado}
+                        onVolverAlPerfil={() => setNuevasAreas(null)}
+                      />
+                    </div>
+                  )}
+                </>
+              )}
+
+              <div className="flex justify-end">
+                <button type="submit" disabled={!nuevaEmpresa || ocupado || nuevoVacio} className={BOTON_PRIMARIO}>
+                  <Plus size={14} weight="bold" /> Dar acceso
+                </button>
               </div>
-              <button type="submit" disabled={!nuevaEmpresa || ocupado} className={BOTON_PRIMARIO}>
-                <Plus size={14} weight="bold" /> Dar acceso
-              </button>
             </form>
           )}
         </section>
@@ -1144,20 +1490,29 @@ function PanelUsuario({
             </button>
           </div>
 
-          <form onSubmit={restablecer} className="flex flex-col gap-1.5">
-            <label htmlFor="restablecer-password" className="text-xs font-medium text-slate-600">
-              Restablecer contraseña
-            </label>
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <div className="min-w-0 flex-1">
-                <CampoContrasena id="restablecer-password" valor={contrasena} onChange={setContrasena} />
-              </div>
-              <button type="submit" disabled={!contrasena || ocupado} className={BOTON_SECUNDARIO_ALTO}>
-                <Key size={14} /> Restablecer
-              </button>
-            </div>
-            <p className="text-xs text-slate-500">Mínimo {CONTRASENA_MIN} caracteres. Cópiala antes de guardar: después no se puede ver.</p>
-          </form>
+          <div className="flex flex-col gap-2">
+            <h4 className="text-xs font-medium text-slate-600">Contraseña</h4>
+            {esYo ? (
+              <p className="text-sm text-slate-600">
+                Tu contraseña la cambias tú en{' '}
+                <Link href={RUTA_CAMBIAR_CONTRASENA} className="font-medium text-accent-600 hover:text-accent-700">
+                  «Cambiar contraseña»
+                </Link>
+                .
+              </p>
+            ) : provisional ? (
+              <ContrasenaProvisional contrasena={provisional} email={usuario.email} onHecho={() => setProvisional(null)} />
+            ) : (
+              <>
+                <button type="button" onClick={generarProvisional} disabled={ocupado} className={`${BOTON_SECUNDARIO_ALTO} self-start`}>
+                  <Key size={14} /> Generar contraseña provisional
+                </button>
+                <p className="text-xs text-slate-500">
+                  La verás una sola vez. Al entrar con ella tendrá que poner una suya, que tú no conocerás.
+                </p>
+              </>
+            )}
+          </div>
         </section>
       </div>
     </Modal>

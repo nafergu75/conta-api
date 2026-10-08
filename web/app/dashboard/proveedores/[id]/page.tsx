@@ -3,7 +3,9 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, Download } from '@phosphor-icons/react';
-import { getToken, clearSession, getCompanyId } from '@/lib/auth';
+import { getToken, getCompanyId } from '@/lib/auth';
+import { ApiError, apiFetch, companyPath } from '@/lib/api';
+import { mensajeSinAcceso, PantallaSinAcceso } from '@/components/dashboard/SinAcceso';
 
 import { SupplierTabs } from '@/components/suppliers/SupplierTabs';
 import { SupplierDatosTab } from '@/components/suppliers/SupplierDatosTab';
@@ -12,8 +14,6 @@ import { SupplierContactosTab } from '@/components/suppliers/SupplierContactosTa
 import { SupplierCuentasTab } from '@/components/suppliers/SupplierCuentasTab';
 import { SupplierHistorialTab } from '@/components/suppliers/SupplierHistorialTab';
 import { ExportSupplierModal } from '@/components/suppliers/ExportSupplierModal';
-
-const API = '/api/conta';
 
 interface Proveedor {
   id: string;
@@ -41,6 +41,8 @@ export default function DetalleProveedorPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showExportModal, setShowExportModal] = useState(false);
+  // Texto del 403 si su acceso no incluye proveedores (antes salia «Proveedor no encontrado»).
+  const [sinAcceso, setSinAcceso] = useState<string | null>(null);
 
   useEffect(() => {
     loadProveedor();
@@ -55,28 +57,17 @@ export default function DetalleProveedorPage() {
 
     setLoading(true);
     try {
-      const res = await fetch(`${API}/companies/${companyId}/proveedores/${proveedorId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (res.status === 401) {
-        clearSession();
-        router.replace('/login');
-        return;
-      }
-
-      if (!res.ok) {
-        // El motivo del servidor (403 sin permiso, 404...), no solo el codigo.
-        const j = await res.json().catch(() => null);
-        throw new Error(res.status === 404 ? 'Error 404' : j?.message || j?.error || `Error ${res.status}`);
-      }
-
-      const data = await res.json();
-      const prov = data.data || data;
+      // apiFetch: un 401 lleva al login y la contraseña provisional, a cambiarla.
+      const prov = await apiFetch<Proveedor>(companyPath(`/proveedores/${encodeURIComponent(proveedorId)}`));
       setProveedor(prov);
       setError(null);
+      setSinAcceso(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al cargar proveedor');
+      const sinPermiso = mensajeSinAcceso(e);
+      if (sinPermiso) setSinAcceso(sinPermiso);
+      // El motivo del servidor, no solo el codigo; un 404 dice «Proveedor no encontrado».
+      else if (e instanceof ApiError && e.status === 404) setError('Error 404');
+      else setError(e instanceof Error ? e.message : 'Error al cargar proveedor');
     } finally {
       setLoading(false);
     }
@@ -92,6 +83,8 @@ export default function DetalleProveedorPage() {
       </div>
     );
   }
+
+  if (sinAcceso) return <PantallaSinAcceso titulo="Proveedor" mensaje={sinAcceso} />;
 
   if (!proveedor) {
     return (

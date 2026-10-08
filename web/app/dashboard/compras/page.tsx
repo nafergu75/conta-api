@@ -7,6 +7,7 @@ import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { formatoImporte } from '@/lib/moneda';
 import { claseEstadoGasto, claseEstadoPago, fechaCorta, type ListadoGastos } from '@/lib/compras';
+import { mensajeSinAcceso, PantallaSinAcceso } from '@/components/dashboard/SinAcceso';
 
 /**
  * Compras: facturas de gasto con contadores, filtros (en el servidor) y
@@ -27,6 +28,8 @@ export default function ComprasPage() {
   const [datos, setDatos] = useState<ListadoGastos | null>(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
+  // Texto del 403 si su acceso no incluye compras (null = si lo incluye).
+  const [sinAcceso, setSinAcceso] = useState<string | null>(null);
 
   const [busqueda, setBusqueda] = useState('');
   const [q, setQ] = useState('');
@@ -60,7 +63,12 @@ export default function ComprasPage() {
         setDatos(d);
         setError('');
       })
-      .catch((e) => vivo && setError(errorMessage(e)))
+      .catch((e) => {
+        if (!vivo) return;
+        const sin = mensajeSinAcceso(e);
+        if (sin) setSinAcceso(sin);
+        else setError(errorMessage(e));
+      })
       .finally(() => vivo && setCargando(false));
     return () => {
       vivo = false;
@@ -102,6 +110,8 @@ export default function ComprasPage() {
       color: 'text-blue-700',
     });
   }
+
+  if (sinAcceso) return <PantallaSinAcceso titulo="Compras" mensaje={sinAcceso} />;
 
   return (
     <div>

@@ -1,4 +1,4 @@
-import { clearSession, getCompanyId, getToken } from './auth';
+import { clearSession, getCompanyId, getToken, marcarCambioObligatorio, RUTA_CAMBIAR_CONTRASENA } from './auth';
 
 /** Prefijo que next.config.mjs reenvia al backend (API_PROXY_TARGET). */
 export const API_BASE = '/api/conta';
@@ -23,6 +23,32 @@ export function companyPath(path: string): string {
   return `/companies/${encodeURIComponent(getCompanyId())}${path.startsWith('/') ? path : `/${path}`}`;
 }
 
+/**
+ * Codigo (details.codigo) del 403 que da el servidor a quien entro con una
+ * contrasena provisional y todavia no ha puesto una suya.
+ */
+export const CODIGO_CAMBIO_CONTRASENA = 'CAMBIO_CONTRASENA_OBLIGATORIO';
+
+const MENSAJE_CAMBIO_CONTRASENA = 'Antes de seguir tienes que poner una contraseña tuya.';
+
+/** ¿Es el 403 de "pon una contrasena tuya"? */
+function esCambioObligatorio(status: number, cuerpo: unknown): boolean {
+  if (status !== 403 || !cuerpo || typeof cuerpo !== 'object') return false;
+  const details = (cuerpo as { details?: unknown }).details;
+  return !!details && typeof details === 'object' && (details as { codigo?: unknown }).codigo === CODIGO_CAMBIO_CONTRASENA;
+}
+
+/**
+ * Lleva a la pantalla de cambio de contrasena SIN cerrar la sesion: el token
+ * sigue valiendo para /auth/me y /auth/cambiar-contrasena.
+ */
+function llevarACambioContrasena() {
+  marcarCambioObligatorio();
+  if (typeof window !== 'undefined' && window.location.pathname !== RUTA_CAMBIAR_CONTRASENA) {
+    window.location.replace(RUTA_CAMBIAR_CONTRASENA);
+  }
+}
+
 function redirigirALogin() {
   clearSession();
   if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
@@ -34,6 +60,7 @@ function redirigirALogin() {
  * fetch contra el backend con el token de la sesion.
  *
  * - Un 401 cierra la sesion y lleva al login.
+ * - Un 403 CAMBIO_CONTRASENA_OBLIGATORIO lleva a poner una contrasena propia.
  * - Si la respuesta no es JSON (el proxy no llega al backend y devuelve una
  *   pagina de error), lanza un error legible en vez de "Unexpected token '<'".
  * - Devuelve `data` del sobre { data } del backend, o el cuerpo tal cual.
@@ -61,6 +88,11 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
   const esJson = (res.headers.get('content-type') ?? '').includes('application/json');
   const cuerpo = esJson ? await res.json().catch(() => null) : null;
 
+  if (esCambioObligatorio(res.status, cuerpo)) {
+    llevarACambioContrasena();
+    throw new ApiError(MENSAJE_CAMBIO_CONTRASENA, 403, cuerpo.details);
+  }
+
   if (!res.ok) {
     const mensaje =
       (cuerpo && (cuerpo.message || cuerpo.error)) ||
@@ -86,6 +118,10 @@ export async function apiDownload(path: string, nombreFichero: string): Promise<
   if (!res.ok) {
     // El backend explica el motivo en JSON (p. ej. "Falta el NIF de la empresa..."): se muestra tal cual.
     const cuerpo = (res.headers.get('content-type') ?? '').includes('application/json') ? await res.json().catch(() => null) : null;
+    if (esCambioObligatorio(res.status, cuerpo)) {
+      llevarACambioContrasena();
+      throw new ApiError(MENSAJE_CAMBIO_CONTRASENA, 403, cuerpo.details);
+    }
     const motivo = cuerpo && (cuerpo.message || cuerpo.error);
     throw new ApiError(motivo ? String(motivo) : `No se pudo descargar el fichero (HTTP ${res.status}).`, res.status);
   }
@@ -96,6 +132,22 @@ export async function apiDownload(path: string, nombreFichero: string): Promise<
   a.download = nombreFichero;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+/**
+ * Para las pantallas que todavia llaman a fetch directamente: el error de una
+ * respuesta no ok con el mensaje del servidor (en castellano), en vez de
+ * «Error 403». Si es el 403 de la contrasena provisional, lleva a cambiarla.
+ */
+export async function errorDeRespuesta(res: Response): Promise<ApiError> {
+  const esJson = (res.headers.get('content-type') ?? '').includes('application/json');
+  const cuerpo = esJson ? await res.json().catch(() => null) : null;
+  if (esCambioObligatorio(res.status, cuerpo)) {
+    llevarACambioContrasena();
+    return new ApiError(MENSAJE_CAMBIO_CONTRASENA, 403, cuerpo.details);
+  }
+  const mensaje = cuerpo && (cuerpo.message || cuerpo.error);
+  return new ApiError(mensaje ? String(mensaje) : `Error ${res.status}`, res.status, cuerpo?.details);
 }
 
 /** Mensaje para mostrar al usuario a partir de cualquier error. */
