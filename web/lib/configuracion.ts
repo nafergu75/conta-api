@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { EVENTO_SESION, getUser, tieneAlgunPermiso, type SessionUser } from './auth';
+import { EVENTO_SESION, getUser, tieneAlgunPermiso, type Areas, type SessionUser } from './auth';
 
 /**
  * Piezas comunes de Configuracion (/dashboard/configuracion): quien puede
@@ -148,6 +148,10 @@ export interface Miembro {
   email: string;
   rol: string;
   activo: boolean;
+  /** Tiene permisos a medida, distintos de los de su perfil. */
+  personalizado?: boolean;
+  /** Lo que puede en cada area. null con el perfil Administrador (todo). */
+  areas?: Areas | null;
 }
 
 export const FORMAS_PAGO: Array<[AjustesFacturacion['formaPago'], string]> = [

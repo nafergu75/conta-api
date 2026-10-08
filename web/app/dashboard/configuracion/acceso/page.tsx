@@ -25,6 +25,17 @@ const AREAS: Array<{ recurso: string; nombre: string }> = [
   { recurso: 'nominas', nombre: 'Nóminas' },
 ];
 
+/** «Ventas y facturas: ver y cambiar · Contabilidad: solo ver» (sin las areas a las que no entra). */
+function resumenAMedida(areas: NonNullable<Miembro['areas']>): string {
+  const partes = AREAS.flatMap((a) => {
+    const nivel = areas[a.recurso as keyof typeof areas];
+    if (nivel === 'modificar') return [`${a.nombre}: ver y cambiar`];
+    if (nivel === 'ver') return [`${a.nombre}: solo ver`];
+    return [];
+  });
+  return partes.length ? partes.join(' · ') : 'Sin acceso a ninguna área.';
+}
+
 export default function AccesoPage() {
   const { user, listo, empresa } = useConfiguracion();
   const verMiembros = puedeVer(user, 'miembros');
@@ -116,7 +127,13 @@ export default function AccesoPage() {
                     <p className={`truncate text-sm ${m.nombre ? 'text-slate-600' : 'text-slate-900'}`}>{m.email}</p>
                   </div>
                   <Etiqueta tono="azul">{nombreRol(m.rol)}</Etiqueta>
+                  {m.personalizado && <Etiqueta tono="ambar">A medida</Etiqueta>}
                   {m.activo ? <Etiqueta tono="verde">Activo</Etiqueta> : <Etiqueta tono="gris">Desactivado</Etiqueta>}
+                  {m.personalizado && m.areas && (
+                    <p className="basis-full text-xs text-slate-500">
+                      Permisos distintos de los de su perfil. {resumenAMedida(m.areas)}
+                    </p>
+                  )}
                 </li>
               ))}
             </ul>
