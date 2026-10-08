@@ -15,7 +15,8 @@ export type TipoGasto = (typeof TIPOS_GASTO)[number];
 /** Etiqueta, cuenta de gasto por defecto y retenciones de IRPF que admite cada tipo. */
 export const TIPO_GASTO_INFO: Record<TipoGasto, { texto: string; cuenta: string; retenciones: number[] }> = {
   COMPRA: { texto: 'Compras de mercaderías', cuenta: '600', retenciones: [0] },
-  SERVICIO_PROFESIONAL: { texto: 'Profesionales independientes', cuenta: '623', retenciones: [0, 1, 2, 7, 15, 19] },
+  // Profesionales: 0, 7, 15 y 19 (el servidor rechaza el 1 y el 2, que son de otras actividades).
+  SERVICIO_PROFESIONAL: { texto: 'Profesionales independientes', cuenta: '623', retenciones: [0, 7, 15, 19] },
   ALQUILER: { texto: 'Alquileres', cuenta: '621', retenciones: [0, 19] },
   SUMINISTROS: { texto: 'Suministros y otros servicios', cuenta: '628', retenciones: [0] },
 };
