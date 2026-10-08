@@ -369,8 +369,8 @@ export default function FormFacturaGasto({
       {/* 2. Datos de la factura */}
       <section className="rounded-xl border border-slate-200 bg-white p-4 md:p-6">
         <h2 className="mb-4 text-base font-semibold text-slate-900">Datos de la factura</h2>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <div className="md:col-span-3">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <div className="lg:col-span-3">
             <label htmlFor="fg-numero" className={etiqueta}>
               Nº de factura del proveedor *
             </label>
@@ -423,7 +423,7 @@ export default function FormFacturaGasto({
             )}
           </div>
           {mostrarRegistro && (
-            <p className="md:col-span-3 -mt-2 text-xs text-slate-500">
+            <p className="lg:col-span-3 -mt-2 text-xs text-slate-500">
               El IVA se deduce en el trimestre de esta fecha. Déjala vacía si la anotas en el mismo trimestre que la fecha de la factura.{' '}
               <button
                 type="button"
@@ -501,9 +501,9 @@ export default function FormFacturaGasto({
           {lineas.map((l, i) => {
             const c = `lineas.${i}`;
             return (
-              <div key={l.clave} className="grid grid-cols-2 gap-2 rounded-lg border border-slate-200 p-3 md:grid-cols-12 md:items-end md:border-0 md:p-0">
-                <div className="col-span-2 md:col-span-4">
-                  <label htmlFor={`fg-desc-${l.clave}`} className={`${etiqueta} ${i > 0 ? 'md:sr-only' : ''}`}>
+              <div key={l.clave} className="grid grid-cols-2 gap-2 rounded-lg border border-slate-200 p-3 xl:grid-cols-12 xl:items-end xl:border-0 xl:p-0">
+                <div className="col-span-2 xl:col-span-4">
+                  <label htmlFor={`fg-desc-${l.clave}`} className={`${etiqueta} ${i > 0 ? 'xl:sr-only' : ''}`}>
                     Descripción
                   </label>
                   <input
@@ -514,8 +514,8 @@ export default function FormFacturaGasto({
                     className={campoBase}
                   />
                 </div>
-                <div className="md:col-span-1">
-                  <label htmlFor={`fg-cant-${l.clave}`} className={`${etiqueta} ${i > 0 ? 'md:sr-only' : ''}`}>
+                <div className="xl:col-span-1">
+                  <label htmlFor={`fg-cant-${l.clave}`} className={`${etiqueta} ${i > 0 ? 'xl:sr-only' : ''}`}>
                     Cantidad
                   </label>
                   <input
@@ -527,8 +527,8 @@ export default function FormFacturaGasto({
                     className={`${campoBase} text-right`}
                   />
                 </div>
-                <div className="md:col-span-2">
-                  <label htmlFor={`fg-precio-${l.clave}`} className={`${etiqueta} ${i > 0 ? 'md:sr-only' : ''}`}>
+                <div className="xl:col-span-2">
+                  <label htmlFor={`fg-precio-${l.clave}`} className={`${etiqueta} ${i > 0 ? 'xl:sr-only' : ''}`}>
                     Precio (sin IVA)
                   </label>
                   <input
@@ -541,8 +541,8 @@ export default function FormFacturaGasto({
                     className={`${campoBase} text-right`}
                   />
                 </div>
-                <div className="md:col-span-2">
-                  <label htmlFor={`fg-iva-${l.clave}`} className={`${etiqueta} ${i > 0 ? 'md:sr-only' : ''}`}>
+                <div className="xl:col-span-2">
+                  <label htmlFor={`fg-iva-${l.clave}`} className={`${etiqueta} ${i > 0 ? 'xl:sr-only' : ''}`}>
                     IVA
                   </label>
                   <select
@@ -561,8 +561,8 @@ export default function FormFacturaGasto({
                   </select>
                 </div>
                 {conRetencion ? (
-                  <div className="md:col-span-2">
-                    <label htmlFor={`fg-irpf-${l.clave}`} className={`${etiqueta} ${i > 0 ? 'md:sr-only' : ''}`}>
+                  <div className="xl:col-span-2">
+                    <label htmlFor={`fg-irpf-${l.clave}`} className={`${etiqueta} ${i > 0 ? 'xl:sr-only' : ''}`}>
                       IRPF
                     </label>
                     <select
@@ -580,10 +580,10 @@ export default function FormFacturaGasto({
                     </select>
                   </div>
                 ) : (
-                  <div className="hidden md:col-span-2 md:block" />
+                  <div className="hidden xl:col-span-2 xl:block" />
                 )}
-                <div className="col-span-2 flex items-center justify-between gap-2 md:col-span-1 md:justify-end">
-                  <span className="text-sm text-slate-600 md:hidden">
+                <div className="col-span-2 flex items-center justify-between gap-2 xl:col-span-1 xl:justify-end">
+                  <span className="text-sm text-slate-600 xl:hidden">
                     Base {fmt(Number.isFinite(valores[i].cantidad) && Number.isFinite(valores[i].precioUnitario) ? calcularTotales([valores[i]]).base : 0)}
                   </span>
                   <button

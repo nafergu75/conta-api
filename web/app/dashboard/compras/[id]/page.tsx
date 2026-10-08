@@ -197,7 +197,7 @@ export default function GastoDetailPage() {
         <div className="border-b border-slate-200 px-4 py-3 md:px-6">
           <h2 className="text-lg font-semibold text-slate-900">Conceptos</h2>
         </div>
-        <table className="hidden w-full text-sm md:table">
+        <table className="hidden w-full text-sm xl:table">
           <thead className="border-b border-slate-200 bg-slate-50">
             <tr>
               <th className="px-6 py-3 text-left font-semibold text-slate-700">Descripción</th>
@@ -226,7 +226,7 @@ export default function GastoDetailPage() {
             ))}
           </tbody>
         </table>
-        <ul className="divide-y divide-slate-200 md:hidden">
+        <ul className="divide-y divide-slate-200 xl:hidden">
           {gasto.lineas.map((l) => (
             <li key={l.id} className="px-4 py-3 text-sm">
               <p className="break-words font-medium text-slate-900">{l.descripcion}</p>
