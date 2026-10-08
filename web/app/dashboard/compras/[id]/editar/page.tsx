@@ -43,6 +43,15 @@ export default function EditarFacturaGastoPage() {
   const [gasto, setGasto] = useState<GastoDetalle | null>(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
+  // ?campo=fechaRegistro: viene del Motor contable, que no pudo aprobar el borrador
+  // porque su trimestre ya esta presentado. Hasta leer la URL no se pinta el formulario.
+  const [campoInicial, setCampoInicial] = useState<'fechaRegistro' | undefined>();
+  const [urlLeida, setUrlLeida] = useState(false);
+
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('campo') === 'fechaRegistro') setCampoInicial('fechaRegistro');
+    setUrlLeida(true);
+  }, []);
 
   useEffect(() => {
     let vivo = true;
@@ -67,7 +76,7 @@ export default function EditarFacturaGastoPage() {
       </header>
 
       <main className="mx-auto max-w-4xl px-4 pt-6 pb-24 md:px-8 md:py-8">
-        {cargando ? (
+        {cargando || !urlLeida ? (
           <div className="h-64 animate-pulse rounded-xl bg-slate-100" />
         ) : !gasto ? (
           <p className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error || 'No se pudo cargar la factura.'}</p>
@@ -93,6 +102,12 @@ export default function EditarFacturaGastoPage() {
               asientoEnFirme={gasto.asiento?.estado === 'POSTED'}
               inicial={inicialDe(gasto)}
               monedaCuenta={gasto.monedaCuenta}
+              campoInicial={campoInicial}
+              avisoInicial={
+                campoInicial === 'fechaRegistro'
+                  ? 'No se ha podido aprobar: el trimestre de la fecha de esta factura ya tiene el IVA (o las retenciones) presentado. Si la recibiste más tarde, pon la fecha en que te llegó, de un periodo sin presentar, y guarda. Después aprueba el asiento en el Motor contable.'
+                  : undefined
+              }
               onGuardado={() => router.push(`/dashboard/compras/${id}?modificada=1`)}
               onCancelar={() => router.push(`/dashboard/compras/${id}`)}
             />

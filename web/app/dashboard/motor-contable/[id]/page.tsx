@@ -7,7 +7,7 @@ import { ArrowLeft, CheckCircle, Clock, WarningCircle, type Icon as IconoPhospho
 import { ApiError, apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { formatoImporte } from '@/lib/moneda';
-import { fechaCorta } from '@/lib/compras';
+import { conflictoGasto, enlaceRecibidaTarde, fechaCorta } from '@/lib/compras';
 
 interface JournalEntryLine {
   id: string;
@@ -71,6 +71,8 @@ export default function AsientoDetailPage() {
   const [noExiste, setNoExiste] = useState(false);
   const [approving, setApproving] = useState(false);
   const [aviso, setAviso] = useState('');
+  // Al aprobar el borrador de un gasto de un trimestre presentado: la factura que hay que corregir.
+  const [facturaRecibidaTarde, setFacturaRecibidaTarde] = useState<string | null>(null);
 
   const cargar = useCallback(async () => {
     try {
@@ -107,6 +109,8 @@ export default function AsientoDetailPage() {
       await cargar();
     } catch (err) {
       setError(errorMessage(err));
+      const c = conflictoGasto(err);
+      setFacturaRecibidaTarde(c?.fechaRegistro && c.facturaId ? c.facturaId : null);
     } finally {
       setApproving(false);
     }
@@ -163,7 +167,16 @@ export default function AsientoDetailPage() {
         </span>
       </div>
 
-      {error && <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-md text-red-700">{error}</div>}
+      {error && (
+        <div role="alert" className="mb-4 p-4 bg-red-50 border border-red-200 rounded-md text-red-700">
+          {error}
+          {facturaRecibidaTarde && (
+            <Link href={enlaceRecibidaTarde(facturaRecibidaTarde)} className="mt-2 block font-semibold underline">
+              Poner la fecha en que la recibiste
+            </Link>
+          )}
+        </div>
+      )}
       {aviso && (
         <div role="status" className="mb-4 p-4 bg-green-50 border border-green-200 rounded-md text-green-800">
           {aviso}

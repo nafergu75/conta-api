@@ -7,6 +7,8 @@
  * usuario mientras escribe sea lo que se guarda; el servidor decide.
  */
 
+import { ApiError } from './api';
+
 export const TIPOS_GASTO = ['COMPRA', 'SERVICIO_PROFESIONAL', 'ALQUILER', 'SUMINISTROS'] as const;
 export type TipoGasto = (typeof TIPOS_GASTO)[number];
 
@@ -19,6 +21,33 @@ export const TIPO_GASTO_INFO: Record<TipoGasto, { texto: string; cuenta: string;
 };
 
 export const esTipoGasto = (v: unknown): v is TipoGasto => typeof v === 'string' && (TIPOS_GASTO as readonly string[]).includes(v);
+
+/** Lo que pide hacer un 409 del servidor con una factura de gasto (segun sus details). */
+export interface ConflictoGasto {
+  /** Su trimestre ya esta presentado: hay que poner la fecha en que se recibio («¿La recibiste más tarde?»). */
+  fechaRegistro: boolean;
+  /** La factura afectada (llega al aprobar su asiento en el Motor contable). */
+  facturaId: string | null;
+  /** Factura anterior de un trimestre declarado: primero hay que contabilizarla. */
+  contabilizar: boolean;
+  /** Otra persona u otra pestaña la ha cambiado mientras tanto: hay que volver a abrirla. */
+  cambiada: boolean;
+}
+
+/** null si no es un 409. */
+export function conflictoGasto(err: unknown): ConflictoGasto | null {
+  if (!(err instanceof ApiError) || err.status !== 409) return null;
+  const d = (err.detalles && typeof err.detalles === 'object' ? err.detalles : {}) as Record<string, unknown>;
+  return {
+    fechaRegistro: d.campo === 'fechaRegistro',
+    facturaId: typeof d.facturaId === 'string' ? d.facturaId : null,
+    contabilizar: d.accion === 'contabilizar',
+    cambiada: d.motivo === 'factura_cambiada' || /^La factura ha cambiado mientras/.test(err.message),
+  };
+}
+
+/** Modificar la factura con «¿La recibiste más tarde?» abierto y el cursor en la fecha. */
+export const enlaceRecibidaTarde = (facturaId: string) => `/dashboard/compras/${encodeURIComponent(facturaId)}/editar?campo=fechaRegistro`;
 
 /** Tipos de IVA de una factura de gasto, de mayor a menor. */
 export const TIPOS_IVA_GASTO = [21, 10, 5, 4, 0] as const;

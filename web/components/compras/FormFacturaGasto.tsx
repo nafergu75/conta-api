@@ -8,6 +8,8 @@ import { formatoImporte, parseImporte } from '@/lib/moneda';
 import { PAISES, pareceNifIvaUe } from '@/lib/fiscal';
 import {
   calcularTotales,
+  conflictoGasto,
+  type ConflictoGasto,
   CUENTAS_GASTO_HABITUALES,
   type GastoDetalle,
   type GastoRegistrado,
@@ -84,6 +86,13 @@ interface Props {
   avisoProveedor?: string;
   /** Moneda de la contabilidad para los totales. */
   monedaCuenta?: string;
+  /**
+   * Campo que hay que corregir nada mas abrir (p. ej. 'fechaRegistro' cuando el
+   * Motor contable no deja aprobar el borrador): se despliega, se marca y recibe el foco.
+   */
+  campoInicial?: 'fechaRegistro';
+  /** Por que hay que corregirlo; sale en el cuadro de error. */
+  avisoInicial?: string;
   onGuardado: (r: GastoRegistrado) => void;
   onCancelar?: () => void;
 }
@@ -133,6 +142,8 @@ export default function FormFacturaGasto({
   bloqueado,
   avisoProveedor,
   monedaCuenta = 'EUR',
+  campoInicial,
+  avisoInicial,
   onGuardado,
   onCancelar,
 }: Props) {
@@ -142,7 +153,7 @@ export default function FormFacturaGasto({
   const [fechaVencimiento, setFechaVencimiento] = useState(inicial?.fechaVencimiento ?? (inicial?.fechaEmision ? sumarDias(inicial.fechaEmision, 30) : ''));
   // En una factura ya guardada el vencimiento no se mueve solo al cambiar la fecha.
   const [vencTocado, setVencTocado] = useState(modo === 'editar' || !!inicial?.fechaVencimiento);
-  const [mostrarRegistro, setMostrarRegistro] = useState(!!inicial?.fechaRegistro);
+  const [mostrarRegistro, setMostrarRegistro] = useState(!!inicial?.fechaRegistro || campoInicial === 'fechaRegistro');
   const [fechaRegistro, setFechaRegistro] = useState(inicial?.fechaRegistro ?? '');
   const [tipoGasto, setTipoGasto] = useState<TipoGasto>(inicial?.tipoGasto ?? 'SUMINISTROS');
   const [cuenta, setCuenta] = useState(inicial?.cuentaGasto ?? '');
@@ -165,12 +176,21 @@ export default function FormFacturaGasto({
   const [totalDocumento, setTotalDocumento] = useState(numeroATexto(inicial?.totalDocumento));
 
   const [guardando, setGuardando] = useState(false);
-  const [error, setError] = useState('');
-  const [campoError, setCampoError] = useState<string | undefined>();
+  const [error, setError] = useState(campoInicial ? (avisoInicial ?? '') : '');
+  const [campoError, setCampoError] = useState<string | undefined>(campoInicial);
   const [facturaRepetidaId, setFacturaRepetidaId] = useState<string | null>(null);
   const [proveedorRepetidoId, setProveedorRepetidoId] = useState<string | null>(null);
+  // 409 que piden otra cosa: contabilizarla antes o volver a abrirla.
+  const [conflicto, setConflicto] = useState<ConflictoGasto | null>(null);
   /** Sube en cada intento fallido de guardar: lleva la pantalla y el foco al campo que falla. */
   const [intentoFallido, setIntentoFallido] = useState(0);
+
+  // Se abre para corregir un campo concreto: el foco va a el, como tras un error.
+  useEffect(() => {
+    if (campoInicial) setIntentoFallido(1);
+    // Solo al abrir.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const paisProveedor = proveedor?.pais ?? 'ES';
   const extranjero = !esEspana(paisProveedor);
@@ -236,6 +256,7 @@ export default function FormFacturaGasto({
     setCampoError(undefined);
     setFacturaRepetidaId(null);
     setProveedorRepetidoId(null);
+    setConflicto(null);
 
     // Comprobaciones que el usuario entiende mejor aqui (el servidor repite todas).
     const falta = (mensaje: string, campo: string) => {
@@ -306,6 +327,7 @@ export default function FormFacturaGasto({
       const campo = normalizarCampo(campoDelError(err));
       setError(errorMessage(err));
       setCampoError(campo);
+      setConflicto(conflictoGasto(err));
       // Campos plegados: se despliegan para poder marcarlos.
       if (campo === 'fechaRegistro') setMostrarRegistro(true);
       if (campo === 'cuentaGasto' || /^lineas\.\d+\.cuenta$/.test(campo ?? '')) setMostrarCuenta(true);
@@ -680,6 +702,23 @@ export default function FormFacturaGasto({
           {proveedorRepetidoId && (
             <button type="button" onClick={usarProveedorExistente} className="self-start font-semibold underline">
               Usar el existente
+            </button>
+          )}
+          {conflicto?.contabilizar && facturaId && (
+            <Link href={`/dashboard/compras/${encodeURIComponent(facturaId)}`} className="self-start font-semibold underline">
+              Volver a la factura para contabilizarla
+            </Link>
+          )}
+          {conflicto?.cambiada && (
+            // Recarga la pantalla con los datos de ahora (lo escrito aqui se pierde, y se avisa).
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm('Se vuelve a abrir la factura como está ahora y se pierde lo que has cambiado aquí. ¿Seguir?')) window.location.reload();
+              }}
+              className="self-start font-semibold underline"
+            >
+              Volver a abrirla
             </button>
           )}
         </div>

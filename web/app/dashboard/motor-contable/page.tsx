@@ -6,7 +6,7 @@ import { ArrowRight, CheckCircle, Clock, Eye, XCircle, type Icon as IconoPhospho
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { formatoImporte } from '@/lib/moneda';
-import { fechaCorta } from '@/lib/compras';
+import { conflictoGasto, enlaceRecibidaTarde, fechaCorta } from '@/lib/compras';
 import { ConfirmationModal } from '@/components/dashboard/ConfirmationModal';
 import { ToastContainer, type ToastType } from '@/components/dashboard/Toast';
 
@@ -97,6 +97,8 @@ export default function MotorContablePage() {
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
   const [confirmar, setConfirmar] = useState<{ asiento: Asiento | null; cargando: boolean }>({ asiento: null, cargando: false });
+  // Borrador de un gasto cuyo trimestre ya esta presentado: se corrige en la factura.
+  const [recibidaTarde, setRecibidaTarde] = useState<{ mensaje: string; facturaId: string; numero: string } | null>(null);
   const [toasts, setToasts] = useState<Array<{ id: string; type: ToastType; title: string; message?: string }>>([]);
 
   const cargar = useCallback(async () => {
@@ -139,6 +141,7 @@ export default function MotorContablePage() {
     const a = confirmar.asiento;
     if (!a) return;
     setConfirmar({ asiento: a, cargando: true });
+    setRecibidaTarde(null);
     try {
       await apiFetch(companyPath(`/accounting/journal-entries/${encodeURIComponent(a.id)}/approve`), {
         method: 'POST',
@@ -152,6 +155,13 @@ export default function MotorContablePage() {
       setConfirmar({ asiento: null, cargando: false });
       await cargar();
     } catch (err) {
+      const c = conflictoGasto(err);
+      if (c?.fechaRegistro && c.facturaId) {
+        // No es un fallo que se arregle reintentando: hay que poner la fecha en la factura.
+        setRecibidaTarde({ mensaje: errorMessage(err), facturaId: c.facturaId, numero: a.numeroAsiento });
+        setConfirmar({ asiento: null, cargando: false });
+        return;
+      }
       addToast('error', 'No se pudo aprobar', errorMessage(err));
       setConfirmar({ asiento: a, cargando: false });
     }
@@ -217,6 +227,22 @@ export default function MotorContablePage() {
           <input id="mc-hasta" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} className={campo} />
         </div>
       </div>
+
+      {recibidaTarde && (
+        <div role="alert" className="mb-4 flex flex-col gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          <p>
+            <span className="font-semibold">No se ha aprobado el asiento {recibidaTarde.numero}.</span> {recibidaTarde.mensaje}
+          </p>
+          <div className="flex flex-wrap gap-3">
+            <Link href={enlaceRecibidaTarde(recibidaTarde.facturaId)} className="inline-flex items-center gap-1 font-semibold text-amber-900 underline">
+              Poner la fecha en que la recibiste <ArrowRight size={14} />
+            </Link>
+            <button type="button" onClick={() => setRecibidaTarde(null)} className="font-medium text-amber-800 hover:underline">
+              Cerrar
+            </button>
+          </div>
+        </div>
+      )}
 
       {!loading && pendientes > 0 && (
         <p role="status" className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
