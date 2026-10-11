@@ -1,5 +1,6 @@
 'use client';
 
+import { descargarConNumero, type CodigoModelo } from './Declaraciones';
 import { useState } from 'react';
 import { DownloadSimple, WarningCircle, Info } from '@phosphor-icons/react';
 import { apiDownload, errorMessage } from '@/lib/api';
@@ -164,14 +165,33 @@ export function AvisosBorrador({ errores, avisos }: { errores: string[]; avisos:
 }
 
 /** Botón de descarga del fichero para importar en la sede de la AEAT. */
-export function DescargarFichero({ ruta, nombre, bloqueado }: { ruta: string; nombre: string; bloqueado: boolean }) {
+/**
+ * Botón de descarga del fichero. Con `numero` (modelos informativos), si la
+ * declaración aún no tiene número identificativo la app se lo pone antes; así
+ * todas las descargas de la misma declaración llevan el mismo.
+ */
+export function DescargarFichero({
+  ruta,
+  nombre,
+  bloqueado,
+  numero,
+  onDescargado,
+}: {
+  ruta: string;
+  nombre: string;
+  bloqueado: boolean;
+  numero?: { codigo: CodigoModelo; ejercicio: number; periodo?: string };
+  onDescargado?: () => void;
+}) {
   const [descargando, setDescargando] = useState(false);
   const [error, setError] = useState('');
   const descargar = async () => {
     setDescargando(true);
     setError('');
     try {
-      await apiDownload(ruta, nombre);
+      if (numero) await descargarConNumero(numero.codigo, numero.ejercicio, numero.periodo, ruta, nombre);
+      else await apiDownload(ruta, nombre);
+      onDescargado?.();
     } catch (e) {
       setError(errorMessage(e));
     } finally {

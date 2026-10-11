@@ -1,5 +1,6 @@
 'use client';
 
+import { descargarConNumero, type CodigoModelo } from './Declaraciones';
 import { useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { CaretDown, CaretLeft, CaretRight, Download, WarningCircle } from '@phosphor-icons/react';
@@ -131,14 +132,35 @@ export function PaginaCasillas({ pagina, formato }: { pagina: PaginaBorrador; fo
 }
 
 /** Botón de descarga del fichero para importar en la sede de la AEAT. */
-export function DescargarFichero({ ruta, nombre, bloqueado, texto = 'Descargar fichero para la AEAT' }: { ruta: string; nombre: string; bloqueado: boolean; texto?: string }) {
+/**
+ * Botón de descarga del fichero. Con `numero` (347), si la declaración aún no
+ * tiene número identificativo la app se lo pone antes; así todas las
+ * descargas de la misma declaración llevan el mismo.
+ */
+export function DescargarFichero({
+  ruta,
+  nombre,
+  bloqueado,
+  texto = 'Descargar fichero para la AEAT',
+  numero,
+  onDescargado,
+}: {
+  ruta: string;
+  nombre: string;
+  bloqueado: boolean;
+  texto?: string;
+  numero?: { codigo: CodigoModelo; ejercicio: number; periodo?: string };
+  onDescargado?: () => void;
+}) {
   const [error, setError] = useState('');
   const [descargando, setDescargando] = useState(false);
   const descargar = async () => {
     setError('');
     setDescargando(true);
     try {
-      await apiDownload(ruta, nombre);
+      if (numero) await descargarConNumero(numero.codigo, numero.ejercicio, numero.periodo, ruta, nombre);
+      else await apiDownload(ruta, nombre);
+      onDescargado?.();
     } catch (e) {
       setError(errorMessage(e));
     } finally {
