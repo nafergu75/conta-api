@@ -15,7 +15,12 @@ type TipoDeclaracion = 'I' | 'U' | 'C' | 'D' | 'N';
 interface Modelo303 {
   id: string;
   ejercicio: number;
-  trimestre: number;
+  /** Trimestre (1-4); null en el 303 mensual. */
+  trimestre: number | null;
+  /** 1T-4T o 01-12. */
+  periodo: string;
+  /** La empresa presenta el 303 cada mes (REDEME, SII, gran empresa o periodicidad mensual). */
+  mensual: boolean;
   ivaRepercutido: { total: number; desglose: any[] };
   ivaSoportado: { total: number; desglose: any[] };
   /** Resultado [71]. */
@@ -24,7 +29,7 @@ interface Modelo303 {
   casillas303: Casilla303[];
   tipoDeclaracion: TipoDeclaracion;
   tiposDeclaracion: Array<{ codigo: TipoDeclaracion; nombre: string }>;
-  aCompensar: { importe: number; origen: 'manual' | 'periodo-anterior' | 'sin-dato'; periodo?: string; estado?: string };
+  aCompensar: { importe: number; origen: 'manual' | 'periodo-anterior' | 'sin-dato' | 'presentado'; periodo?: string; estado?: string };
   cuentas: Array<{ id: string; iban: string; banco: string | null }>;
   cuentaBancariaId: string | null;
   sinActividad: boolean;
@@ -51,6 +56,16 @@ function queryOpciones(o: Opciones): string {
   return s ? `&${s}` : '';
 }
 
+const TRIMESTRES = ['1T', '2T', '3T', '4T'];
+const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'].map(
+  (nombre, i) => ({ codigo: String(i + 1).padStart(2, '0'), nombre }),
+);
+const esTrimestre = (periodo: string) => periodo.endsWith('T');
+
+/** Periodo para la descarga: Q3-2026 (trimestre) o M05-2026 (mes). */
+const periodoDescarga = (periodo: string, ejercicio: number) =>
+  esTrimestre(periodo) ? `Q${periodo[0]}-${ejercicio}` : `M${periodo}-${ejercicio}`;
+
 const TITULO_RESULTADO: Record<TipoDeclaracion, string> = {
   I: 'A ingresar',
   U: 'A ingresar (domiciliado)',
@@ -66,9 +81,10 @@ export default function Modelo303Page() {
   const [avisoDescarga, setAvisoDescarga] = useState('');
   // Se abre en el trimestre que toca presentar (en octubre, el 3T).
   const [ejercicio, setEjercicio] = useState(() => trimestreAPresentar().ejercicio);
-  const [trimestre, setTrimestre] = useState(() => trimestreAPresentar().trimestre);
+  const [periodo, setPeriodo] = useState(() => `${trimestreAPresentar().trimestre}T`);
   const [opciones, setOpciones] = useState<Opciones>(SIN_OPCIONES);
   const [compensarEscrito, setCompensarEscrito] = useState('');
+  const [recarga, setRecarga] = useState(0);
 
   useEffect(() => {
     const fetchModelo = async () => {
@@ -76,7 +92,7 @@ export default function Modelo303Page() {
         setLoading(true);
         setError('');
         setModelo(
-          await apiFetch<Modelo303>(companyPath(`/tax-models/303?ejercicio=${ejercicio}&trimestre=${trimestre}${queryOpciones(opciones)}`)),
+          await apiFetch<Modelo303>(companyPath(`/tax-models/303?ejercicio=${ejercicio}&periodo=${periodo}${queryOpciones(opciones)}`)),
         );
       } catch (err) {
         setError(errorMessage(err));
@@ -86,7 +102,7 @@ export default function Modelo303Page() {
     };
 
     fetchModelo();
-  }, [ejercicio, trimestre, opciones]);
+  }, [ejercicio, periodo, opciones, recarga]);
 
   // Al cambiar de periodo se vuelve a lo que propone el servidor.
   const cambiarPeriodo = (cambio: () => void) => {
@@ -104,8 +120,8 @@ export default function Modelo303Page() {
     setAvisoDescarga('');
     try {
       await apiDownload(
-        companyPath(`/tax/export/modelo-303?period=Q${trimestre}-${ejercicio}&format=txt${queryOpciones(opciones)}`),
-        `modelo-303-${trimestre}T-${ejercicio}.txt`,
+        companyPath(`/tax/export/modelo-303?period=${periodoDescarga(periodo, ejercicio)}&format=txt${queryOpciones(opciones)}`),
+        `modelo-303-${periodo}-${ejercicio}.txt`,
       );
     } catch (err) {
       setAvisoDescarga(errorMessage(err));
@@ -143,8 +159,12 @@ export default function Modelo303Page() {
   const tipo = modelo.tipoDeclaracion;
   const aIngresar = tipo === 'I' || tipo === 'U';
   const conCuenta = tipo === 'U' || tipo === 'D';
+  const presentado = modelo.estado === 'presentado';
+  const verMeses = modelo.mensual || !esTrimestre(periodo);
   const origenCompensar =
-    modelo.aCompensar.origen === 'periodo-anterior'
+    modelo.aCompensar.origen === 'presentado'
+      ? 'Es el importe que se presentó.'
+      : modelo.aCompensar.origen === 'periodo-anterior'
       ? `Sale del 303 del ${modelo.aCompensar.periodo}${modelo.aCompensar.estado === 'presentado' ? ' (presentado)' : ' (sin presentar)'}.`
       : modelo.aCompensar.origen === 'manual'
         ? 'Importe puesto a mano.'
@@ -158,7 +178,7 @@ export default function Modelo303Page() {
           <CaretLeft size={20} />
           Volver a Fiscal
         </Link>
-        <h1 className="text-3xl font-bold text-slate-900">Modelo 303 – IVA Trimestral</h1>
+        <h1 className="text-3xl font-bold text-slate-900">Modelo 303 – IVA</h1>
         <p className="mt-2 text-slate-600">
           Borrador con el diseño de registro 2026 de la AEAT. El fichero se importa en el formulario del 303 de la sede.
         </p>
@@ -183,18 +203,29 @@ export default function Modelo303Page() {
         </div>
 
         <div>
-          <label htmlFor="trimestre-303" className="block text-sm font-medium text-slate-700">Trimestre</label>
+          <label htmlFor="periodo-303" className="block text-sm font-medium text-slate-700">Periodo</label>
           <select
-            id="trimestre-303"
-            value={trimestre}
-            onChange={(e) => cambiarPeriodo(() => setTrimestre(parseInt(e.target.value)))}
+            id="periodo-303"
+            value={periodo}
+            onChange={(e) => cambiarPeriodo(() => setPeriodo(e.target.value))}
             className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
           >
-            {[1, 2, 3, 4].map((t) => (
-              <option key={t} value={t}>
-                {t}T
-              </option>
-            ))}
+            <optgroup label="Trimestres">
+              {TRIMESTRES.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </optgroup>
+            {verMeses && (
+              <optgroup label="Meses">
+                {MESES.map((m) => (
+                  <option key={m.codigo} value={m.codigo}>
+                    {m.codigo} · {m.nombre}
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
         </div>
 
@@ -203,7 +234,7 @@ export default function Modelo303Page() {
           <select
             id="tipo-303"
             value={tipo}
-            disabled={modelo.estado === 'presentado'}
+            disabled={presentado}
             onChange={(e) => setOpciones((o) => ({ ...o, tipoDeclaracion: e.target.value }))}
             className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
           >
@@ -218,7 +249,7 @@ export default function Modelo303Page() {
         <div className="min-w-[14rem] flex-1">
           <label htmlFor="compensar-303" className="flex items-center gap-2 text-sm font-medium text-slate-700">
             Cuotas a compensar de periodos anteriores [110]
-            <Tooltip text="Lo que quedó a tu favor en otros 303 y todavía no has compensado. Se aplica en [78] hasta dejar el resultado a cero; lo que sobra pasa a [87]." />
+            <Tooltip text="Lo que quedó a tu favor en otros 303 y todavía no has compensado. Se aplica en [78] hasta dejar el resultado a cero y lo que sobra pasa a [87]. Si pides la devolución, se devuelve entero." />
           </label>
           <div className="mt-1 flex gap-2">
             <input
@@ -226,7 +257,7 @@ export default function Modelo303Page() {
               inputMode="decimal"
               placeholder={eur.format(modelo.aCompensar.importe)}
               value={compensarEscrito}
-              disabled={modelo.estado === 'presentado'}
+              disabled={presentado}
               onChange={(e) => setCompensarEscrito(e.target.value)}
               onBlur={aplicarCompensar}
               onKeyDown={(e) => e.key === 'Enter' && aplicarCompensar()}
@@ -274,6 +305,12 @@ export default function Modelo303Page() {
         )}
       </div>
 
+      {modelo.mensual && esTrimestre(periodo) && (
+        <p role="status" className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+          Tu empresa presenta el 303 cada mes (REDEME, SII o periodicidad mensual en los ajustes fiscales). Elige el mes en «Periodo».
+        </p>
+      )}
+
       {error && (
         <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
           {error}
@@ -285,7 +322,7 @@ export default function Modelo303Page() {
         <div className="rounded-lg border border-slate-200 bg-white p-6">
           <div className="flex items-center gap-2">
             <p className="text-sm text-slate-600">Total cuota devengada [27]</p>
-            <Tooltip text="IVA de tus ventas del trimestre, más el que autoliquidas por compras a otros países de la UE o con inversión del sujeto pasivo." />
+            <Tooltip text="IVA de tus ventas del periodo, más el que autoliquidas por compras a otros países de la UE o con inversión del sujeto pasivo." />
           </div>
           <p className="mt-2 text-2xl font-bold text-slate-900">{eur.format(modelo.ivaRepercutido.total)}</p>
         </div>
@@ -293,7 +330,7 @@ export default function Modelo303Page() {
         <div className="rounded-lg border border-slate-200 bg-white p-6">
           <div className="flex items-center gap-2">
             <p className="text-sm text-slate-600">Total a deducir [45]</p>
-            <Tooltip text="IVA de tus compras y gastos deducibles del trimestre." />
+            <Tooltip text="IVA de tus compras y gastos deducibles del periodo." />
           </div>
           <p className="mt-2 text-2xl font-bold text-slate-900">{eur.format(modelo.ivaSoportado.total)}</p>
         </div>
@@ -395,8 +432,8 @@ export default function Modelo303Page() {
 
       {/* Acciones Finales */}
       <div className="space-y-4">
-        {/* Botón de Descarga AEAT */}
-        {modelo.estado === 'vigente' && (
+        {/* Botón de Descarga AEAT (presentado: el fichero de las casillas que se presentaron) */}
+        {(modelo.estado === 'vigente' || presentado) && (
           <>
             <button
               onClick={descargarAEAT}
@@ -404,7 +441,7 @@ export default function Modelo303Page() {
               className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-6 py-3 text-sm font-medium text-white hover:bg-emerald-700 transition disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Download size={18} />
-              Descargar fichero para la sede de la AEAT (TXT)
+              {presentado ? 'Descargar el fichero que se presentó (TXT)' : 'Descargar fichero para la sede de la AEAT (TXT)'}
             </button>
             {avisoDescarga && (
               <p role="status" className="mt-2 text-sm text-amber-700">{avisoDescarga}</p>
@@ -414,7 +451,12 @@ export default function Modelo303Page() {
 
         {/* Formulario de Presentación */}
         {modelo.estado === 'vigente' && (
-          <FormPresentar codigo="303" ejercicio={ejercicio} trimestre={trimestre} />
+          <FormPresentar
+            codigo="303"
+            ejercicio={ejercicio}
+            {...(esTrimestre(periodo) ? { trimestre: Number(periodo[0]) } : { periodo })}
+            onSuccess={() => setRecarga((n) => n + 1)}
+          />
         )}
       </div>
     </div>
