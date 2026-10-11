@@ -6,6 +6,7 @@ import { FilePdf, FileXls, MagnifyingGlass } from '@phosphor-icons/react';
 import { Tooltip } from '@/app/dashboard/components/Tooltip';
 import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { TablaInforme, type Tabla } from './TablaInforme';
+import { BuscadorTercero } from './BuscadorTercero';
 
 /**
  * Informes contables de cualquier ejercicio (tambien los ya cerrados), en
@@ -18,10 +19,19 @@ type TipoInforme = 'balance' | 'pyg' | 'sumas' | 'mayor' | 'diario';
 const INFORMES: Array<{ id: TipoInforme; nombre: string; ruta: string; ayuda: string }> = [
   { id: 'balance', nombre: 'Balance de situación', ruta: 'balance', ayuda: 'Modelo PYMES del PGC, con la columna del ejercicio anterior.' },
   { id: 'pyg', nombre: 'Pérdidas y ganancias', ruta: 'perdidas-ganancias', ayuda: 'Modelo PYMES del PGC, con la columna del ejercicio anterior.' },
-  { id: 'sumas', nombre: 'Sumas y saldos', ruta: 'sumas-saldos', ayuda: 'Saldo inicial, debe, haber y saldo de cada cuenta.' },
-  { id: 'mayor', nombre: 'Libro mayor', ruta: 'mayor', ayuda: 'Movimientos de una cuenta o de un rango, con el saldo acumulado.' },
+  { id: 'sumas', nombre: 'Sumas y saldos', ruta: 'sumas-saldos', ayuda: 'Saldo inicial, debe, haber y saldo de cada cuenta, con un subtotal por cuenta de 3 dígitos.' },
+  { id: 'mayor', nombre: 'Libro mayor', ruta: 'mayor', ayuda: 'Movimientos de una cuenta, de un rango o de un cliente o proveedor, con el saldo acumulado.' },
   { id: 'diario', nombre: 'Libro diario', ruta: 'diario', ayuda: 'Todos los asientos del periodo, por fecha.' },
 ];
+
+/** Cliente o proveedor elegido para el Libro mayor (el nombre llega con la respuesta si se abre con un enlace). */
+interface TerceroMayor {
+  tipo: 'cliente' | 'proveedor';
+  id: string;
+  nombre: string;
+  nif: string | null;
+  subcuentas: string[];
+}
 
 interface Consulta {
   tipo: TipoInforme;
@@ -32,6 +42,22 @@ interface Consulta {
   cuentaDesde: string;
   cuentaHasta: string;
   incluirCierre: boolean;
+  /** Libro mayor: por cuenta (o rango) o por cliente o proveedor. */
+  mayorPor: 'cuenta' | 'tercero';
+  tercero: TerceroMayor | null;
+  /** Sumas y saldos: sin las subcuentas que no se han movido. */
+  ocultarSinMovimiento: boolean;
+}
+
+/** Cuenta (prefijo) o rango cuentaDesde-cuentaHasta. */
+function ponerCuentas(p: URLSearchParams, c: Consulta) {
+  const d = c.cuentaDesde.trim();
+  const h = c.cuentaHasta.trim();
+  if (d && !h) p.set('cuenta', d);
+  else {
+    if (d) p.set('cuentaDesde', d);
+    if (h) p.set('cuentaHasta', h);
+  }
 }
 
 /** Parametros de la API para una consulta (sin el formato). */
@@ -44,21 +70,41 @@ function parametros(c: Consulta): URLSearchParams {
   } else {
     p.set('ejercicio', String(c.ejercicio));
   }
-  if (c.tipo === 'sumas') p.set('nivel', c.nivel);
+  if (c.tipo === 'sumas') {
+    p.set('nivel', c.nivel);
+    ponerCuentas(p, c);
+    if (!c.ocultarSinMovimiento) p.set('ocultarSinMovimiento', 'false');
+  }
   if (c.tipo === 'mayor') {
-    const d = c.cuentaDesde.trim();
-    const h = c.cuentaHasta.trim();
-    if (d && !h) p.set('cuenta', d);
-    else {
-      if (d) p.set('cuentaDesde', d);
-      if (h) p.set('cuentaHasta', h);
-    }
+    if (c.mayorPor === 'tercero' && c.tercero) {
+      p.set('tercero', c.tercero.id);
+      p.set('tipoTercero', c.tercero.tipo);
+    } else ponerCuentas(p, c);
   }
   if (c.tipo === 'diario' && c.incluirCierre) p.set('incluirCierre', '1');
   return p;
 }
 
-const faltaCuenta = (c: Consulta) => c.tipo === 'mayor' && !c.cuentaDesde.trim() && !c.cuentaHasta.trim();
+const faltaCuenta = (c: Consulta) =>
+  c.tipo === 'mayor' && (c.mayorPor === 'tercero' ? !c.tercero : !c.cuentaDesde.trim() && !c.cuentaHasta.trim());
+
+const soloDigitos = (v: string | null | undefined) => (v ?? '').replace(/\D/g, '');
+
+/** Lo que trae la URL para el Libro mayor (enlaces de las fichas, de Carmen o de otros informes). */
+function mayorDeLaUrl(sp: URLSearchParams | null): Pick<Consulta, 'mayorPor' | 'tercero' | 'cuentaDesde' | 'cuentaHasta'> | null {
+  if (!sp) return null;
+  const tercero = sp.get('tercero');
+  const tipoTercero = sp.get('tipoTercero');
+  if (tercero && (tipoTercero === 'cliente' || tipoTercero === 'proveedor')) {
+    return { mayorPor: 'tercero', tercero: { tipo: tipoTercero, id: tercero, nombre: '', nif: null, subcuentas: [] }, cuentaDesde: '', cuentaHasta: '' };
+  }
+  const cuenta = soloDigitos(sp.get('cuenta'));
+  const d = soloDigitos(sp.get('cuentaDesde'));
+  const h = soloDigitos(sp.get('cuentaHasta'));
+  if (cuenta) return { mayorPor: 'cuenta', tercero: null, cuentaDesde: cuenta, cuentaHasta: '' };
+  if (d || h) return { mayorPor: 'cuenta', tercero: null, cuentaDesde: d, cuentaHasta: h };
+  return null;
+}
 
 /** Informe pedido en la URL (?tipo=pyg), o null si no hay o no es uno de la lista. */
 function tipoValido(tipo: string | null | undefined): TipoInforme | null {
@@ -77,8 +123,13 @@ export default function InformesContablesPage() {
 function InformesContables() {
   // ?tipo=pyg cambia el informe también si ya se está en esta pantalla (por ejemplo, con un
   // enlace de Carmen): Next no vuelve a montar la página cuando solo cambia la consulta.
-  const tipoUrl = tipoValido(useSearchParams()?.get('tipo'));
+  const sp = useSearchParams();
+  const tipoUrl = tipoValido(sp?.get('tipo'));
   const tipoVisto = useRef(tipoUrl);
+  // Cliente, proveedor o cuenta que pide la URL (?tercero=&tipoTercero= o ?cuenta=), como texto para ver si cambia.
+  const mayorUrl = mayorDeLaUrl(sp);
+  const claveMayorUrl = mayorUrl ? JSON.stringify([mayorUrl.tercero?.id, mayorUrl.tercero?.tipo, mayorUrl.cuentaDesde, mayorUrl.cuentaHasta]) : '';
+  const mayorVisto = useRef(claveMayorUrl);
   const router = useRouter();
   const anioActual = new Date().getFullYear();
   const [ejercicios, setEjercicios] = useState<number[]>([anioActual]);
@@ -91,7 +142,12 @@ function InformesContables() {
     cuentaDesde: '',
     cuentaHasta: '',
     incluirCierre: false,
+    mayorPor: 'cuenta',
+    tercero: null,
+    ocultarSinMovimiento: true,
   });
+  /** Datos del tercero que devuelve el servidor (nombre y subcuentas si se llega con un enlace). */
+  const [terceroLeido, setTerceroLeido] = useState<TerceroMayor | null>(null);
   const [aplicada, setAplicada] = useState<Consulta | null>(null);
   const [tabla, setTabla] = useState<Tabla | null>(null);
   const [cargando, setCargando] = useState(false);
@@ -100,18 +156,19 @@ function InformesContables() {
 
   // Ejercicios con asientos y, si se llega con un enlace, el informe pedido (?tipo=pyg).
   useEffect(() => {
-    const inicial = tipoVisto.current ?? 'balance';
+    const inicial = tipoVisto.current ?? (mayorUrl ? 'mayor' : 'balance');
+    const delEnlace = mayorUrl ?? {};
     apiFetch<number[]>(companyPath('/informes-contables/ejercicios'))
       .then((lista) => {
         const anios = lista.length ? lista : [anioActual];
         setEjercicios(anios);
-        const c = { ...form, tipo: inicial, ejercicio: anios[0] };
+        const c = { ...form, ...delEnlace, tipo: inicial, ejercicio: anios[0] };
         setForm(c);
         setAplicada(c);
       })
       .catch((e) => {
         setError(errorMessage(e));
-        const c = { ...form, tipo: inicial };
+        const c = { ...form, ...delEnlace, tipo: inicial };
         setForm(c);
         setAplicada(c);
       });
@@ -127,8 +184,9 @@ function InformesContables() {
     const ruta = INFORMES.find((i) => i.id === c.tipo)!.ruta;
     setCargando(true);
     try {
-      const r = await apiFetch<{ tabla: Tabla }>(companyPath(`/informes-contables/${ruta}?${parametros(c)}`));
+      const r = await apiFetch<{ tabla: Tabla; tercero?: TerceroMayor | null }>(companyPath(`/informes-contables/${ruta}?${parametros(c)}`));
       setTabla(r.tabla);
+      if (r.tercero) setTerceroLeido(r.tercero);
     } catch (e) {
       setTabla(null);
       setError(errorMessage(e));
@@ -149,6 +207,17 @@ function InformesContables() {
     setAplicada((a) => (a ? { ...a, tipo: tipoUrl } : a));
   }, [tipoUrl]);
 
+  // Un enlace al mayor de otro cliente, proveedor o cuenta con la pantalla ya abierta.
+  useEffect(() => {
+    if (!claveMayorUrl || claveMayorUrl === mayorVisto.current) return;
+    mayorVisto.current = claveMayorUrl;
+    const m = mayorDeLaUrl(sp);
+    if (!m) return;
+    setForm((f) => ({ ...f, ...m, tipo: 'mayor' }));
+    setAplicada((a) => (a ? { ...a, ...m, tipo: 'mayor' } : a));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [claveMayorUrl]);
+
   /** Cambios que se aplican al momento (informe, ejercicio, nivel...). */
   const cambiarYAplicar = (cambios: Partial<Consulta>) => {
     const c = { ...form, ...cambios };
@@ -166,7 +235,8 @@ function InformesContables() {
     const info = INFORMES.find((i) => i.id === aplicada.tipo)!;
     const p = parametros(aplicada);
     p.set('formato', formato);
-    const nombre = `${info.nombre} ${aplicada.desde || aplicada.hasta ? `${p.get('desde')} a ${p.get('hasta')}` : aplicada.ejercicio}`
+    const deQuien = aplicada.tipo === 'mayor' && aplicada.mayorPor === 'tercero' ? ` ${terceroLeido?.nombre || aplicada.tercero?.nombre || ''}` : '';
+    const nombre = `${info.nombre}${deQuien} ${aplicada.desde || aplicada.hasta ? `${p.get('desde')} a ${p.get('hasta')}` : aplicada.ejercicio}`
       .normalize('NFD')
       .replace(/[̀-ͯ]/g, '')
       .replace(/[^\w-]+/g, '_');
@@ -243,25 +313,72 @@ function InformesContables() {
         </div>
 
         {form.tipo === 'sumas' && (
-          <div className="col-span-2 sm:col-span-1 sm:w-44">
-            <label htmlFor="inf-nivel" className="block text-xs font-medium text-slate-600">Nivel</label>
-            <select id="inf-nivel" value={form.nivel} onChange={(e) => cambiarYAplicar({ nivel: e.target.value })} className={campo}>
-              <option value="subcuenta">Subcuenta</option>
-              <option value="4">Cuentas de 4 dígitos</option>
-              <option value="3">Cuentas de 3 dígitos</option>
-            </select>
-          </div>
+          <>
+            <div className="col-span-2 sm:col-span-1 sm:w-44">
+              <label htmlFor="inf-nivel" className="block text-xs font-medium text-slate-600">Nivel</label>
+              <select id="inf-nivel" value={form.nivel} onChange={(e) => cambiarYAplicar({ nivel: e.target.value })} className={campo}>
+                <option value="subcuenta">Subcuenta</option>
+                <option value="4">Cuentas de 4 dígitos</option>
+                <option value="3">Cuentas de 3 dígitos</option>
+              </select>
+            </div>
+            <div className="sm:w-32">
+              <label htmlFor="inf-scta" className="block text-xs font-medium text-slate-600">Desde cuenta</label>
+              <input id="inf-scta" inputMode="numeric" value={form.cuentaDesde} onChange={(e) => setForm({ ...form, cuentaDesde: e.target.value.replace(/\D/g, '') })} placeholder="430" className={`${campo} font-mono`} />
+            </div>
+            <div className="sm:w-32">
+              <label htmlFor="inf-scta2" className="block text-xs font-medium text-slate-600">Hasta cuenta</label>
+              <input id="inf-scta2" inputMode="numeric" value={form.cuentaHasta} onChange={(e) => setForm({ ...form, cuentaHasta: e.target.value.replace(/\D/g, '') })} placeholder="430" className={`${campo} font-mono`} />
+            </div>
+            {form.nivel === 'subcuenta' && (
+              <label className="col-span-2 flex items-center gap-2 pb-2 text-sm text-slate-600 sm:col-span-1">
+                <input type="checkbox" checked={form.ocultarSinMovimiento} onChange={(e) => cambiarYAplicar({ ocultarSinMovimiento: e.target.checked })} className="h-4 w-4 rounded border-slate-300" />
+                Ocultar subcuentas sin movimientos
+              </label>
+            )}
+          </>
         )}
         {form.tipo === 'mayor' && (
           <>
-            <div className="sm:w-36">
-              <label htmlFor="inf-cta" className="block text-xs font-medium text-slate-600">Cuenta</label>
-              <input id="inf-cta" inputMode="numeric" value={form.cuentaDesde} onChange={(e) => setForm({ ...form, cuentaDesde: e.target.value })} placeholder="572" className={`${campo} font-mono`} />
-            </div>
-            <div className="sm:w-36">
-              <label htmlFor="inf-cta2" className="block text-xs font-medium text-slate-600">Hasta cuenta (opcional)</label>
-              <input id="inf-cta2" inputMode="numeric" value={form.cuentaHasta} onChange={(e) => setForm({ ...form, cuentaHasta: e.target.value })} placeholder="579" className={`${campo} font-mono`} />
-            </div>
+            <fieldset className="col-span-2 sm:col-span-1">
+              <legend className="block text-xs font-medium text-slate-600">Ver el mayor de</legend>
+              <div className="mt-1 inline-flex w-full rounded-lg border border-slate-300 p-0.5 text-sm sm:w-auto">
+                {(
+                  [
+                    ['cuenta', 'Una cuenta o rango'],
+                    ['tercero', 'Un cliente o proveedor'],
+                  ] as const
+                ).map(([valor, texto]) => (
+                  <label
+                    key={valor}
+                    className={`flex flex-1 cursor-pointer items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 ${form.mayorPor === valor ? 'bg-blue-600 font-medium text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+                  >
+                    <input type="radio" name="inf-mayor-por" value={valor} checked={form.mayorPor === valor} onChange={() => cambiarYAplicar({ mayorPor: valor })} className="sr-only" />
+                    {texto}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            {form.mayorPor === 'tercero' ? (
+              <div className="col-span-2 sm:w-80">
+                <label htmlFor="inf-tercero" className="block text-xs font-medium text-slate-600">Cliente o proveedor</label>
+                <BuscadorTercero
+                  elegido={form.tercero ? { ...form.tercero, ...(terceroLeido && terceroLeido.id === form.tercero.id && !form.tercero.nombre ? terceroLeido : {}) } : null}
+                  onElegir={(t) => cambiarYAplicar({ tercero: t })}
+                />
+              </div>
+            ) : (
+              <>
+                <div className="sm:w-36">
+                  <label htmlFor="inf-cta" className="block text-xs font-medium text-slate-600">Cuenta</label>
+                  <input id="inf-cta" inputMode="numeric" value={form.cuentaDesde} onChange={(e) => setForm({ ...form, cuentaDesde: e.target.value })} placeholder="572" className={`${campo} font-mono`} />
+                </div>
+                <div className="sm:w-36">
+                  <label htmlFor="inf-cta2" className="block text-xs font-medium text-slate-600">Hasta cuenta (opcional)</label>
+                  <input id="inf-cta2" inputMode="numeric" value={form.cuentaHasta} onChange={(e) => setForm({ ...form, cuentaHasta: e.target.value })} placeholder="579" className={`${campo} font-mono`} />
+                </div>
+              </>
+            )}
           </>
         )}
         {form.tipo === 'diario' && (
@@ -296,14 +413,18 @@ function InformesContables() {
 
       <p className="text-sm text-slate-500">
         {info.ayuda} {form.tipo === 'balance' ? 'Sin fecha, a 31 de diciembre.' : 'Sin fechas, el ejercicio completo.'}
-        {form.tipo === 'mayor' && ' Escribe una cuenta (572 trae todas las 572…) o un rango con «Hasta cuenta».'}
+        {form.tipo === 'mayor' &&
+          (form.mayorPor === 'tercero'
+            ? ' Busca al cliente o proveedor por su nombre, su NIF o su subcuenta: salen los movimientos de sus subcuentas.'
+            : ' Escribe una cuenta (572 trae todas las 572…) o un rango con «Hasta cuenta» (430 a 430: todos los clientes, cada uno con su subcuenta).')}
+        {form.tipo === 'sumas' && ' Con «Desde» y «Hasta» sacas solo unas cuentas (430 a 430: los clientes; 410 a 410: los acreedores).'}
       </p>
 
       {error && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
 
       {aplicada && faltaCuenta(aplicada) ? (
         <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
-          Indica una cuenta para ver su mayor.
+          {aplicada.mayorPor === 'tercero' ? 'Elige un cliente o proveedor para ver el mayor de sus subcuentas.' : 'Indica una cuenta para ver su mayor.'}
         </div>
       ) : cargando ? (
         <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">Calculando el informe…</div>
