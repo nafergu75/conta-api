@@ -179,6 +179,8 @@ export const NAV_GROUPS: NavGroup[] = [
           'GET /companies/:id/accounting/chart-of-accounts',
           'POST /companies/:id/accounting/chart-of-accounts',
         ],
+        // Lleva el nombre de cada cliente y proveedor en su subcuenta: solo contabilidad.
+        requiredRoles: ['contabilidad:read'],
       },
       {
         label: 'Motor contable',
