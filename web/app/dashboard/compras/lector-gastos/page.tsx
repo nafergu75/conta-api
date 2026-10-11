@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { ArrowLeft, CheckCircle, FileArrowUp, WarningCircle } from '@phosphor-icons/react';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import PanelLectura from '@/components/lector/PanelLectura';
-import { anuncioLecturaTerminada, descartarLectura, ErrorLectura, esCancelada, leerFactura, type InfoLectura } from '@/lib/lecturas';
+import { anuncioLecturaTerminada, descartarLectura, ErrorLectura, esCancelada, leerFactura, porcentaje, type InfoLectura, type TramoGasto } from '@/lib/lecturas';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { pareceNifIvaUe } from '@/lib/fiscal';
 import FormFacturaGasto, { type FormInicial } from '@/components/compras/FormFacturaGasto';
@@ -50,13 +50,17 @@ function sinTipoDocumento(info: InfoLectura): InfoLectura {
   const peorCampo = Math.max(0, ...resto.map((c) => RANGO[c.estado]));
   const peorTodos = Math.max(peorCampo, _quitado ? RANGO[_quitado.estado] : 0);
   // Algo marcado sin campo (QR ilegible, archivo repetido) pesa mas que todos los campos juntos.
-  const sinCampo = RANGO[info.estado] > peorTodos || info.qr.estado === 'ILEGIBLE' || info.qr.estado === 'NO_COINCIDE';
+  const sinCampo = RANGO[info.estado] > peorTodos || (info.generales ?? []).length > 0 || info.qr.estado === 'ILEGIBLE' || info.qr.estado === 'NO_COINCIDE';
   const requiereRevision = info.requiereRevision && (peorCampo > 0 || sinCampo);
   return { ...info, campos, requiereRevision };
 }
 
-/** Lo leido, en la forma del formulario. */
-function inicialDe(g: GastoExtraido, paisExistente: string | null): FormInicial {
+/**
+ * Lo leido, en la forma del formulario. Con varios tipos de IVA, una linea por
+ * tipo con su base (si no, el formulario las juntaria al tipo mayor). La
+ * cuenta propuesta va para toda la factura, asi que sale igual en cada linea.
+ */
+function inicialDe(g: GastoExtraido & { tramos?: TramoGasto[] }, paisExistente: string | null): FormInicial {
   const tipo = g.tipoGastoSugerido && TIPO_GASTO_INFO[g.tipoGastoSugerido] ? g.tipoGastoSugerido : 'SUMINISTROS';
   const base = Number(g.base) || 0;
   const tipoIva = g.tipoIva !== null && g.tipoIva !== undefined ? tipoIvaMasCercano(g.tipoIva) : base > 0 ? tipoIvaMasCercano(((Number(g.iva) || 0) / base) * 100) : 21;
@@ -70,21 +74,26 @@ function inicialDe(g: GastoExtraido, paisExistente: string | null): FormInicial 
     proveedor = { tipo: 'nuevo', nombreFiscal: g.proveedor ?? '', nifCif: nif, pais, direccion: '', cp: '', municipio: '', provincia: '' };
   }
   const fecha = g.fecha && /^\d{4}-\d{2}-\d{2}$/.test(g.fecha) ? g.fecha : hoyIso();
+  const concepto = g.conceptoGasto?.trim() || 'Gasto';
+  const tipoRetencion = TIPO_GASTO_INFO[tipo].retenciones.includes(ret) ? ret : 0;
+  const tramos = (g.tramos ?? []).filter((t) => Number.isFinite(Number(t.base)) && Number.isFinite(Number(t.tipoIva)));
+  const lineas: FormInicial['lineas'] =
+    tramos.length > 1
+      ? tramos.map((t) => ({
+          descripcion: `${concepto} (IVA del ${porcentaje(Number(t.tipoIva))})`,
+          cantidad: 1,
+          precioUnitario: Number(t.base),
+          tipoIva: tipoIvaMasCercano(Number(t.tipoIva)),
+          tipoRetencion,
+        }))
+      : [{ descripcion: concepto, cantidad: 1, precioUnitario: base, tipoIva, tipoRetencion }];
   return {
     proveedor,
     numeroFacturaProveedor: g.numeroFactura ?? '',
     fechaEmision: fecha,
     tipoGasto: tipo,
     cuentaGasto: g.cuentaContableBase && /^6\d{2,9}$/.test(g.cuentaContableBase) ? g.cuentaContableBase : null,
-    lineas: [
-      {
-        descripcion: g.conceptoGasto?.trim() || 'Gasto',
-        cantidad: 1,
-        precioUnitario: base,
-        tipoIva,
-        tipoRetencion: TIPO_GASTO_INFO[tipo].retenciones.includes(ret) ? ret : 0,
-      },
-    ],
+    lineas,
     totalDocumento: Number.isFinite(Number(g.total)) && Number(g.total) !== 0 ? Number(g.total) : undefined,
   };
 }
