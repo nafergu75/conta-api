@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { Plus, MagnifyingGlass, X, Trash } from '@phosphor-icons/react';
 import { getToken, getCompanyId } from '@/lib/auth';
 import { apiFetch, companyPath } from '@/lib/api';
@@ -20,6 +21,8 @@ interface Cliente {
   provincia?: string;
   pais?: string;
   monedaPreferida?: string | null;
+  /** Subcuenta contable propia (430 + numero). */
+  subcuenta430?: string | null;
 }
 
 export default function ClientesPage() {
@@ -59,9 +62,11 @@ export default function ClientesPage() {
   }, [loadClientes]);
 
   const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
     return clientes.filter((c) =>
-      c.nombreFiscal.toLowerCase().includes(search.toLowerCase()) ||
-      c.nifCif.includes(search)
+      c.nombreFiscal.toLowerCase().includes(q) ||
+      c.nifCif.toLowerCase().includes(q) ||
+      (c.subcuenta430 ?? '').includes(q)
     );
   }, [clientes, search]);
 
@@ -94,7 +99,7 @@ export default function ClientesPage() {
             />
             <input
               type="text"
-              placeholder="Buscar por nombre o NIF..."
+              placeholder="Nombre, NIF o subcuenta"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-9 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
@@ -152,7 +157,9 @@ export default function ClientesPage() {
                 <div className="flex items-start justify-between mb-3">
                   <div className="min-w-0">
                     <h3 className="font-semibold text-slate-900 truncate">
-                      {cliente.nombreFiscal}
+                      <Link href={`/dashboard/clientes/${cliente.id}`} className="hover:underline">
+                        {cliente.nombreFiscal}
+                      </Link>
                     </h3>
                     <p className="text-sm font-mono text-slate-500">
                       {cliente.nifCif}
@@ -161,6 +168,11 @@ export default function ClientesPage() {
                       )}
                       {cliente.monedaPreferida && <span className="ml-2 font-sans">· {cliente.monedaPreferida}</span>}
                     </p>
+                    {cliente.subcuenta430 && (
+                      <p className="text-xs text-slate-500">
+                        Subcuenta <span className="font-mono">{cliente.subcuenta430}</span>
+                      </p>
+                    )}
                   </div>
                   <button
                     className="p-1.5 text-slate-400 hover:text-rose-600 transition-colors shrink-0"
