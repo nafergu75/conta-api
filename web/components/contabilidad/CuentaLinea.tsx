@@ -55,6 +55,13 @@ export function CuentaLinea({ tipo, catalogo, valor, onCambiar, porDefecto, line
   const boton = useRef<HTMLButtonElement>(null);
   const elegida = valor || null;
   const nombreElegida = catalogo.nombreDe(elegida ?? porDefecto.codigo);
+  const { listado, pedirNombre } = catalogo;
+
+  // La cuenta que ya lleva la linea puede no estar en la lista (una 608 o una 640
+  // para quien no ve las de uso contable): su nombre se pide aparte.
+  useEffect(() => {
+    if (elegida && listado && !nombreElegida) pedirNombre(elegida);
+  }, [elegida, listado, nombreElegida, pedirNombre]);
 
   useEffect(() => {
     if (abierto && !creando) buscador.current?.focus();
@@ -198,7 +205,7 @@ export function CuentaLinea({ tipo, catalogo, valor, onCambiar, porDefecto, line
                     <Plus size={14} /> Crear subcuenta nueva
                   </button>
                 ) : (
-                  <span className="text-xs text-slate-500">Para crear subcuentas nuevas pide permiso al administrador.</span>
+                  <span className="text-xs text-slate-500">Para crear subcuentas nuevas pide permiso al administrador. Si ya te lo han dado, sal y vuelve a entrar.</span>
                 )}
                 <button type="button" onClick={cerrar} className="inline-flex items-center gap-1 text-slate-600 hover:text-slate-900">
                   <X size={14} /> Cerrar
