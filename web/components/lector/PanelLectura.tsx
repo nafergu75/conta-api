@@ -6,6 +6,7 @@ import {
   nivelConfianza,
   textoDiferenciaQr,
   valorLegible,
+  type DiferenciaQr,
   type EstadoCampo,
   type InfoLectura,
   type LectorPantalla,
@@ -42,6 +43,14 @@ const ORDEN = [
   'concepto',
 ];
 
+/** Campo de la lectura de cada dato del QR (como CAMPO_QR del servidor). */
+const CAMPO_QR: Record<DiferenciaQr['campo'], string> = {
+  nif: 'emisor.nif',
+  numero: 'numero',
+  fecha: 'fechaEmision',
+  importe: 'totales.totalFactura',
+};
+
 function posicion(id: string): number {
   const i = ORDEN.indexOf(id.startsWith('desglose.') ? 'desglose' : id);
   return i === -1 ? ORDEN.length : i;
@@ -60,9 +69,21 @@ interface Props {
   onRevisado: (v: boolean) => void;
   /** false: sin la casilla "He revisado" (la factura no se puede registrar de todos modos). */
   conCasilla?: boolean;
+  /** Campos con un error que no se arregla cambiando el dato (rectificativa, duplicada). */
+  sinArreglo?: string[];
 }
 
-export default function PanelLectura({ info, lector, revisado, onRevisado, conCasilla = true }: Props) {
+/** Lo que pone cada tarjeta. En ventas no se puede cambiar nada: solo comprobar. */
+function etiquetaEstado(lector: LectorPantalla, error: boolean, arreglable: boolean): string {
+  if (lector === 'ventas') return error ? 'Impide registrarla' : 'Compruébalo';
+  if (error) return arreglable ? 'Hay que corregirlo' : 'No se puede registrar';
+  return 'Revísalo';
+}
+
+/** El motivo ya dice lo que trae el QR: la sugerencia lo repetiria. */
+const mencionaQr = (c: EstadoCampo) => c.motivos.some((m) => m.includes('QR VERI*FACTU'));
+
+export default function PanelLectura({ info, lector, revisado, onRevisado, conCasilla = true, sinArreglo = [] }: Props) {
   const entradas = Object.entries(info.campos).filter((e): e is [string, EstadoCampo] => !!e[1]);
   const variosTramos = entradas.some(([id]) => /^desglose\.[1-9]/.test(id));
   const marcados = entradas
@@ -70,8 +91,11 @@ export default function PanelLectura({ info, lector, revisado, onRevisado, conCa
     .sort((a, b) => (a[1].estado === b[1].estado ? posicion(a[0]) - posicion(b[0]) : a[1].estado === 'error' ? -1 : 1));
   const comprobados = entradas.length - marcados.length;
   const hayErrores = marcados.some(([, c]) => c.estado === 'error');
+  const hayBloqueos = marcados.some(([id, c]) => c.estado === 'error' && sinArreglo.includes(id));
   const qr = info.qr;
   const pct = info.confianza !== null ? Math.round(info.confianza * 100) : null;
+  // Las diferencias del QR que tienen su tarjeta (casi siempre todas).
+  const marcadosQr = qr.diferencias.every((d) => marcados.some(([id]) => id === CAMPO_QR[d.campo]));
 
   return (
     <section aria-label="Resultado de la lectura" className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-4 text-sm">
@@ -109,14 +133,11 @@ export default function PanelLectura({ info, lector, revisado, onRevisado, conCa
             <QrCode size={18} className="mt-0.5 shrink-0" aria-hidden="true" />
             <span>{qr.texto}</span>
           </p>
+          {/* Cada diferencia sale en su tarjeta de "Comprueba estos datos": aqui no se repite. */}
           {qr.diferencias.length > 0 && (
-            <ul className="mt-2 list-disc space-y-1 pl-9">
-              {qr.diferencias.map((d) => (
-                <li key={d.campo} className="break-words">
-                  {textoDiferenciaQr(d)}
-                </li>
-              ))}
-            </ul>
+            <p className="mt-1 pl-[26px]">
+              {marcadosQr ? 'Mira abajo los datos que no coinciden.' : `${qr.diferencias.map(textoDiferenciaQr).join('. ')}.`}
+            </p>
           )}
         </div>
       )}
@@ -134,21 +155,24 @@ export default function PanelLectura({ info, lector, revisado, onRevisado, conCa
             <WarningCircle size={18} weight="fill" className="mt-0.5 shrink-0" aria-hidden="true" />
             <span>
               Comprueba estos datos
-              {hayErrores ? (lector === 'gastos' ? ': hay alguno que tienes que corregir antes de registrarla.' : ': hay alguno que impide registrarla.') : '.'}
+              {hayErrores ? (lector === 'gastos' && !hayBloqueos ? ': hay alguno que tienes que corregir antes de registrarla.' : ': hay alguno que impide registrarla.') : '.'}
             </span>
           </p>
           <ul className="flex flex-col gap-2">
             {marcados.map(([id, c]) => {
               const error = c.estado === 'error';
+              const confianza = c.confianza !== null && c.confianza < 0.8 ? Math.round(c.confianza * 100) : null;
+              // "· confianza 62 %" sobra si el motivo ya lo dice.
+              const verConfianza = confianza !== null && !c.motivos.some((m) => m.includes(`${confianza} %`));
               return (
                 <li key={id} className={`rounded-lg border p-3 ${error ? 'border-rose-200 bg-rose-50 text-rose-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
                   <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                     <span className="font-semibold">{etiquetaCampo(id, lector, variosTramos)}</span>
-                    <span className="text-xs font-semibold uppercase tracking-wide">{error ? 'Hay que corregirlo' : 'Revísalo'}</span>
+                    <span className="text-xs font-semibold uppercase tracking-wide">{etiquetaEstado(lector, error, !sinArreglo.includes(id))}</span>
                   </div>
                   <p className="mt-1 break-words">
                     Leído: <span className="font-medium">{valorLegible(id, c.valorLeido)}</span>
-                    {c.confianza !== null && c.confianza < 0.8 && <span className="text-xs"> · confianza {Math.round(c.confianza * 100)} %</span>}
+                    {verConfianza && <span className="text-xs"> · confianza {confianza} %</span>}
                   </p>
                   {c.motivos.length > 0 && (
                     <ul className="mt-1 list-disc space-y-0.5 pl-5">
@@ -159,7 +183,7 @@ export default function PanelLectura({ info, lector, revisado, onRevisado, conCa
                       ))}
                     </ul>
                   )}
-                  {c.sugerencia && <p className="mt-1 break-words font-medium">{c.sugerencia}</p>}
+                  {c.sugerencia && !mencionaQr(c) && <p className="mt-1 break-words font-medium">{c.sugerencia}</p>}
                 </li>
               );
             })}
@@ -196,7 +220,7 @@ export default function PanelLectura({ info, lector, revisado, onRevisado, conCa
             onChange={(e) => onRevisado(e.target.checked)}
             className="mt-0.5 h-4 w-4 shrink-0 accent-emerald-600"
           />
-          <span>He revisado los datos marcados</span>
+          <span>{lector === 'ventas' ? 'He comprobado que los datos marcados son correctos' : 'He revisado los datos marcados'}</span>
         </label>
       )}
     </section>
