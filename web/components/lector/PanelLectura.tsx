@@ -58,9 +58,11 @@ interface Props {
   lector: LectorPantalla;
   revisado: boolean;
   onRevisado: (v: boolean) => void;
+  /** false: sin la casilla "He revisado" (la factura no se puede registrar de todos modos). */
+  conCasilla?: boolean;
 }
 
-export default function PanelLectura({ info, lector, revisado, onRevisado }: Props) {
+export default function PanelLectura({ info, lector, revisado, onRevisado, conCasilla = true }: Props) {
   const entradas = Object.entries(info.campos).filter((e): e is [string, EstadoCampo] => !!e[1]);
   const variosTramos = entradas.some(([id]) => /^desglose\.[1-9]/.test(id));
   const marcados = entradas
@@ -186,7 +188,7 @@ export default function PanelLectura({ info, lector, revisado, onRevisado }: Pro
         </div>
       )}
 
-      {info.requiereRevision && (
+      {info.requiereRevision && conCasilla && (
         <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 font-medium text-slate-800">
           <input
             type="checkbox"
