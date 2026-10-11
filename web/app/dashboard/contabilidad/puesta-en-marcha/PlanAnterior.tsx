@@ -57,6 +57,9 @@ const TEXTO_ACCION: Record<Accion, { texto: string; color: string }> = {
   'no-se-enlaza': { texto: 'No se enlaza', color: 'bg-red-100 text-red-800' },
 };
 
+/** El plan trae otra longitud y ya hay terceros con la de la app: convivirian las dos. */
+const longitudDistinta = (v: VistaPlan) => !!v.longitud.motivo && !!v.longitud.delPlan && v.longitud.delPlan !== v.longitud.actual && !v.longitud.seFija;
+
 function datos(fuente: File | string): FormData {
   const d = new FormData();
   if (typeof fuente === 'string') d.append('subidaId', fuente);
@@ -130,7 +133,8 @@ export function PlanAnterior({ onHecho }: { onHecho: (t: string) => void }) {
       r.enlazar && `${r.enlazar} subcuentas enlazadas a fichas que ya tienes`,
       r.crear && `${r.crear} fichas nuevas de clientes o proveedores`,
     ].filter(Boolean);
-    if (!window.confirm(`Se van a crear ${partes.join(', ')}. ¿Continuar?`)) return;
+    const dosLongitudes = longitudDistinta(vista) ? `\n\nOjo: ${vista.longitud.motivo}` : '';
+    if (!window.confirm(`Se van a crear ${partes.join(', ')}.${dosLongitudes}\n\n¿Continuar?`)) return;
     setOcupado(true);
     setError('');
     try {
@@ -160,7 +164,11 @@ export function PlanAnterior({ onHecho }: { onHecho: (t: string) => void }) {
       <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600">
         Sube el <strong>plan de cuentas</strong> (o el listado de subcuentas) que llevabas en el programa anterior. Se crean <strong>todas</strong> sus cuentas y subcuentas,
         también las de saldo cero, con su nombre y su número de dígitos, para seguir con el mismo plan. Las subcuentas de clientes (430) y de proveedores (400 y 410) se
-        enlazan con su ficha por el NIF: si el fichero trae una columna NIF, se usa; si no, se busca la ficha con ese NIF. Hazlo antes de importar el balance de apertura.
+        enlazan con su ficha por el NIF: si el fichero trae una columna NIF, se usa; si no, se busca la ficha con ese NIF.
+        <p className="mt-2 font-medium text-slate-800">
+          Hazlo antes de dar de alta clientes o proveedores y antes de importar el balance de apertura: con el primer cliente o proveedor queda fijado el número de
+          dígitos de sus subcuentas.
+        </p>
       </div>
 
       <SubidaFichero
@@ -183,7 +191,9 @@ export function PlanAnterior({ onHecho }: { onHecho: (t: string) => void }) {
             <Dato titulo="No se importan" valor={vista.omitidas.length} tono={vista.omitidas.length ? 'mal' : 'normal'} />
           </div>
 
-          <p className="rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-700">
+          <p
+            className={`rounded-lg border p-3 text-sm ${longitudDistinta(vista) ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-slate-200 bg-white text-slate-700'}`}
+          >
             {vista.longitud.motivo
               ? vista.longitud.motivo
               : vista.longitud.seFija && vista.longitud.delPlan
@@ -193,7 +203,8 @@ export function PlanAnterior({ onHecho }: { onHecho: (t: string) => void }) {
                   : `El fichero no trae subcuentas de clientes ni de proveedores: se mantienen ${vista.longitud.actual} dígitos.`}
           </p>
 
-          <Mensajes errores={vista.errores} avisos={[...(vista.lectura?.avisos ?? []), ...vista.avisos]} />
+          {/* El aviso de la longitud ya sale justo encima: no se repite. */}
+          <Mensajes errores={vista.errores} avisos={[...(vista.lectura?.avisos ?? []), ...vista.avisos.filter((a) => a !== vista.longitud.motivo)]} />
 
           {vista.terceros.length > 0 && (
             <section className="space-y-2">
