@@ -352,7 +352,7 @@ function InformesContables() {
                 ).map(([valor, texto]) => (
                   <label
                     key={valor}
-                    className={`flex flex-1 cursor-pointer items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 ${form.mayorPor === valor ? 'bg-blue-600 font-medium text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+                    className={`flex flex-1 cursor-pointer items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-blue-500 has-[:focus-visible]:ring-offset-1 ${form.mayorPor === valor ? 'bg-blue-600 font-medium text-white' : 'text-slate-600 hover:bg-slate-50'}`}
                   >
                     <input type="radio" name="inf-mayor-por" value={valor} checked={form.mayorPor === valor} onChange={() => cambiarYAplicar({ mayorPor: valor })} className="sr-only" />
                     {texto}
