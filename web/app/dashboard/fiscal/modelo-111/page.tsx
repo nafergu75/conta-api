@@ -10,11 +10,15 @@ import { FormularioRetenciones, type FormularioRetencionesDatos } from '../compo
 import { FormPresentar } from '../components/FormPresentar';
 import { Tooltip } from '../components/Tooltip';
 import { AvisosModelo } from '../components/AvisosModelo';
+import { mesFinalPeriodo, normalizarPeriodo, SelectorPeriodoRetenciones } from '../components/SelectorPeriodoRetenciones';
 
 interface Modelo111 {
   id: string;
   ejercicio: number;
-  trimestre: number;
+  /** 1-4 en los trimestrales; null en un periodo mensual. */
+  trimestre: number | null;
+  /** '1T'..'4T' o '01'..'12' (111 mensual). */
+  periodo: string;
   casillas: Record<string, any>;
   totalBase: number;
   totalRetenido: number;
@@ -39,11 +43,11 @@ function Modelo111Contenido() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [recarga, setRecarga] = useState(0);
-  // Se abre en el trimestre de la URL (desde Nominas) o en el que toca presentar (en octubre, el 3T).
+  // Se abre en el periodo de la URL (desde Nominas) o en el trimestre que toca presentar (en octubre, el 3T).
   const [ejercicio, setEjercicio] = useState(() => Number(params.get('ejercicio')) || trimestreAPresentar().ejercicio);
-  const [trimestre, setTrimestre] = useState(() => {
+  const [periodo, setPeriodo] = useState(() => {
     const t = Number(params.get('trimestre'));
-    return t >= 1 && t <= 4 ? t : trimestreAPresentar().trimestre;
+    return normalizarPeriodo(params.get('periodo')) ?? (t >= 1 && t <= 4 ? `${t}T` : `${trimestreAPresentar().trimestre}T`);
   });
 
   useEffect(() => {
@@ -51,7 +55,7 @@ function Modelo111Contenido() {
       try {
         setLoading(true);
         setError('');
-        setModelo(await apiFetch<Modelo111>(companyPath(`/tax-models/111?ejercicio=${ejercicio}&trimestre=${trimestre}`)));
+        setModelo(await apiFetch<Modelo111>(companyPath(`/tax-models/111?ejercicio=${ejercicio}&periodo=${periodo}`)));
       } catch (err) {
         setError(errorMessage(err));
       } finally {
@@ -60,7 +64,7 @@ function Modelo111Contenido() {
     };
 
     fetchModelo();
-  }, [ejercicio, trimestre, recarga]);
+  }, [ejercicio, periodo, recarga]);
 
   const eur = new Intl.NumberFormat('es-ES', {
     style: 'currency',
@@ -119,23 +123,10 @@ function Modelo111Contenido() {
           </select>
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-slate-700">Trimestre</label>
-          <select
-            value={trimestre}
-            onChange={(e) => setTrimestre(parseInt(e.target.value))}
-            className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          >
-            {[1, 2, 3, 4].map((t) => (
-              <option key={t} value={t}>
-                {t}T
-              </option>
-            ))}
-          </select>
-        </div>
+        <SelectorPeriodoRetenciones id="m111-periodo" valor={periodo} onChange={setPeriodo} />
       </div>
 
-      <AvisosModelo avisos={modelo.avisos} ejercicio={modelo.ejercicio} mes={modelo.trimestre * 3} />
+      <AvisosModelo avisos={modelo.avisos} ejercicio={modelo.ejercicio} mes={mesFinalPeriodo(modelo.periodo ?? periodo)} />
 
       {/* Formulario oficial (misma fuente que el fichero) */}
       <FormularioRetenciones formulario={modelo.formulario} modeloId={modelo.id} estado={modelo.estado} onGuardado={() => setRecarga((n) => n + 1)} />
@@ -187,7 +178,7 @@ function Modelo111Contenido() {
       <div className="space-y-4">
         {/* Formulario de Presentación */}
         {modelo.estado === 'vigente' && (
-          <FormPresentar codigo="111" ejercicio={ejercicio} trimestre={trimestre} onSuccess={() => setRecarga((n) => n + 1)} />
+          <FormPresentar codigo="111" ejercicio={ejercicio} periodo={periodo} onSuccess={() => setRecarga((n) => n + 1)} />
         )}
       </div>
     </div>

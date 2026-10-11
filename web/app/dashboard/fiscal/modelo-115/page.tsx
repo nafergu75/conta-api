@@ -8,6 +8,7 @@ import { formatoImporte } from '@/lib/moneda';
 import { CaretLeft } from '@phosphor-icons/react';
 import { FormPresentar } from '../components/FormPresentar';
 import { FormularioRetenciones, type FormularioRetencionesDatos } from '../components/FormularioRetenciones';
+import { SelectorPeriodoRetenciones, textoPeriodo } from '../components/SelectorPeriodoRetenciones';
 
 /**
  * Modelo 115 (retenciones de alquileres): el trimestre, calculado con las
@@ -26,7 +27,10 @@ interface Arrendador {
 interface Modelo115Trimestre {
   id: string;
   ejercicio: number;
-  trimestre: number;
+  /** 1-4 en los trimestrales; null en un periodo mensual. */
+  trimestre: number | null;
+  /** '1T'..'4T' o '01'..'12' (115 mensual). */
+  periodo: string;
   baseImponible: number;
   retencion: number;
   operaciones: number;
@@ -93,7 +97,7 @@ function TablaArrendadores({ filas }: { filas: Arrendador[] }) {
 
 export default function Modelo115Page() {
   const [ejercicio, setEjercicio] = useState(() => trimestreAPresentar().ejercicio);
-  const [trimestre, setTrimestre] = useState(() => trimestreAPresentar().trimestre);
+  const [periodo, setPeriodo] = useState(() => `${trimestreAPresentar().trimestre}T`);
   const [modelo, setModelo] = useState<Modelo115Trimestre | null>(null);
   const [resumen, setResumen] = useState<Resumen115 | null>(null);
   const [loading, setLoading] = useState(true);
@@ -105,7 +109,7 @@ export default function Modelo115Page() {
     setLoading(true);
     setError('');
     Promise.all([
-      apiFetch<Modelo115Trimestre>(companyPath(`/tax-models/115?ejercicio=${ejercicio}&trimestre=${trimestre}`)),
+      apiFetch<Modelo115Trimestre>(companyPath(`/tax-models/115?ejercicio=${ejercicio}&periodo=${periodo}`)),
       apiFetch<Resumen115>(companyPath(`/tax-models/115?ejercicio=${ejercicio}`)),
     ])
       .then(([m, r]) => {
@@ -118,7 +122,7 @@ export default function Modelo115Page() {
     return () => {
       vivo = false;
     };
-  }, [ejercicio, trimestre, recarga]);
+  }, [ejercicio, periodo, recarga]);
 
   return (
     <div className="space-y-6">
@@ -146,18 +150,7 @@ export default function Modelo115Page() {
             ))}
           </select>
         </div>
-        <div>
-          <label htmlFor="m115-tr" className="block text-sm font-medium text-slate-700">
-            Trimestre
-          </label>
-          <select id="m115-tr" value={trimestre} onChange={(e) => setTrimestre(parseInt(e.target.value))} className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm">
-            {[1, 2, 3, 4].map((t) => (
-              <option key={t} value={t}>
-                {t}T
-              </option>
-            ))}
-          </select>
-        </div>
+        <SelectorPeriodoRetenciones id="m115-periodo" valor={periodo} onChange={setPeriodo} />
       </div>
 
       {loading && !modelo ? (
@@ -171,7 +164,7 @@ export default function Modelo115Page() {
             <section className={`space-y-4 rounded-lg border border-slate-200 bg-white p-4 md:p-6 ${loading ? 'opacity-60' : ''}`}>
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <h2 className="font-semibold text-slate-900">
-                  {modelo.trimestre}T de {modelo.ejercicio}
+                  {textoPeriodo(modelo.periodo ?? periodo)} de {modelo.ejercicio}
                 </h2>
                 <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-medium text-slate-700">{ESTADO[modelo.estado] ?? modelo.estado}</span>
               </div>
@@ -183,7 +176,7 @@ export default function Modelo115Page() {
                 </ul>
               )}
               <div>
-                <h3 className="mb-2 text-sm font-semibold text-slate-900">Arrendadores del trimestre</h3>
+                <h3 className="mb-2 text-sm font-semibold text-slate-900">Arrendadores del periodo</h3>
                 <TablaArrendadores filas={modelo.perceptores ?? []} />
               </div>
               <p className="text-xs text-slate-500">
@@ -194,7 +187,7 @@ export default function Modelo115Page() {
             {/* Formulario oficial (misma fuente que el fichero) */}
             <FormularioRetenciones formulario={modelo.formulario} modeloId={modelo.id} estado={modelo.estado} onGuardado={() => setRecarga((n) => n + 1)} />
 
-            {modelo.estado === 'vigente' && <FormPresentar codigo="115" ejercicio={ejercicio} trimestre={trimestre} onSuccess={() => setRecarga((n) => n + 1)} />}
+            {modelo.estado === 'vigente' && <FormPresentar codigo="115" ejercicio={ejercicio} periodo={periodo} onSuccess={() => setRecarga((n) => n + 1)} />}
 
             {/* Resumen del año */}
             {resumen && (
