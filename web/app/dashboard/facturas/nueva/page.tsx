@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Plus, Trash, WarningCircle } from '@phosphor-icons/react';
@@ -22,6 +22,9 @@ import {
 } from '@/lib/moneda';
 import { calcularFactura } from '@/lib/divisas';
 import { useContextoFiscal, type AvisoFiscal } from '@/lib/fiscal';
+import { getUser, tieneAlgunPermiso } from '@/lib/auth';
+import { useCuentasLinea } from '@/lib/subcuentas';
+import { CuentaLinea } from '@/components/contabilidad/CuentaLinea';
 
 /**
  * Alta de factura de venta, o edicion de un borrador (?id=...).
@@ -74,6 +77,8 @@ interface Producto {
   precio: number;
   ivaPorcentaje: number;
   bloqueado: boolean;
+  /** Cuenta de ventas del producto (la suya, la de su familia, o 705 / 700). */
+  cuentaVentasEfectiva?: string;
 }
 
 interface Linea {
@@ -86,6 +91,8 @@ interface Linea {
   tipoIva: number;
   /** IVA que tenia antes de elegir un tipo de operacion sin cuota (se restaura al volver a nacional). */
   ivaPrevio?: number;
+  /** Cuenta de ingresos propia de la linea (70x); sin ella, la del producto o la 700. */
+  cuenta?: string;
 }
 
 interface FacturaApi {
@@ -116,6 +123,7 @@ interface FacturaApi {
     tipoIva: number;
     tipoRetencion: number;
     productoServicioId?: string;
+    cuenta?: string | null;
   }>;
 }
 
@@ -169,6 +177,10 @@ const lineaVacia = (tipoIva = 21): Linea => ({
   tipoIva,
 });
 
+/** Cuenta de ingresos de una linea sin cuenta propia: la del producto o la 700. */
+const cuentaPorDefecto = (p: Producto | undefined) =>
+  p?.cuentaVentasEfectiva ? { codigo: p.cuentaVentasEfectiva, texto: 'la del producto' } : { codigo: '700', texto: 'la de ventas' };
+
 const campo =
   'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-500';
 const etiqueta = 'mb-1 block text-sm font-medium text-slate-700';
@@ -210,6 +222,9 @@ function FormularioFactura() {
   const [irpf, setIrpf] = useState(0);
   const [observaciones, setObservaciones] = useState('');
   const [lineas, setLineas] = useState<Linea[]>([lineaVacia()]);
+  // Cuentas de ingresos del plan (70x) para el «Cambiar cuenta» de cada linea.
+  const catalogoCuentas = useCuentasLinea('venta');
+  const puedeCrearCuenta = tieneAlgunPermiso(getUser(), ['ventas:write', 'contabilidad:write']);
 
   // Moneda y tipo de cambio ('' = aun sin decidir: la de la contabilidad).
   const [moneda, setMoneda] = useState('');
@@ -296,6 +311,7 @@ function FormularioFactura() {
               precioUnitario: String(l.precioUnitarioDoc ?? l.precioUnitario),
               descuentoPorcentaje: String(l.descuentoPorcentaje ?? 0),
               tipoIva: l.tipoIva,
+              cuenta: l.cuenta ?? undefined,
             })),
           );
         } else {
@@ -567,6 +583,8 @@ function FormularioFactura() {
         tipoIva: sinCuota ? 0 : l.tipoIva,
         tipoRetencion: sinRetencion ? 0 : irpf,
         productoServicioId: l.productoServicioId || undefined,
+        // Sin cuenta, el servidor usa la del producto (o la 700).
+        ...(l.cuenta ? { cuenta: l.cuenta } : {}),
         moneda: monedaDoc,
       })),
     };
@@ -1015,7 +1033,8 @@ function FormularioFactura() {
                 const bruto = r2(num(l.cantidad) * num(l.precioUnitario));
                 const importe = r2(bruto - r2((bruto * num(l.descuentoPorcentaje)) / 100));
                 return (
-                  <tr key={l.clave}>
+                  <Fragment key={l.clave}>
+                  <tr>
                     <td className="px-3 py-2">
                       <select
                         aria-label={`Producto de la línea ${i + 1}`}
@@ -1101,6 +1120,24 @@ function FormularioFactura() {
                       </button>
                     </td>
                   </tr>
+                  <tr className="!border-t-0">
+                    <td colSpan={espanola ? 8 : 7} className="px-3 pb-3 pt-0">
+                      {/* Visible aunque la tabla se desplace de lado en el movil. */}
+                      <div className="sticky left-3 max-w-[calc(100vw-4rem)] sm:max-w-none">
+                        <CuentaLinea
+                          tipo="venta"
+                          catalogo={catalogoCuentas}
+                          valor={l.cuenta}
+                          onCambiar={(codigo) => cambiarLinea(l.clave, { cuenta: codigo ?? undefined })}
+                          porDefecto={cuentaPorDefecto(productos.find((p) => p.id === l.productoServicioId))}
+                          linea={i + 1}
+                          id={`fv-cuenta-${l.clave}`}
+                          puedeCrear={puedeCrearCuenta}
+                        />
+                      </div>
+                    </td>
+                  </tr>
+                  </Fragment>
                 );
               })}
             </tbody>
