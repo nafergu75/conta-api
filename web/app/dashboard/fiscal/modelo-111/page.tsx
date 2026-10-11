@@ -7,13 +7,14 @@ import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { trimestreAPresentar, ejerciciosSeleccionables } from '@/lib/aeatCalendar';
 import { CaretLeft } from '@phosphor-icons/react';
 import { FormularioRetenciones, type FormularioRetencionesDatos } from '../components/FormularioRetenciones';
-import { FormPresentar } from '../components/FormPresentar';
+import { Declaraciones } from '../components/Declaraciones';
 import { Tooltip } from '../components/Tooltip';
 import { AvisosModelo } from '../components/AvisosModelo';
 import { mesFinalPeriodo, normalizarPeriodo, SelectorPeriodoRetenciones } from '../components/SelectorPeriodoRetenciones';
 
 interface Modelo111 {
-  id: string;
+  /** Id de la fila del calendario; null si aún no existe (abrir la pantalla no la crea). */
+  id: string | null;
   ejercicio: number;
   /** 1-4 en los trimestrales; null en un periodo mensual. */
   trimestre: number | null;
@@ -129,7 +130,7 @@ function Modelo111Contenido() {
       <AvisosModelo avisos={modelo.avisos} ejercicio={modelo.ejercicio} mes={mesFinalPeriodo(modelo.periodo ?? periodo)} />
 
       {/* Formulario oficial (misma fuente que el fichero) */}
-      <FormularioRetenciones formulario={modelo.formulario} modeloId={modelo.id} estado={modelo.estado} onGuardado={() => setRecarga((n) => n + 1)} />
+      <FormularioRetenciones formulario={modelo.formulario} estado={modelo.estado} onGuardado={() => setRecarga((n) => n + 1)} />
 
       {/* Desglose por Tipo de Retención */}
       {modelo.casillas.retenciones && Array.isArray(modelo.casillas.retenciones) && (
@@ -174,13 +175,8 @@ function Modelo111Contenido() {
         </div>
       )}
 
-      {/* Acciones Finales */}
-      <div className="space-y-4">
-        {/* Formulario de Presentación */}
-        {modelo.estado === 'vigente' && (
-          <FormPresentar codigo="111" ejercicio={ejercicio} periodo={periodo} onSuccess={() => setRecarga((n) => n + 1)} />
-        )}
-      </div>
+      {/* Presentar, complementaria e historial */}
+      <Declaraciones codigo="111" ejercicio={ejercicio} periodo={modelo.periodo ?? periodo} onCambio={() => setRecarga((n) => n + 1)} />
     </div>
   );
 }

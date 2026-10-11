@@ -7,13 +7,14 @@ import { trimestreAPresentar, ejerciciosSeleccionables } from '@/lib/aeatCalenda
 import { CaretLeft, Download, WarningCircle } from '@phosphor-icons/react';
 import { Casillas303, type Casilla303 } from '../components/Casillas303';
 import { AvisosModelo } from '../components/AvisosModelo';
-import { FormPresentar } from '../components/FormPresentar';
+import { Declaraciones } from '../components/Declaraciones';
 import { Tooltip } from '../components/Tooltip';
 
 type TipoDeclaracion = 'I' | 'U' | 'C' | 'D' | 'N';
 
 interface Modelo303 {
-  id: string;
+  /** Id de la fila del calendario; null si aún no existe (abrir la pantalla no la crea). */
+  id: string | null;
   ejercicio: number;
   /** Trimestre (1-4); null en el 303 mensual. */
   trimestre: number | null;
@@ -33,6 +34,8 @@ interface Modelo303 {
   cuentas: Array<{ id: string; iban: string; banco: string | null }>;
   cuentaBancariaId: string | null;
   sinActividad: boolean;
+  /** Autoliquidación rectificativa en preparación o presentada. */
+  rectificativa: { justificanteAnterior: string } | null;
   errores: string[];
   advertencias: string[];
 }
@@ -61,6 +64,15 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
   (nombre, i) => ({ codigo: String(i + 1).padStart(2, '0'), nombre }),
 );
 const esTrimestre = (periodo: string) => periodo.endsWith('T');
+
+/** Opciones que se guardan con lo presentado: las mismas que la pantalla y el fichero. */
+function opcionesPresentar(o: Opciones): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (o.tipoDeclaracion) out.tipoDeclaracion = o.tipoDeclaracion;
+  if (o.aCompensar.trim()) out.aCompensar = o.aCompensar.trim().replace(',', '.');
+  if (o.cuentaBancariaId) out.cuentaBancariaId = o.cuentaBancariaId;
+  return out;
+}
 
 /** Periodo para la descarga: Q3-2026 (trimestre) o M05-2026 (mes). */
 const periodoDescarga = (periodo: string, ejercicio: number) =>
@@ -449,15 +461,15 @@ export default function Modelo303Page() {
           </>
         )}
 
-        {/* Formulario de Presentación */}
-        {modelo.estado === 'vigente' && (
-          <FormPresentar
-            codigo="303"
-            ejercicio={ejercicio}
-            {...(esTrimestre(periodo) ? { trimestre: Number(periodo[0]) } : { periodo })}
-            onSuccess={() => setRecarga((n) => n + 1)}
-          />
+        {modelo.rectificativa && (
+          <p className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+            Autoliquidación rectificativa de la presentada con el justificante <span className="font-mono">{modelo.rectificativa.justificanteAnterior}</span>: la casilla [70] lleva el
+            resultado de la anterior y el fichero, la marca de rectificativa con el motivo «Rectificaciones».
+          </p>
         )}
+
+        {/* Presentar, rectificativa e historial (se presenta con las opciones elegidas arriba) */}
+        <Declaraciones codigo="303" ejercicio={ejercicio} periodo={periodo} opcionesPresentar={opcionesPresentar(opciones)} onCambio={() => setRecarga((n) => n + 1)} />
       </div>
     </div>
   );

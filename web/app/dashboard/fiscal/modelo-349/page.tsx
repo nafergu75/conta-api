@@ -17,7 +17,7 @@ import {
   type CampoLeido,
   type Columna,
 } from '../components/RegistroAeat';
-import { FormPresentar } from '../components/FormPresentar';
+import { Declaraciones } from '../components/Declaraciones';
 
 /**
  * Modelo 349 (operaciones intracomunitarias): borrador con el diseño de
@@ -41,7 +41,10 @@ interface Borrador349 {
   ejercicio: number;
   periodo: string;
   estado: string;
+  /** Tipo y anterior los pone el historial de declaraciones; cambioPeriodicidad, la persona. */
   opciones: { tipoDeclaracion: 'C' | 'S' | null; declaracionAnterior: string | null; cambioPeriodicidad: boolean };
+  /** Número identificativo; null hasta la primera descarga o la presentación. */
+  numeroDeclaracion: string | null;
   errores: string[];
   avisos: string[];
   pantalla: {
@@ -83,8 +86,6 @@ export default function Modelo349Page() {
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
   const [recarga, setRecarga] = useState(0);
-  const [tipo, setTipo] = useState<'' | 'C' | 'S'>('');
-  const [anterior, setAnterior] = useState('');
   const [cambio, setCambio] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [mensaje, setMensaje] = useState('');
@@ -97,8 +98,6 @@ export default function Modelo349Page() {
       .then((r) => {
         if (!vivo) return;
         setB(r);
-        setTipo(r.opciones.tipoDeclaracion ?? '');
-        setAnterior(r.opciones.declaracionAnterior ?? '');
         setCambio(r.opciones.cambioPeriodicidad);
       })
       .catch((e) => vivo && setError(errorMessage(e)))
@@ -115,13 +114,7 @@ export default function Modelo349Page() {
     try {
       const r = await apiFetch<Borrador349>(companyPath('/tax-models/349/opciones'), {
         method: 'PUT',
-        body: JSON.stringify({
-          ejercicio,
-          periodo,
-          tipoDeclaracion: tipo || null,
-          declaracionAnterior: tipo ? anterior : null,
-          ...(/^\d{2}$/.test(periodo) ? { cambioPeriodicidad: cambio } : {}),
-        }),
+        body: JSON.stringify({ ejercicio, periodo, cambioPeriodicidad: cambio }),
       });
       setB(r);
       setMensaje('Guardado.');
@@ -280,43 +273,13 @@ export default function Modelo349Page() {
               </p>
             </Seccion>
 
-            {!presentado && (
-              <Seccion titulo="Tipo de declaración">
+            {!presentado && /^\d{2}$/.test(periodo) && (
+              <Seccion titulo="Cambio de periodicidad">
                 <form onSubmit={guardarOpciones} className="space-y-4">
-                  <div className="flex flex-wrap gap-4">
-                    <div>
-                      <label htmlFor="m349-tipo" className="block text-sm font-medium text-slate-700">
-                        Declaración
-                      </label>
-                      <select id="m349-tipo" value={tipo} onChange={(e) => setTipo(e.target.value as '' | 'C' | 'S')} className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm">
-                        <option value="">Primera declaración del periodo</option>
-                        <option value="C">Complementaria (añade operaciones)</option>
-                        <option value="S">Sustitutiva (reemplaza la anterior)</option>
-                      </select>
-                    </div>
-                    {tipo && (
-                      <div>
-                        <label htmlFor="m349-ant" className="block text-sm font-medium text-slate-700">
-                          Número de la declaración anterior
-                        </label>
-                        <input
-                          id="m349-ant"
-                          value={anterior}
-                          onChange={(e) => setAnterior(e.target.value)}
-                          inputMode="numeric"
-                          maxLength={13}
-                          placeholder="349…"
-                          className="mt-1 rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm"
-                        />
-                      </div>
-                    )}
-                  </div>
-                  {/^\d{2}$/.test(periodo) && (
-                    <label className="flex items-center gap-2 text-sm text-slate-700">
-                      <input type="checkbox" checked={cambio} onChange={(e) => setCambio(e.target.checked)} />
-                      Es la primera declaración mensual y recoge los dos primeros meses del trimestre
-                    </label>
-                  )}
+                  <label className="flex items-center gap-2 text-sm text-slate-700">
+                    <input type="checkbox" checked={cambio} onChange={(e) => setCambio(e.target.checked)} />
+                    Es la primera declaración mensual y recoge los dos primeros meses del trimestre
+                  </label>
                   <div className="flex items-center gap-3">
                     <button type="submit" disabled={guardando} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60">
                       {guardando ? 'Guardando…' : 'Guardar'}
@@ -327,12 +290,18 @@ export default function Modelo349Page() {
               </Seccion>
             )}
 
-            <DescargarFichero ruta={companyPath(`/tax-models/349/fichero?ejercicio=${ejercicio}&periodo=${periodo}`)} nombre={`349_${ejercicio}_${periodo}.txt`} bloqueado={bloqueado} />
-            <p className="text-xs text-slate-500">El teléfono y la persona de contacto se cambian en Empresa.</p>
+            <DescargarFichero
+              ruta={companyPath(`/tax-models/349/fichero?ejercicio=${ejercicio}&periodo=${periodo}`)}
+              nombre={`349_${ejercicio}_${periodo}.txt`}
+              bloqueado={bloqueado}
+              numero={{ codigo: '349', ejercicio, periodo }}
+              onDescargado={() => setRecarga((n) => n + 1)}
+            />
+            <p className="text-xs text-slate-500">
+              {b.numeroDeclaracion ? `Número identificativo de la declaración: ${b.numeroDeclaracion}. ` : ''}La persona de contacto y el teléfono se cambian en Registro Mercantil &gt; Datos.
+            </p>
 
-            {!presentado && !bloqueado && (
-              <FormPresentar codigo="349" ejercicio={ejercicio} periodo={periodo} onSuccess={() => setRecarga((n) => n + 1)} />
-            )}
+            <Declaraciones codigo="349" ejercicio={ejercicio} periodo={periodo} recarga={recarga} onCambio={() => setRecarga((n) => n + 1)} />
           </div>
         )
       )}

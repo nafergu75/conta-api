@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { MagnifyingGlass, X } from '@phosphor-icons/react';
 import { apiFetch, errorMessage } from '@/lib/api';
 import { ejercicioAnualAPresentar } from '@/lib/aeatCalendar';
-import { FormPresentar } from '../components/FormPresentar';
+import { Declaraciones } from '../components/Declaraciones';
 import {
   CabeceraBorrador,
   Cargando,
@@ -38,6 +38,10 @@ interface Borrador347 {
   declarados: Declarado[];
   advertencias: string[];
   errores: string[];
+  /** Número identificativo; null hasta la primera descarga o la presentación. */
+  numeroDeclaracion: string | null;
+  /** Presentado: se enseña lo que se presentó. */
+  congelada?: boolean;
 }
 
 const CLAVES: Record<string, string> = { A: 'A · Compras', B: 'B · Ventas' };
@@ -49,23 +53,20 @@ export default function Modelo347Page() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [busqueda, setBusqueda] = useState('');
-  // Persona de contacto y teléfono del registro del declarante (posiciones 59-107).
-  const [contacto, setContacto] = useState('');
-  const [telefono, setTelefono] = useState('');
-  const [aplicados, setAplicados] = useState({ contacto: '', telefono: '' });
+  const [recarga, setRecarga] = useState(0);
 
   useEffect(() => {
     let vivo = true;
     setLoading(true);
     setError('');
-    apiFetch<Borrador347>(rutaBorrador('347', ejercicio, aplicados))
+    apiFetch<Borrador347>(rutaBorrador('347', ejercicio))
       .then((b) => vivo && setBorrador(b))
       .catch((e) => vivo && setError(errorMessage(e)))
       .finally(() => vivo && setLoading(false));
     return () => {
       vivo = false;
     };
-  }, [ejercicio, aplicados]);
+  }, [ejercicio, recarga]);
 
   const filtrados = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
@@ -85,34 +86,9 @@ export default function Modelo347Page() {
         diseno={`Borrador con el diseño oficial de la AEAT «${b.diseno}». ${b.revisar}`}
       />
 
-      <div className="grid gap-4 rounded-lg border border-slate-200 bg-white p-4 md:grid-cols-[auto_1fr_1fr_auto] md:items-end">
+      <div className="flex flex-wrap items-end gap-4 rounded-lg border border-slate-200 bg-white p-4">
         <SelectorEjercicio ejercicio={ejercicio} onChange={setEjercicio} />
-        <label className="block text-sm font-medium text-slate-700">
-          Persona de contacto
-          <input
-            value={contacto}
-            onChange={(e) => setContacto(e.target.value)}
-            placeholder="Primer apellido, segundo apellido y nombre"
-            className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          />
-        </label>
-        <label className="block text-sm font-medium text-slate-700">
-          Teléfono de contacto
-          <input
-            value={telefono}
-            onChange={(e) => setTelefono(e.target.value)}
-            placeholder={b.declarante.telefono || '9 cifras'}
-            inputMode="tel"
-            className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          />
-        </label>
-        <button
-          type="button"
-          onClick={() => setAplicados({ contacto: contacto.trim(), telefono: telefono.trim() })}
-          className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-        >
-          Aplicar
-        </button>
+        <p className="text-sm text-slate-600">La persona de contacto y el teléfono son los de Registro Mercantil &gt; Datos.</p>
       </div>
 
       <ErroresYAvisos errores={b.errores} advertencias={b.advertencias} ejercicio={ejercicio} />
@@ -137,7 +113,7 @@ export default function Modelo347Page() {
           </div>
           <div>
             <dt className="text-slate-500">Número identificativo</dt>
-            <dd className="font-mono">{b.declarante.numeroIdentificativo}</dd>
+            <dd className="font-mono">{b.numeroDeclaracion ?? <span className="font-sans text-slate-500">se pone al descargar el fichero</span>}</dd>
           </div>
         </dl>
       </section>
@@ -223,8 +199,15 @@ export default function Modelo347Page() {
       </div>
 
       <div className="space-y-4">
-        <DescargarFichero ruta={rutaBorrador('347', ejercicio, aplicados, true)} nombre={`347_${ejercicio}.txt`} bloqueado={b.errores.length > 0} />
-        <FormPresentar codigo="347" ejercicio={ejercicio} />
+        <DescargarFichero
+          ruta={rutaBorrador('347', ejercicio, {}, true)}
+          nombre={`347_${ejercicio}.txt`}
+          bloqueado={b.errores.length > 0}
+          texto={b.congelada ? 'Descargar el fichero que se presentó' : undefined}
+          numero={{ codigo: '347', ejercicio }}
+          onDescargado={() => setRecarga((n) => n + 1)}
+        />
+        <Declaraciones codigo="347" ejercicio={ejercicio} recarga={recarga} onCambio={() => setRecarga((n) => n + 1)} />
       </div>
     </div>
   );

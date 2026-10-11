@@ -6,7 +6,7 @@ import { CaretLeft } from '@phosphor-icons/react';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { formatoImporte } from '@/lib/moneda';
 import { AvisosBorrador, CamposRegistro, DescargarFichero, ESTADO_MODELO, Seccion, ejerciciosBorrador, type CampoLeido } from '../components/RegistroAeat';
-import { FormPresentar } from '../components/FormPresentar';
+import { Declaraciones } from '../components/Declaraciones';
 
 /**
  * Modelo 202 (pago fraccionado del Impuesto sobre Sociedades) en la
@@ -60,9 +60,6 @@ export default function Modelo202Page() {
   const [recarga, setRecarga] = useState(0);
   const [base, setBase] = useState('');
   const [domiciliar, setDomiciliar] = useState(false);
-  const [complementaria, setComplementaria] = useState(false);
-  const [anterior, setAnterior] = useState('');
-  const [justificante, setJustificante] = useState('');
   const [mensaje, setMensaje] = useState('');
 
   useEffect(() => {
@@ -75,9 +72,6 @@ export default function Modelo202Page() {
         setB(r);
         setBase(r.opciones.baseManual === null ? '' : String(r.opciones.baseManual).replace('.', ','));
         setDomiciliar(r.opciones.domiciliar);
-        setComplementaria(r.opciones.complementaria);
-        setAnterior(r.opciones.resultadoAnterior === null ? '' : String(r.opciones.resultadoAnterior).replace('.', ','));
-        setJustificante(r.opciones.justificanteAnterior ?? '');
       })
       .catch((e) => vivo && setError(errorMessage(e)))
       .finally(() => vivo && setCargando(false));
@@ -97,9 +91,8 @@ export default function Modelo202Page() {
     e.preventDefault();
     setMensaje('');
     const b1 = importe(base);
-    const a1 = importe(anterior);
-    if ((b1 !== null && !(b1 >= 0)) || (a1 !== null && !(a1 >= 0))) {
-      setMensaje('Escribe los importes en positivo, con coma para los decimales.');
+    if (b1 !== null && !(b1 >= 0)) {
+      setMensaje('Escribe la base en positivo, con coma para los decimales.');
       return;
     }
     try {
@@ -110,9 +103,6 @@ export default function Modelo202Page() {
           periodo,
           baseManual: b1,
           domiciliar,
-          complementaria,
-          resultadoAnterior: complementaria ? a1 : null,
-          justificanteAnterior: complementaria ? justificante : null,
         }),
       });
       setB(r);
@@ -237,25 +227,11 @@ export default function Modelo202Page() {
                     <input type="checkbox" checked={domiciliar} onChange={(e) => setDomiciliar(e.target.checked)} />
                     Domiciliar el pago en la cuenta bancaria de la empresa
                   </label>
-                  <label className="flex items-center gap-2 text-sm text-slate-700">
-                    <input type="checkbox" checked={complementaria} onChange={(e) => setComplementaria(e.target.checked)} />
-                    Es una complementaria
-                  </label>
-                  {complementaria && (
-                    <div className="flex flex-wrap gap-4">
-                      <div>
-                        <label htmlFor="m202-ant" className="block text-sm font-medium text-slate-700">
-                          Ingresado en la anterior [02]
-                        </label>
-                        <input id="m202-ant" inputMode="decimal" value={anterior} onChange={(e) => setAnterior(e.target.value)} className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-                      </div>
-                      <div>
-                        <label htmlFor="m202-just" className="block text-sm font-medium text-slate-700">
-                          Justificante de la anterior
-                        </label>
-                        <input id="m202-just" maxLength={13} value={justificante} onChange={(e) => setJustificante(e.target.value)} className="mt-1 rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm" />
-                      </div>
-                    </div>
+                  {b.opciones.complementaria && (
+                    <p className="text-sm text-slate-600">
+                      Complementaria de la presentada con el justificante <span className="font-mono">{b.opciones.justificanteAnterior}</span>: la casilla [02] lleva lo ya ingresado (
+                      {(b.opciones.resultadoAnterior ?? 0).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}).
+                    </p>
                   )}
                   <div className="flex items-center gap-3">
                     <button type="submit" className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
@@ -268,7 +244,7 @@ export default function Modelo202Page() {
             )}
 
             <DescargarFichero ruta={companyPath(`/tax-models/202/fichero?ejercicio=${ejercicio}&periodo=${periodo}`)} nombre={`202_${ejercicio}_${periodo}.txt`} bloqueado={bloqueado} />
-            {!presentado && !bloqueado && <FormPresentar codigo="202" ejercicio={ejercicio} periodo={periodo} onSuccess={() => setRecarga((n) => n + 1)} />}
+            <Declaraciones codigo="202" ejercicio={ejercicio} periodo={periodo} recarga={recarga} onCambio={() => setRecarga((n) => n + 1)} />
           </div>
         )
       )}

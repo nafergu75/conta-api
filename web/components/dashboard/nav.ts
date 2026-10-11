@@ -332,12 +332,12 @@ export const NAV_GROUPS: NavGroup[] = [
           'GET /companies/:id/tax-models',
           'GET /companies/:id/tax-models/303',
           'GET /companies/:id/tax-models/111',
-          'GET /companies/:id/tax-models/200',
-          'GET /companies/:id/tax-models/347',
+          'GET /companies/:id/impuestos/borradores/:modelo',
           'GET /companies/:id/tax-models/115',
           'GET /companies/:id/tax-models/180',
           'GET /companies/:id/tax-models/349',
           'GET /companies/:id/tax-models/202',
+          'GET /companies/:id/tax-models/:codigo/declaraciones',
           'POST /companies/:id/tax-models/:codigo/presentado',
         ],
         requiredRoles: ['impuestos:read', 'impuestos:write'],
@@ -365,7 +365,7 @@ export const NAV_GROUPS: NavGroup[] = [
           {
             label: 'Modelo 347 - Operaciones con Terceros',
             slug: 'fiscal/modelo-347',
-            description: 'Declaración de terceros (>3.000€)',
+            description: 'Clientes y proveedores de más de 3.005,06 € en el año',
           },
           {
             label: 'Modelo 115 - Arrendamientos',

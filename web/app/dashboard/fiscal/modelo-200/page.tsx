@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { apiFetch, errorMessage } from '@/lib/api';
 import { ejercicioAnualAPresentar } from '@/lib/aeatCalendar';
-import { FormPresentar } from '../components/FormPresentar';
+import { Declaraciones } from '../components/Declaraciones';
 import {
   CabeceraBorrador,
   Cargando,
@@ -51,10 +51,9 @@ interface Datos {
   pf3: string;
   retenciones: string;
   nuevaCreacion: boolean;
-  contacto: string;
 }
 
-const VACIO: Datos = { bins: '', pf1: '', pf2: '', pf3: '', retenciones: '', nuevaCreacion: false, contacto: '' };
+const VACIO: Datos = { bins: '', pf1: '', pf2: '', pf3: '', retenciones: '', nuevaCreacion: false };
 
 /** "1.234,56" -> "1234.56" (el backend espera el punto decimal). */
 const cifra = (s: string) => (s.includes(',') ? s.replace(/\./g, '').replace(',', '.') : s).trim();
@@ -65,8 +64,11 @@ const parametrosDe = (d: Datos) => ({
   pf3: cifra(d.pf3),
   retenciones: cifra(d.retenciones),
   nuevaCreacion: d.nuevaCreacion ? 1 : undefined,
-  contacto: d.contacto.trim(),
 });
+
+/** Lo mismo como texto, para guardarlo con lo presentado. */
+const opcionesDe = (d: Datos): Record<string, string> =>
+  Object.fromEntries(Object.entries(parametrosDe(d)).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => [k, String(v)]));
 
 const tipo = (v: number | string) => {
   const s = String(v).padStart(4, '0');
@@ -90,6 +92,7 @@ export default function Modelo200Page() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [verResto, setVerResto] = useState(false);
+  const [recarga, setRecarga] = useState(0);
 
   const parametros = parametrosDe(aplicados);
 
@@ -104,7 +107,7 @@ export default function Modelo200Page() {
     return () => {
       vivo = false;
     };
-  }, [ejercicio, aplicados]);
+  }, [ejercicio, aplicados, recarga]);
 
   if (loading && !borrador) return <Cargando />;
   if (error && !borrador) return <ErrorCarga mensaje={error} />;
@@ -147,15 +150,6 @@ export default function Modelo200Page() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {campo('bins', 'Bases negativas de años anteriores pendientes', 'Se compensan con el límite del art. 26 LIS [00547].')}
           {campo('retenciones', 'Retenciones e ingresos a cuenta [01766]')}
-          <label className="block text-sm font-medium text-slate-700">
-            Persona de contacto
-            <input
-              value={datos.contacto}
-              onChange={(e) => setDatos({ ...datos, contacto: e.target.value })}
-              placeholder="Nombre y apellidos"
-              className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            />
-          </label>
           {campo('pf1', 'Primer pago fraccionado (abril) [00601]')}
           {campo('pf2', 'Segundo pago fraccionado (octubre) [00603]')}
           {campo('pf3', 'Tercer pago fraccionado (diciembre) [00605]')}
@@ -217,7 +211,8 @@ export default function Modelo200Page() {
 
       <div className="space-y-4">
         <DescargarFichero ruta={rutaBorrador('200', ejercicio, parametros, true)} nombre={`200_${ejercicio}.txt`} bloqueado={b.errores.length > 0} texto="Descargar borrador para Sociedades WEB" />
-        <FormPresentar codigo="200" ejercicio={ejercicio} />
+        <p className="text-xs text-slate-500">La persona de contacto y el teléfono para incidencias son los de Registro Mercantil &gt; Datos.</p>
+        <Declaraciones codigo="200" ejercicio={ejercicio} opcionesPresentar={opcionesDe(aplicados)} recarga={recarga} onCambio={() => setRecarga((n) => n + 1)} />
       </div>
     </div>
   );

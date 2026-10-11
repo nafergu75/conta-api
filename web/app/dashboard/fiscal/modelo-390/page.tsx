@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { apiFetch, errorMessage } from '@/lib/api';
 import { ejercicioAnualAPresentar } from '@/lib/aeatCalendar';
-import { FormPresentar } from '../components/FormPresentar';
+import { Declaraciones } from '../components/Declaraciones';
 import {
   CabeceraBorrador,
   Cargando,
@@ -45,6 +45,7 @@ export default function Modelo390Page() {
   const [borrador, setBorrador] = useState<Borrador390 | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [recarga, setRecarga] = useState(0);
 
   useEffect(() => {
     let vivo = true;
@@ -57,7 +58,7 @@ export default function Modelo390Page() {
     return () => {
       vivo = false;
     };
-  }, [ejercicio, ultimoPeriodo]);
+  }, [ejercicio, ultimoPeriodo, recarga]);
 
   if (loading && !borrador) return <Cargando />;
   if (error || !borrador) return <ErrorCarga mensaje={error || 'No se ha podido preparar el borrador.'} />;
@@ -133,7 +134,7 @@ export default function Modelo390Page() {
 
       <div className="space-y-4">
         <DescargarFichero ruta={rutaBorrador('390', ejercicio, { ultimoPeriodo }, true)} nombre={`390_${ejercicio}.txt`} bloqueado={b.errores.length > 0} />
-        <FormPresentar codigo="390" ejercicio={ejercicio} />
+        <Declaraciones codigo="390" ejercicio={ejercicio} opcionesPresentar={{ ultimoPeriodo }} recarga={recarga} onCambio={() => setRecarga((n) => n + 1)} />
       </div>
     </div>
   );

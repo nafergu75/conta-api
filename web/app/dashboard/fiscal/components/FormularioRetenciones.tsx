@@ -8,7 +8,9 @@ import { formatoImporte } from '@/lib/moneda';
 /**
  * Borrador del 111 o del 115 con las casillas y rótulos del formulario de la
  * AEAT. Sale de la misma declaración que el fichero para importar en la sede
- * (GET /impuestos/modelos/:id/txt): lo que se ve es lo que se descarga.
+ * (GET /tax-models/:codigo/fichero): lo que se ve es lo que se descarga.
+ * La complementaria no se marca aquí: se prepara en el historial de
+ * declaraciones, que pone el justificante anterior y lo ya ingresado.
  */
 
 export interface CasillaFormulario {
@@ -42,11 +44,8 @@ export interface FormularioRetencionesDatos {
   avisos: string[];
 }
 
-/** Casilla de la base del resultado, la de anteriores declaraciones y su clave guardada en Impuestos. */
-const CLAVES: Record<'111' | '115', { base: string; anteriores: string; claveAnteriores: string; claveResultado: string }> = {
-  '111': { base: '28', anteriores: '29', claveAnteriores: '29_resultado_anteriores', claveResultado: '30_resultado' },
-  '115': { base: '03', anteriores: '04', claveAnteriores: '04_anteriores', claveResultado: '05_resultado' },
-};
+/** Casilla con lo ingresado en las declaraciones anteriores del periodo. */
+const ANTERIORES: Record<'111' | '115', string> = { '111': '29', '115': '04' };
 
 const FORMAS_PAGO: Array<{ valor: FormaPago; texto: string }> = [
   { valor: 'I', texto: 'Ingreso (pago con NRC o en el banco)' },
@@ -55,16 +54,6 @@ const FORMAS_PAGO: Array<{ valor: FormaPago; texto: string }> = [
 ];
 
 const eur = (n: number) => formatoImporte(Number(n) || 0, 'EUR');
-const centimos = (n: number) => Math.round((Number(n) || 0) * 100);
-
-/** "1.234,56" o "1234.56" -> 1234.56 (NaN si no es un importe). */
-function leerImporte(texto: string): number {
-  const t = texto.trim().replace(/\s/g, '');
-  if (!t) return 0;
-  const normal = t.includes(',') ? t.replace(/\./g, '').replace(',', '.') : t;
-  return /^\d+(\.\d{1,2})?$/.test(normal) ? Number(normal) : NaN;
-}
-
 function Casilla({ c, etiqueta }: { c: CasillaFormulario; etiqueta?: string }) {
   return (
     <div className="flex items-center justify-between gap-2 rounded border border-slate-300 bg-white px-2 py-1.5" title={c.descripcion}>
@@ -95,61 +84,36 @@ function Dato({ etiqueta, valor }: { etiqueta: string; valor: string }) {
 
 interface Props {
   formulario: FormularioRetencionesDatos;
-  /** Id del ModeloImpuesto: el del fichero y el de las opciones del borrador. */
-  modeloId: string;
   estado: string;
-  /** Tras guardar las opciones, para volver a cargar el modelo. */
+  /** Tras guardar la forma de pago, para volver a cargar el modelo. */
   onGuardado?: () => void;
 }
 
-export function FormularioRetenciones({ formulario: f, modeloId, estado, onGuardado }: Props) {
-  const claves = CLAVES[f.modelo];
-  const todas = [...f.bloques.flatMap((b) => b.filas.flatMap((fila) => fila.casillas)), ...f.total];
-  const valor = (numero: string) => Number(todas.find((c) => c.numero === numero)?.valor ?? 0) || 0;
+export function FormularioRetenciones({ formulario: f, estado, onGuardado }: Props) {
   const editable = estado === 'vigente';
+  const id = f.identificacion;
+  const nombreFichero = `${f.modelo}_${id.ejercicio}_${id.periodo}.txt`;
 
   const [formaPago, setFormaPago] = useState<FormaPago>(f.liquidacion.formaPago);
-  const [complementaria, setComplementaria] = useState(f.liquidacion.complementaria);
-  const [justificante, setJustificante] = useState(f.liquidacion.justificanteAnterior);
-  const [anteriores, setAnteriores] = useState(() => (valor(claves.anteriores) ? String(valor(claves.anteriores)).replace('.', ',') : ''));
   const [guardando, setGuardando] = useState(false);
   const [mensaje, setMensaje] = useState('');
   const [errorDescarga, setErrorDescarga] = useState('');
 
-  // Otro periodo u otro modelo: las opciones vuelven a las guardadas.
+  // Otro periodo u otro modelo: la forma de pago vuelve a la guardada.
   useEffect(() => {
     setFormaPago(f.liquidacion.formaPago);
-    setComplementaria(f.liquidacion.complementaria);
-    setJustificante(f.liquidacion.justificanteAnterior);
-    setAnteriores(valor(claves.anteriores) ? String(valor(claves.anteriores)).replace('.', ',') : '');
     setMensaje('');
     setErrorDescarga('');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [f]);
 
-  const id = f.identificacion;
-  const nombreFichero = `${f.modelo}_${id.ejercicio}_${id.periodo}.txt`;
-
-  const guardarOpciones = async () => {
+  const guardarFormaPago = async () => {
     setMensaje('');
-    const importeAnteriores = complementaria ? leerImporte(anteriores) : 0;
-    if (Number.isNaN(importeAnteriores)) {
-      setMensaje(`El importe de la casilla [${claves.anteriores}] no es válido: escríbelo con coma para los céntimos (por ejemplo, 1250,50).`);
-      return;
-    }
-    const casillas: Record<string, unknown> = {
-      opcion_forma_pago: formaPago,
-      opcion_complementaria: complementaria,
-      opcion_justificante_anterior: complementaria ? justificante.replace(/\s/g, '') : '',
-    };
-    // [29] / [04] y el resultado solo cambian si cambia lo ingresado antes (si no, el modelo se sigue recalculando).
-    if (centimos(importeAnteriores) !== centimos(valor(claves.anteriores))) {
-      casillas[claves.claveAnteriores] = importeAnteriores;
-      casillas[claves.claveResultado] = (centimos(valor(claves.base)) - centimos(importeAnteriores)) / 100;
-    }
     try {
       setGuardando(true);
-      await apiFetch(companyPath(`/impuestos/modelos/${modeloId}`), { method: 'PUT', body: JSON.stringify({ casillas }) });
+      await apiFetch(companyPath(`/tax-models/${f.modelo}/opciones`), {
+        method: 'PUT',
+        body: JSON.stringify({ ejercicio: id.ejercicio, periodo: id.periodo, formaPago }),
+      });
       setMensaje('Guardado.');
       onGuardado?.();
     } catch (err) {
@@ -162,7 +126,7 @@ export function FormularioRetenciones({ formulario: f, modeloId, estado, onGuard
   const descargar = async () => {
     setErrorDescarga('');
     try {
-      await apiDownload(companyPath(`/impuestos/modelos/${modeloId}/txt`), nombreFichero);
+      await apiDownload(companyPath(`/tax-models/${f.modelo}/fichero?ejercicio=${id.ejercicio}&periodo=${id.periodo}`), nombreFichero);
     } catch (err) {
       setErrorDescarga(errorMessage(err));
     }
@@ -236,6 +200,10 @@ export function FormularioRetenciones({ formulario: f, modeloId, estado, onGuard
           <Dato etiqueta="Complementaria" valor={f.liquidacion.complementaria ? 'X' : 'No'} />
           <Dato etiqueta="Nº de justificante de la declaración anterior" valor={f.liquidacion.justificanteAnterior} />
         </div>
+        <p className="text-xs text-slate-500">
+          La complementaria se prepara en «Declaraciones presentadas», más abajo, después de marcar la anterior como presentada. La app pone el
+          justificante anterior y lo ya ingresado en la casilla [{ANTERIORES[f.modelo]}].
+        </p>
       </Seccion>
 
       <Seccion titulo="Tipo de declaración y forma de pago">
@@ -267,7 +235,7 @@ export function FormularioRetenciones({ formulario: f, modeloId, estado, onGuard
 
       {editable && (
         <details className="rounded-lg border border-slate-200 p-3">
-          <summary className="cursor-pointer text-sm font-medium text-slate-800">Forma de pago y complementaria</summary>
+          <summary className="cursor-pointer text-sm font-medium text-slate-800">Forma de pago</summary>
           <div className="mt-3 space-y-3">
             <div>
               <label htmlFor={`fp-${f.modelo}`} className="block text-sm font-medium text-slate-700">
@@ -287,44 +255,9 @@ export function FormularioRetenciones({ formulario: f, modeloId, estado, onGuard
               </select>
               <p className="mt-1 text-xs text-slate-500">Si el resultado es 0, la declaración sale como negativa (N). La domiciliación usa la cuenta bancaria activa de la empresa.</p>
             </div>
-            <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input type="checkbox" checked={complementaria} onChange={(e) => setComplementaria(e.target.checked)} />
-              Es una declaración complementaria
-            </label>
-            {complementaria && (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div>
-                  <label htmlFor={`just-${f.modelo}`} className="block text-sm font-medium text-slate-700">
-                    Nº de justificante de la declaración anterior
-                  </label>
-                  <input
-                    id={`just-${f.modelo}`}
-                    inputMode="numeric"
-                    maxLength={13}
-                    value={justificante}
-                    onChange={(e) => setJustificante(e.target.value.replace(/\D/g, ''))}
-                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm"
-                    placeholder="13 cifras"
-                  />
-                </div>
-                <div>
-                  <label htmlFor={`ant-${f.modelo}`} className="block text-sm font-medium text-slate-700">
-                    [{claves.anteriores}] Ingresado en la declaración anterior
-                  </label>
-                  <input
-                    id={`ant-${f.modelo}`}
-                    inputMode="decimal"
-                    value={anteriores}
-                    onChange={(e) => setAnteriores(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm"
-                    placeholder="0,00"
-                  />
-                </div>
-              </div>
-            )}
             <button
               type="button"
-              onClick={guardarOpciones}
+              onClick={guardarFormaPago}
               disabled={guardando}
               className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
             >

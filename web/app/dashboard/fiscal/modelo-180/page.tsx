@@ -17,7 +17,7 @@ import {
   type CampoLeido,
   type Columna,
 } from '../components/RegistroAeat';
-import { FormPresentar } from '../components/FormPresentar';
+import { Declaraciones } from '../components/Declaraciones';
 
 /**
  * Modelo 180 (resumen anual de retenciones por alquileres): borrador con el
@@ -40,7 +40,10 @@ interface FacturaAlquiler {
 interface Borrador180 {
   ejercicio: number;
   estado: string;
+  /** Tipo y anterior: los pone el historial de declaraciones. */
   opciones: { tipoDeclaracion: 'C' | 'S' | null; declaracionAnterior: string | null };
+  /** Número identificativo; null hasta la primera descarga o la presentación. */
+  numeroDeclaracion: string | null;
   errores: string[];
   avisos: string[];
   pantalla: { declarante: CampoLeido[]; columnasPerceptor: Columna[]; perceptores: Array<Record<string, string | number>> } | null;
@@ -143,8 +146,6 @@ export default function Modelo180Page() {
   const [abierto, setAbierto] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [mensaje, setMensaje] = useState('');
-  const [tipo, setTipo] = useState<'' | 'C' | 'S'>('');
-  const [anterior, setAnterior] = useState('');
 
   useEffect(() => {
     let vivo = true;
@@ -155,8 +156,6 @@ export default function Modelo180Page() {
         if (!vivo) return;
         setB(r);
         setInmuebles(i);
-        setTipo(r.opciones.tipoDeclaracion ?? '');
-        setAnterior(r.opciones.declaracionAnterior ?? '');
       })
       .catch((e) => vivo && setError(errorMessage(e)))
       .finally(() => vivo && setCargando(false));
@@ -211,16 +210,6 @@ export default function Modelo180Page() {
       setRecarga((n) => n + 1);
     } catch (err) {
       setError(errorMessage(err));
-    }
-  };
-
-  const guardarOpciones = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      setB(await apiFetch<Borrador180>(companyPath('/tax-models/180/opciones'), { method: 'PUT', body: JSON.stringify({ ejercicio, tipoDeclaracion: tipo || null, declaracionAnterior: tipo ? anterior : null }) }));
-      setMensaje('Guardado.');
-    } catch (err) {
-      setMensaje(errorMessage(err));
     }
   };
 
@@ -469,31 +458,17 @@ export default function Modelo180Page() {
               {mensaje && <p className="text-sm text-slate-600">{mensaje}</p>}
             </Seccion>
 
-            {!presentado && (
-              <Seccion titulo="Tipo de declaración">
-                <form onSubmit={guardarOpciones} className="flex flex-wrap items-end gap-4">
-                  <div>
-                    <label htmlFor="m180-tipo" className="block text-sm font-medium text-slate-700">
-                      Declaración
-                    </label>
-                    <select id="m180-tipo" value={tipo} onChange={(e) => setTipo(e.target.value as '' | 'C' | 'S')} className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm">
-                      <option value="">Primera declaración del año</option>
-                      <option value="C">Complementaria (añade arrendadores que faltaban)</option>
-                      <option value="S">Sustitutiva (reemplaza la anterior)</option>
-                    </select>
-                  </div>
-                  {tipo && (
-                    <Texto id="m180-ant" label="Número de la declaración anterior" valor={anterior} onChange={setAnterior} max={13} />
-                  )}
-                  <button type="submit" className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
-                    Guardar
-                  </button>
-                </form>
-              </Seccion>
-            )}
-
-            <DescargarFichero ruta={companyPath(`/tax-models/180/fichero?ejercicio=${ejercicio}`)} nombre={`180_${ejercicio}.txt`} bloqueado={bloqueado} />
-            {!presentado && !bloqueado && <FormPresentar codigo="180" ejercicio={ejercicio} onSuccess={() => setRecarga((n) => n + 1)} />}
+            <DescargarFichero
+              ruta={companyPath(`/tax-models/180/fichero?ejercicio=${ejercicio}`)}
+              nombre={`180_${ejercicio}.txt`}
+              bloqueado={bloqueado}
+              numero={{ codigo: '180', ejercicio }}
+              onDescargado={() => setRecarga((n) => n + 1)}
+            />
+            <p className="text-xs text-slate-500">
+              {b.numeroDeclaracion ? `Número identificativo de la declaración: ${b.numeroDeclaracion}. ` : ''}La persona de contacto y el teléfono se cambian en Registro Mercantil &gt; Datos.
+            </p>
+            <Declaraciones codigo="180" ejercicio={ejercicio} recarga={recarga} onCambio={() => setRecarga((n) => n + 1)} />
           </div>
         )
       )}

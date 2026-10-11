@@ -2,15 +2,16 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { apiDownloadConCabeceras, apiFetch, companyPath, errorMessage } from '@/lib/api';
+import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { ejercicioAnualAPresentar, ejerciciosSeleccionables } from '@/lib/aeatCalendar';
 import { CaretLeft, Info, Download } from '@phosphor-icons/react';
-import { FormPresentar } from '../components/FormPresentar';
+import { Declaraciones, descargarConNumero } from '../components/Declaraciones';
 import { AvisosModelo } from '../components/AvisosModelo';
 
 interface Modelo190 {
-  id: string;
+  /** Id de la fila del calendario; null si aún no existe (abrir la pantalla no la crea). */
+  id: string | null;
   ejercicio: number;
   totalBase: number;
   totalRetenido: number;
@@ -60,27 +61,19 @@ interface Perceptor190 {
   ingresosACuentaEfectuados: number;
   ejercicioDevengo: number | null;
   faltan: string[];
+  /** Estaba en una declaración ya presentada. */
+  presentado?: boolean;
+  /** Va en la declaración que se prepara (en una complementaria, solo los elegidos). */
+  incluido?: boolean;
 }
 
-/** Ultimo numero identificativo que genero la app y justificante con que se marco presentado. */
-interface Numeracion190 {
-  ultimo: { numero: string; tipo: 'N' | 'C' | 'S'; emitidoEn: string } | null;
-  presentado: boolean;
-  justificantePresentado: string | null;
+/** Declaración en curso o presentada, según el historial. */
+interface Declaracion190 {
+  tipo: 'N' | 'C' | 'S';
+  numero: string | null;
+  justificanteAnterior: string | null;
+  congelada: boolean;
 }
-
-/**
- * Datos de la cabecera del fichero que no guarda la app (persona de contacto,
- * tipo de declaracion). El numero identificativo lo pone la app.
- */
-interface DatosFichero {
-  telefono: string;
-  contacto: string;
-  email: string;
-  tipoDeclaracion: '' | 'C' | 'S';
-  numeroAnterior: string;
-}
-const DATOS_VACIOS: DatosFichero = { telefono: '', contacto: '', email: '', tipoDeclaracion: '', numeroAnterior: '' };
 
 /**
  * Retenciones del ano por tipo: se suman los trimestres por su tipo (los
@@ -107,11 +100,10 @@ export default function Modelo190Page() {
   const [error, setError] = useState('');
   const [avisoDescarga, setAvisoDescarga] = useState('');
   const [perceptores, setPerceptores] = useState<Perceptor190[] | null>(null);
-  const [datosFichero, setDatosFichero] = useState<DatosFichero>(DATOS_VACIOS);
-  const [numeracion, setNumeracion] = useState<Numeracion190 | null>(null);
-  // Complementaria: registros que se quedaron fuera de la declaracion anterior.
-  const [seleccion, setSeleccion] = useState<Set<string>>(() => new Set());
-  const [recargaPerceptores, setRecargaPerceptores] = useState(0);
+  const [declaracion, setDeclaracion] = useState<Declaracion190 | null>(null);
+  // Resumen [01]-[03] de los perceptores que van (en una complementaria, solo los elegidos).
+  const [resumenElegidos, setResumenElegidos] = useState<CasillaResumen[] | null>(null);
+  const [recarga, setRecarga] = useState(0);
   // Modelo anual: se presenta por el ejercicio anterior.
   const [ejercicio, setEjercicio] = useState(ejercicioAnualAPresentar);
 
@@ -129,7 +121,7 @@ export default function Modelo190Page() {
     };
 
     fetchModelo();
-  }, [ejercicio]);
+  }, [ejercicio, recarga]);
 
   // El fichero y el informe por perceptor llevan datos de cada trabajador: solo con permiso de nominas.
   const conNominas = tieneAlgunPermiso(getUser(), ['nominas:read']);
@@ -139,73 +131,52 @@ export default function Modelo190Page() {
     if (!conNominas) return;
     let vivo = true;
     setPerceptores(null);
-    apiFetch<{ perceptores: Perceptor190[]; numeracion?: Numeracion190 }>(companyPath(`/nominas/190/${ejercicio}/perceptores`))
+    apiFetch<{ perceptores: Perceptor190[]; resumen?: CasillaResumen[]; declaracion?: Declaracion190 }>(companyPath(`/nominas/190/${ejercicio}/perceptores`))
       .then((r) => {
         if (!vivo) return;
         setPerceptores(r.perceptores ?? []);
-        setNumeracion(r.numeracion ?? null);
-        // Si cambian los registros, la seleccion de la complementaria se queda solo con los que siguen.
-        setSeleccion((s) => new Set(Array.from(s).filter((id) => (r.perceptores ?? []).some((p) => p.id === id))));
+        setDeclaracion(r.declaracion ?? null);
+        setResumenElegidos(r.resumen ?? null);
       })
       .catch(() => vivo && setPerceptores([]));
     return () => {
       vivo = false;
     };
-  }, [ejercicio, conNominas, recargaPerceptores]);
-
-  // Otro ejercicio: otra declaracion.
-  useEffect(() => {
-    setSeleccion(new Set());
-    setDatosFichero((d) => ({ ...d, tipoDeclaracion: '', numeroAnterior: '' }));
-  }, [ejercicio]);
+  }, [ejercicio, conNominas, recarga]);
 
   const eur = new Intl.NumberFormat('es-ES', {
     style: 'currency',
     currency: 'EUR',
   });
 
-  const [numeroGenerado, setNumeroGenerado] = useState('');
+  const complementaria = declaracion?.tipo === 'C' && !declaracion.congelada;
 
-  const descargar = async (ruta: string, nombre: string, init?: RequestInit): Promise<Headers | null> => {
+  // El fichero lleva los datos de cada trabajador: solo con permiso de nóminas.
+  const conPermiso = (): boolean => {
     setAvisoDescarga('');
-    setNumeroGenerado('');
-    if (!conNominas) {
-      setAvisoDescarga('El fichero lleva los datos de cada trabajador: solo lo pueden descargar el administrador y el contable.');
-      return null;
-    }
-    try {
-      return await apiDownloadConCabeceras(companyPath(ruta), nombre, init);
-    } catch (err) {
-      // 409 si el diseno de registro de ese ejercicio aun no esta publicado; 400 si faltan datos.
-      setAvisoDescarga(errorMessage(err));
-      return null;
-    }
+    if (conNominas) return true;
+    setAvisoDescarga('El fichero lleva los datos de cada trabajador: solo lo pueden descargar el administrador y el contable.');
+    return false;
   };
-  const complementaria = datosFichero.tipoDeclaracion === 'C';
-  // Los datos de la persona de contacto van en el cuerpo (POST), no en la URL.
+  // Si aún no tiene número identificativo, la app se lo pone antes (y ya no cambia).
   const descargarAEAT = async () => {
-    const cuerpo = { ...datosFichero, ...(complementaria ? { perceptores: Array.from(seleccion) } : {}) };
-    const cabeceras = await descargar(`/nominas/190/${ejercicio}/fichero`, `190_${ejercicio}.txt`, { method: 'POST', body: JSON.stringify(cuerpo) });
-    const numero = cabeceras?.get('X-Numero-Declaracion');
-    if (numero) {
-      setNumeroGenerado(numero);
-      setRecargaPerceptores((n) => n + 1);
+    if (!conPermiso()) return;
+    try {
+      await descargarConNumero('190', ejercicio, undefined, companyPath(`/nominas/190/${ejercicio}/fichero`), `190_${ejercicio}.txt`);
+      setRecarga((n) => n + 1);
+    } catch (err) {
+      // 409 si el diseño de registro de ese ejercicio aún no está publicado; 400 si faltan datos.
+      setAvisoDescarga(errorMessage(err));
     }
   };
-  const campoFichero = (k: keyof DatosFichero) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setDatosFichero((d) => ({ ...d, [k]: e.target.value }));
-  // Complementaria o sustitutiva: se propone como anterior el justificante con que se marco presentado.
-  const cambiarTipo = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const tipo = e.target.value as DatosFichero['tipoDeclaracion'];
-    setDatosFichero((d) => ({ ...d, tipoDeclaracion: tipo, numeroAnterior: tipo && !d.numeroAnterior ? (numeracion?.justificantePresentado ?? '') : d.numeroAnterior }));
+  const descargarPerceptores = async () => {
+    if (!conPermiso()) return;
+    try {
+      await apiDownload(companyPath(`/nominas/190/${ejercicio}/perceptores?formato=xlsx`), `modelo190_${ejercicio}.xlsx`);
+    } catch (err) {
+      setAvisoDescarga(errorMessage(err));
+    }
   };
-  const marcar = (id: string) =>
-    setSeleccion((s) => {
-      const n = new Set(s);
-      if (n.has(id)) n.delete(id);
-      else n.add(id);
-      return n;
-    });
-  const descargarPerceptores = () => descargar(`/nominas/190/${ejercicio}/perceptores?formato=xlsx`, `modelo190_${ejercicio}.xlsx`);
 
   if (loading) {
     return (
@@ -339,7 +310,10 @@ export default function Modelo190Page() {
         <section className="overflow-hidden rounded-lg border border-slate-300 bg-white">
           <h2 className="bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-800">Resumen de los datos incluidos en la declaración</h2>
           <div className="space-y-2 p-3">
-            {modelo.formulario.resumen.map((r) => (
+            {complementaria && resumenElegidos && (
+              <p className="text-xs text-indigo-800">Complementaria: el resumen es el de los perceptores que van en ella.</p>
+            )}
+            {(complementaria && resumenElegidos ? resumenElegidos : modelo.formulario.resumen).map((r) => (
               <div key={r.casilla} className="grid grid-cols-1 items-center gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,14rem)]">
                 <span className="text-sm text-slate-700">{r.rotulo}</span>
                 <div className="flex items-center justify-between gap-2 rounded border border-slate-300 bg-white px-2 py-1.5">
@@ -437,18 +411,14 @@ export default function Modelo190Page() {
           <h3 className="mb-3 font-semibold text-slate-900">Relación de perceptores</h3>
           {complementaria && (
             <p className="mb-3 rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-900">
-              Complementaria: marca solo los perceptores que se quedaron fuera de la declaración anterior. El fichero llevará esos registros y nada más ({seleccion.size} marcado{seleccion.size === 1 ? '' : 's'}).
+              Complementaria: solo van los perceptores marcados en «Declaraciones presentadas», más abajo ({perceptores.filter((p) => p.incluido).length} de {perceptores.length}).
             </p>
           )}
           <div className="overflow-x-auto">
             <table className="w-full min-w-[44rem] text-sm">
               <thead>
                 <tr className="border-b border-slate-200 text-left text-slate-600">
-                  {complementaria && (
-                    <th className="py-2 pr-2 font-medium">
-                      <span className="sr-only">Incluir en la complementaria</span>
-                    </th>
-                  )}
+                  {complementaria && <th className="py-2 pr-2 font-medium">Va</th>}
                   <th className="py-2 font-medium">NIF</th>
                   <th className="py-2 font-medium">Apellidos y nombre o razón social</th>
                   <th className="py-2 font-medium">Prov.</th>
@@ -463,20 +433,12 @@ export default function Modelo190Page() {
               </thead>
               <tbody>
                 {perceptores.map((p, i) => (
-                  <tr key={p.id ?? `${p.nif}-${p.clave}-${p.subclave ?? ''}-${p.ejercicioDevengo ?? ''}-${i}`} className={`border-b border-slate-100 ${complementaria && seleccion.has(p.id) ? 'bg-indigo-50' : ''}`}>
-                    {complementaria && (
-                      <td className="py-2 pr-2">
-                        <input
-                          type="checkbox"
-                          checked={seleccion.has(p.id)}
-                          onChange={() => marcar(p.id)}
-                          aria-label={`Incluir a ${p.nombre} (clave ${p.clave}${p.subclave ?? ''}) en la complementaria`}
-                        />
-                      </td>
-                    )}
+                  <tr key={p.id ?? `${p.nif}-${p.clave}-${p.subclave ?? ''}-${p.ejercicioDevengo ?? ''}-${i}`} className={`border-b border-slate-100 ${complementaria && p.incluido ? 'bg-indigo-50' : ''}`}>
+                    {complementaria && <td className="py-2 pr-2">{p.incluido ? 'Sí' : 'No'}</td>}
                     <td className="py-2 font-mono">{p.nif}</td>
                     <td className="py-2">
                       {p.nombre}
+                      {p.presentado && <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">ya presentado</span>}
                       {p.faltan.length > 0 && <span className="block text-xs text-amber-700">Falta: {p.faltan.join(', ')}</span>}
                     </td>
                     <td className="py-2 font-mono">{p.provincia ?? '—'}</td>
@@ -523,88 +485,34 @@ export default function Modelo190Page() {
         </div>
       </div>
 
-      {/* Acciones Finales */}
+      {/* Acciones finales */}
       <div className="space-y-4">
-        {/* Botón de Descarga AEAT (tambien presentado: complementaria o sustitutiva) */}
-        {(modelo.estado === 'vigente' || modelo.estado === 'presentado') && (
-          <>
-            {modelo.estado === 'presentado' && conNominas && (
-              <p role="status" className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-                El 190 de {ejercicio} ya está presentado. Para añadir perceptores que se quedaron fuera, descarga una complementaria; para rehacerlo entero, una sustitutiva.
-              </p>
-            )}
-            {conNominas && (
-              <fieldset className="grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-white p-4 sm:grid-cols-2">
-                <legend className="px-1 text-sm font-semibold text-slate-900">Datos del fichero</legend>
-                <label className="text-sm text-slate-700">
-                  Teléfono de contacto
-                  <input value={datosFichero.telefono} onChange={campoFichero('telefono')} inputMode="tel" maxLength={9} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm" placeholder="9 cifras" />
-                </label>
-                <label className="text-sm text-slate-700">
-                  Apellidos y nombre de la persona de contacto
-                  <input value={datosFichero.contacto} onChange={campoFichero('contacto')} maxLength={40} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-                </label>
-                <label className="text-sm text-slate-700">
-                  Correo electrónico (opcional)
-                  <input value={datosFichero.email} onChange={campoFichero('email')} type="email" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-                </label>
-                <label className="text-sm text-slate-700">
-                  Tipo de declaración
-                  <select value={datosFichero.tipoDeclaracion} onChange={cambiarTipo} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
-                    <option value="">Normal</option>
-                    <option value="C">Complementaria (solo los perceptores que faltaron)</option>
-                    <option value="S">Sustitutiva (reemplaza a la anterior)</option>
-                  </select>
-                </label>
-                {datosFichero.tipoDeclaracion && (
-                  <label className="text-sm text-slate-700">
-                    Número de la declaración anterior
-                    <input
-                      value={datosFichero.numeroAnterior}
-                      onChange={(e) => setDatosFichero((d) => ({ ...d, numeroAnterior: e.target.value.replace(/\D/g, '') }))}
-                      inputMode="numeric"
-                      maxLength={13}
-                      className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm"
-                      placeholder="13 cifras, empieza por 190"
-                    />
-                    <span className="mt-1 block text-xs text-slate-500">El del justificante de presentación de la declaración que complementas o sustituyes.</span>
-                  </label>
-                )}
-                <p className="text-xs text-slate-500 sm:col-span-2">
-                  El número identificativo de esta declaración lo pone la app en el fichero y no se repite en el ejercicio.
-                  {numeracion?.ultimo && ` Último generado: ${numeracion.ultimo.numero}.`}
-                </p>
-              </fieldset>
-            )}
-            <button
-              onClick={descargarAEAT}
-              className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-6 py-3 text-sm font-medium text-white hover:bg-emerald-700 transition"
-            >
-              <Download size={18} />
-              Descargar Fichero AEAT (TXT)
-            </button>
-            {conNominas && (
-              <button
-                onClick={descargarPerceptores}
-                className="w-full inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-6 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50 transition"
-              >
-                <Download size={18} />
-                Informe por perceptor (Excel)
-              </button>
-            )}
-            {numeroGenerado && (
-              <p role="status" className="mt-2 text-sm text-emerald-800">
-                Fichero descargado con el número identificativo {numeroGenerado}. Al presentarlo, guarda el justificante: si luego hay que complementarlo o sustituirlo, te pedirá su número.
-              </p>
-            )}
-            {avisoDescarga && (
-              <p role="status" className="mt-2 text-sm text-amber-700">{avisoDescarga}</p>
-            )}
-          </>
+        <button
+          onClick={descargarAEAT}
+          className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-6 py-3 text-sm font-medium text-white hover:bg-emerald-700 transition"
+        >
+          <Download size={18} />
+          {declaracion?.congelada ? 'Descargar el fichero que se presentó (TXT)' : 'Descargar fichero AEAT (TXT)'}
+        </button>
+        {conNominas && (
+          <button
+            onClick={descargarPerceptores}
+            className="w-full inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-6 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50 transition"
+          >
+            <Download size={18} />
+            Informe por perceptor (Excel)
+          </button>
+        )}
+        <p className="text-xs text-slate-500">
+          {declaracion?.numero ? `Número identificativo de la declaración: ${declaracion.numero}. ` : 'La app le pone a la declaración su número identificativo al descargar el fichero, y ya no cambia. '}
+          La persona de contacto y el teléfono son los de Registro Mercantil &gt; Datos.
+        </p>
+        {avisoDescarga && (
+          <p role="status" className="mt-2 text-sm text-amber-700">{avisoDescarga}</p>
         )}
 
-        {/* Formulario de Presentación */}
-        {modelo.estado === 'vigente' && <FormPresentar codigo="190" ejercicio={ejercicio} />}
+        {/* Presentar, complementaria o sustitutiva e historial */}
+        <Declaraciones codigo="190" ejercicio={ejercicio} recarga={recarga} onCambio={() => setRecarga((n) => n + 1)} />
       </div>
     </div>
   );

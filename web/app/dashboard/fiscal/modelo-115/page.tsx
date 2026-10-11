@@ -6,7 +6,7 @@ import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { ejerciciosSeleccionables, trimestreAPresentar } from '@/lib/aeatCalendar';
 import { formatoImporte } from '@/lib/moneda';
 import { CaretLeft } from '@phosphor-icons/react';
-import { FormPresentar } from '../components/FormPresentar';
+import { Declaraciones } from '../components/Declaraciones';
 import { FormularioRetenciones, type FormularioRetencionesDatos } from '../components/FormularioRetenciones';
 import { SelectorPeriodoRetenciones, textoPeriodo } from '../components/SelectorPeriodoRetenciones';
 
@@ -185,9 +185,9 @@ export default function Modelo115Page() {
             </section>
 
             {/* Formulario oficial (misma fuente que el fichero) */}
-            <FormularioRetenciones formulario={modelo.formulario} modeloId={modelo.id} estado={modelo.estado} onGuardado={() => setRecarga((n) => n + 1)} />
+            <FormularioRetenciones formulario={modelo.formulario} estado={modelo.estado} onGuardado={() => setRecarga((n) => n + 1)} />
 
-            {modelo.estado === 'vigente' && <FormPresentar codigo="115" ejercicio={ejercicio} periodo={periodo} onSuccess={() => setRecarga((n) => n + 1)} />}
+            <Declaraciones codigo="115" ejercicio={ejercicio} periodo={modelo.periodo ?? periodo} onCambio={() => setRecarga((n) => n + 1)} />
 
             {/* Resumen del año */}
             {resumen && (
