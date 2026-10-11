@@ -367,8 +367,17 @@ export default function LectorIngresosPage() {
                 </div>
               )}
 
-              {!bloqueada && faltaRevision && (
-                <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">Marca que has revisado los datos señalados (arriba) antes de registrar.</p>
+              {!bloqueada && info.requiereRevision && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                  <p>
+                    Aquí no se pueden cambiar los datos. Si alguno está mal, no la registres desde el lector:{' '}
+                    <Link href={ALTA_MANUAL.ventas.ruta} className="font-semibold underline">
+                      {ALTA_MANUAL.ventas.texto}
+                    </Link>
+                    .
+                  </p>
+                  {faltaRevision && <p className="mt-1">Si todo está bien, marca la casilla de arriba para poder registrarla.</p>}
+                </div>
               )}
 
               {errorGuardar && (
