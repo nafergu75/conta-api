@@ -8,6 +8,7 @@ import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import PanelLectura from '@/components/lector/PanelLectura';
 import {
   ALTA_MANUAL,
+  anuncioLecturaTerminada,
   claveTexto,
   descartarLectura,
   ErrorLectura,
@@ -64,6 +65,7 @@ export default function LectorIngresosPage() {
   const [registrada, setRegistrada] = useState<Registrada | null>(null);
   const lecturaIdRef = useRef<string | null>(null);
   const cortarRef = useRef<AbortController | null>(null);
+  const panelRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     if (!archivo) {
@@ -190,6 +192,19 @@ export default function LectorIngresosPage() {
   const erroresSueltos = ingreso ? ingreso.errores.filter((e) => !yaExplicados.has(claveTexto(e))) : [];
   const bloqueada = !!ingreso && ingreso.errores.length > 0;
   const faltaRevision = !!info?.requiereRevision && !revisado;
+  const anuncio = leyendo
+    ? segundos < 10
+      ? 'Leyendo la factura. Tarda unos segundos.'
+      : 'Sigue leyendo; las facturas largas tardan un poco más.'
+    : info && !registrada
+      ? anuncioLecturaTerminada(info)
+      : '';
+
+  // Al terminar la lectura, el foco va a los datos leidos (sin mover la pantalla).
+  const lecturaLista = info?.lecturaId ?? null;
+  useEffect(() => {
+    if (lecturaLista) panelRef.current?.focus({ preventScroll: true });
+  }, [lecturaLista]);
 
   return (
     <div>
@@ -203,6 +218,10 @@ export default function LectorIngresosPage() {
       </header>
 
       <main className="mx-auto max-w-7xl px-4 pt-6 pb-24 md:px-8 md:py-8">
+        {/* Siempre en la pagina: el lector de pantalla anuncia la espera y el final de la lectura. */}
+        <p role="status" className="sr-only">
+          {anuncio}
+        </p>
         <input ref={inputRef} type="file" accept="application/pdf,image/jpeg,image/png,image/webp" onChange={alElegir} className="hidden" tabIndex={-1} aria-hidden="true" />
 
         {!puedeEscribir ? (
@@ -226,28 +245,19 @@ export default function LectorIngresosPage() {
           </div>
         ) : !ingreso || !info ? (
           <div className="mx-auto max-w-2xl">
+            {/* Zona para soltar el archivo; con el teclado se usa el boton "Seleccionar archivo". */}
             <div
-              role="button"
-              tabIndex={0}
               onClick={abrirSelector}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  abrirSelector();
-                }
-              }}
               onDragOver={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
               }}
               onDrop={alSoltar}
-              aria-label="Seleccionar el archivo de la factura"
-              aria-busy={leyendo}
-              className="cursor-pointer rounded-xl border-2 border-dashed border-emerald-200 bg-white p-8 text-center transition-colors hover:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-accent-600 md:p-12"
+              className={`rounded-xl border-2 border-dashed border-emerald-200 bg-white p-8 text-center transition-colors md:p-12 ${leyendo ? '' : 'cursor-pointer hover:border-emerald-400'}`}
             >
               <FileArrowUp size={48} weight="duotone" className="mx-auto mb-4 text-accent-600" />
               <h2 className="mb-2 text-lg font-semibold text-slate-900">{leyendo ? 'Leyendo la factura…' : 'Sube el PDF o la foto de una factura emitida'}</h2>
-              <p role={leyendo ? 'status' : undefined} className="mb-6 text-sm text-slate-600">
+              <p className="mb-6 text-sm text-slate-600">
                 {leyendo
                   ? segundos < 10
                     ? 'Tarda unos segundos.'
@@ -323,7 +333,7 @@ export default function LectorIngresosPage() {
             </section>
 
             {/* Lo leido y la confirmacion */}
-            <section className="flex min-w-0 flex-col gap-4">
+            <section ref={panelRef} tabIndex={-1} aria-label="Datos leídos" className="flex min-w-0 flex-col gap-4 focus:outline-none">
               <PanelLectura info={info} lector="ventas" revisado={revisado} onRevisado={setRevisado} conCasilla={!bloqueada} />
 
               <div className="rounded-lg border border-slate-200 bg-white p-4">

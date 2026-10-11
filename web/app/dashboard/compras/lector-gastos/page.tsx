@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { ArrowLeft, CheckCircle, FileArrowUp, WarningCircle } from '@phosphor-icons/react';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import PanelLectura from '@/components/lector/PanelLectura';
-import { descartarLectura, ErrorLectura, esCancelada, leerFactura, type InfoLectura } from '@/lib/lecturas';
+import { anuncioLecturaTerminada, descartarLectura, ErrorLectura, esCancelada, leerFactura, type InfoLectura } from '@/lib/lecturas';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { pareceNifIvaUe } from '@/lib/fiscal';
 import FormFacturaGasto, { type FormInicial } from '@/components/compras/FormFacturaGasto';
@@ -109,6 +109,7 @@ export default function LectorGastosPage() {
   // Lectura en curso o sin registrar: "Leer otra" corta la espera y la descarta.
   const lecturaIdRef = useRef<string | null>(null);
   const cortarRef = useRef<AbortController | null>(null);
+  const panelRef = useRef<HTMLElement>(null);
 
   // La vista previa usa una URL local del archivo: se libera al cambiar de archivo.
   useEffect(() => {
@@ -235,6 +236,19 @@ export default function LectorGastosPage() {
   // Si lo unico marcado era el tipo de documento, "es una factura de gasto" ya es la revision.
   const revisadoEnviado = !!info?.requiereRevision && !infoPanel?.requiereRevision ? !noEsFactura : revisado;
   const esImagen = archivo?.type.startsWith('image/');
+  const anuncio = leyendo
+    ? segundos < 10
+      ? 'Leyendo la factura. Tarda unos segundos.'
+      : 'Sigue leyendo; las facturas largas tardan un poco más.'
+    : infoPanel && !registrado
+      ? anuncioLecturaTerminada(infoPanel)
+      : '';
+
+  // Al terminar la lectura, el foco va a los datos leidos (sin mover la pantalla).
+  const lecturaLista = infoPanel?.lecturaId ?? null;
+  useEffect(() => {
+    if (lecturaLista) panelRef.current?.focus({ preventScroll: true });
+  }, [lecturaLista]);
 
   return (
     <div>
@@ -249,6 +263,10 @@ export default function LectorGastosPage() {
 
       <main className="mx-auto max-w-7xl px-4 pt-6 pb-24 md:px-8 md:py-8">
         {/* El input esta fuera de cualquier <label>: el boton y la zona lo abren con el ref. */}
+        {/* Siempre en la pagina: el lector de pantalla anuncia la espera y el final de la lectura. */}
+        <p role="status" className="sr-only">
+          {anuncio}
+        </p>
         <input ref={inputRef} type="file" accept="application/pdf,image/jpeg,image/png,image/webp" onChange={alElegir} className="hidden" tabIndex={-1} aria-hidden="true" />
 
         {!puedeEscribir ? (
@@ -278,28 +296,19 @@ export default function LectorGastosPage() {
           </div>
         ) : !leido || !inicial || !info || !infoPanel ? (
           <div className="mx-auto max-w-2xl">
+            {/* Zona para soltar el archivo; con el teclado se usa el boton "Seleccionar archivo". */}
             <div
-              role="button"
-              tabIndex={0}
               onClick={abrirSelector}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  abrirSelector();
-                }
-              }}
               onDragOver={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
               }}
               onDrop={alSoltar}
-              aria-label="Seleccionar el archivo de la factura"
-              aria-busy={leyendo}
-              className="cursor-pointer rounded-xl border-2 border-dashed border-emerald-200 bg-white p-8 text-center transition-colors hover:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-accent-600 md:p-12"
+              className={`rounded-xl border-2 border-dashed border-emerald-200 bg-white p-8 text-center transition-colors md:p-12 ${leyendo ? '' : 'cursor-pointer hover:border-emerald-400'}`}
             >
               <FileArrowUp size={48} weight="duotone" className="mx-auto mb-4 text-accent-600" />
               <h2 className="mb-2 text-lg font-semibold text-slate-900">{leyendo ? 'Leyendo la factura…' : 'Sube el PDF o la foto de la factura'}</h2>
-              <p role={leyendo ? 'status' : undefined} className="mb-6 text-sm text-slate-600">
+              <p className="mb-6 text-sm text-slate-600">
                 {leyendo
                   ? segundos < 10
                     ? 'Tarda unos segundos.'
@@ -375,7 +384,7 @@ export default function LectorGastosPage() {
             </section>
 
             {/* Datos leidos, editables */}
-            <section className="flex min-w-0 flex-col gap-4">
+            <section ref={panelRef} tabIndex={-1} aria-label="Datos leídos" className="flex min-w-0 flex-col gap-4 focus:outline-none">
               <PanelLectura
                 info={infoPanel}
                 lector="gastos"

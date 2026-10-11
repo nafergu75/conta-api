@@ -347,6 +347,13 @@ export function valorLegible(id: string, v: string | number | null): string {
   return v;
 }
 
+/** Lo que se anuncia al lector de pantalla cuando termina la lectura. */
+export function anuncioLecturaTerminada(info: InfoLectura): string {
+  const n = Object.values(info.campos).filter((c) => c && c.estado !== 'ok').length;
+  if (n === 0) return 'Lectura terminada. No se ha encontrado nada raro: revisa los datos antes de registrarla.';
+  return `Lectura terminada: ${n === 1 ? 'hay 1 dato' : `hay ${n} datos`} para comprobar.`;
+}
+
 /** "Alta" (80 % o mas), "Media" (60 % o mas) o "Baja". */
 export function nivelConfianza(c: number): 'Alta' | 'Media' | 'Baja' {
   return c >= 0.8 ? 'Alta' : c >= 0.6 ? 'Media' : 'Baja';
