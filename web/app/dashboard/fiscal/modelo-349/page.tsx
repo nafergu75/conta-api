@@ -273,12 +273,13 @@ export default function Modelo349Page() {
               </p>
             </Seccion>
 
-            {!presentado && /^\d{2}$/.test(periodo) && (
+            {/* La X solo cabe en el segundo mes del trimestre; en otro mes se enseña solo para poder quitarla. */}
+            {!presentado && (/^(02|05|08|11)$/.test(periodo) || (/^\d{2}$/.test(periodo) && b.opciones.cambioPeriodicidad)) && (
               <Seccion titulo="Cambio de periodicidad">
                 <form onSubmit={guardarOpciones} className="space-y-4">
                   <label className="flex items-center gap-2 text-sm text-slate-700">
                     <input type="checkbox" checked={cambio} onChange={(e) => setCambio(e.target.checked)} />
-                    Es la primera declaración mensual y recoge los dos primeros meses del trimestre
+                    En este mes se superan los 50.000 € y es la primera declaración mensual: recoge este mes y el anterior
                   </label>
                   <div className="flex items-center gap-3">
                     <button type="submit" disabled={guardando} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60">
