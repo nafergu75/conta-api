@@ -9,25 +9,42 @@ import { buscarTerceros, type TerceroEncontrado } from '@/lib/subcuentas';
  * Buscador de un cliente o proveedor por nombre, NIF o subcuenta, para sacar
  * el Libro mayor de sus subcuentas. Con uno elegido se ve su nombre y un
  * boton para quitarlo.
+ *
+ * Con `textoInicial` empieza ya escrito y buscando (p. ej. el nombre de la
+ * subcuenta que se va a enlazar), con el texto seleccionado para cambiarlo de
+ * una vez si no es ese.
  */
 export function BuscadorTercero({
   elegido,
   onElegir,
   id = 'inf-tercero',
   tipo,
+  textoInicial = '',
 }: {
   elegido: { nombre: string; nif: string | null; tipo: 'cliente' | 'proveedor'; subcuentas: string[] } | null;
   onElegir: (t: TerceroEncontrado | null) => void;
   id?: string;
   /** Solo clientes o solo proveedores (sin el, los dos). */
   tipo?: 'cliente' | 'proveedor';
+  /** Texto con el que empieza el buscador (y la busqueda ya lanzada). */
+  textoInicial?: string;
 }) {
-  const [q, setQ] = useState('');
+  const [q, setQ] = useState(textoInicial);
   const [resultados, setResultados] = useState<TerceroEncontrado[] | null>(null);
   const [buscando, setBuscando] = useState(false);
   const [error, setError] = useState('');
-  const [abierto, setAbierto] = useState(false);
+  const [abierto, setAbierto] = useState(!!textoInicial.trim());
   const caja = useRef<HTMLDivElement>(null);
+  const entrada = useRef<HTMLInputElement>(null);
+
+  // Con texto inicial, el foco va al buscador con el texto seleccionado: se escribe encima o se retoca.
+  useEffect(() => {
+    if (!textoInicial.trim()) return;
+    entrada.current?.focus();
+    entrada.current?.select();
+    // Solo al montar: si cambia despues, manda lo que escribe la persona.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Busca en el servidor 250 ms despues de dejar de escribir.
   useEffect(() => {
@@ -92,6 +109,7 @@ export function BuscadorTercero({
       <div className="relative mt-1">
         <MagnifyingGlass size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
         <input
+          ref={entrada}
           id={id}
           value={q}
           onChange={(e) => {
@@ -130,7 +148,8 @@ export function BuscadorTercero({
             <li className="px-3 py-2 text-slate-500">Buscando…</li>
           ) : resultados && resultados.length === 0 ? (
             <li className="px-3 py-2 text-slate-500">
-              {tipo === 'cliente' ? 'Ningún cliente' : tipo === 'proveedor' ? 'Ningún proveedor' : 'Ningún cliente ni proveedor'} coincide con «{q.trim()}».
+              {tipo === 'cliente' ? 'Ningún cliente' : tipo === 'proveedor' ? 'Ningún proveedor' : 'Ningún cliente ni proveedor'} coincide con «{q.trim()}». Prueba
+              con una parte del nombre o con el NIF.
             </li>
           ) : (
             resultados?.map((t) => (
