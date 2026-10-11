@@ -188,7 +188,9 @@ export default function LectorIngresosPage() {
 
   const esImagen = archivo?.type.startsWith('image/');
   // Los errores que ya explica el panel no se repiten.
-  const yaExplicados = new Set(info ? Object.values(info.campos).flatMap((c) => (c ? c.motivos.map(claveTexto) : [])) : []);
+  const yaExplicados = new Set(
+    info ? [...Object.values(info.campos).flatMap((c) => (c ? c.motivos.map(claveTexto) : [])), ...(info.generales ?? []).map((g) => claveTexto(g.mensaje)), claveTexto(info.qr.texto)] : [],
+  );
   const erroresSueltos = ingreso ? ingreso.errores.filter((e) => !yaExplicados.has(claveTexto(e))) : [];
   const bloqueada = !!ingreso && ingreso.errores.length > 0;
   const faltaRevision = !!info?.requiereRevision && !revisado;
