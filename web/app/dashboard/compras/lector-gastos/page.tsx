@@ -66,7 +66,7 @@ const centimos = (n: number) => Math.round(n * 100);
  * "El IVA del 21 % no corresponde a su base (sale ... y pone ...)." o, al 0 %,
  * "La base exenta no lleva IVA y pone ...".
  */
-const esMotivoCuotaTipo = (m: string) => /^El IVA del .+ no corresponde a su base/.test(m) || /^La base exenta no lleva IVA/.test(m);
+const esMotivoCuotaTipo = (m: string) => /^El IVA del .+ no corresponde a su base/.test(m) || /^La base exenta no lleva IVA/.test(m);
 
 /**
  * Tramos cuyo IVA leido no coincide al centimo con el de la linea que se
