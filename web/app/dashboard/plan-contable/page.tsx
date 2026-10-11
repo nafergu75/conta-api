@@ -43,6 +43,8 @@ const CUENTAS_DE_TERCEROS: Record<string, { texto: string; href: string }> = {
 
 const fichaDe = (t: NonNullable<Cuenta['tercero']>) => `/dashboard/${t.tipo === 'cliente' ? 'clientes' : 'proveedores'}/${encodeURIComponent(t.id)}`;
 
+const mismoNombre = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
 type Modal = { modo: 'crear'; padre: Cuenta } | { modo: 'editar'; cuenta: Cuenta };
 
 const NATURALEZA: Record<string, { color: string; label: string; tooltip: string }> = {
@@ -275,7 +277,7 @@ export default function PlanContablePage() {
           <span className="font-mono text-gray-500 min-w-16">{c.codigo}</span>
           <span className="flex-1">
             {c.nombre}
-            {c.esPersonalizadaEmpresa && (
+            {c.esPersonalizadaEmpresa && !c.tercero && (
               <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">propia</span>
             )}
             {!c.activo && (
@@ -283,9 +285,11 @@ export default function PlanContablePage() {
             )}
             {c.tercero && (
               <span className="block text-xs text-slate-500 sm:ml-2 sm:inline">
-                {c.tercero.tipo === 'cliente' ? 'Cliente' : 'Proveedor'}: {c.tercero.nombre}{' '}
+                {/* La subcuenta ya lleva el nombre fiscal: solo se repite si es distinto. */}
+                {c.tercero.tipo === 'cliente' ? 'Cliente' : 'Proveedor'}
+                {mismoNombre(c.tercero.nombre, c.nombre) ? ' · ' : `: ${c.tercero.nombre} · `}
                 <Link href={fichaDe(c.tercero)} className="font-medium text-blue-600 hover:underline">
-                  (ver ficha)
+                  ver ficha<span className="sr-only"> de {c.tercero.nombre}</span>
                 </Link>
               </span>
             )}
