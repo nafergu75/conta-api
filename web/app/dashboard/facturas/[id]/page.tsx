@@ -253,7 +253,9 @@ export default function FacturaDetallePage() {
   const titulo = esProforma
     ? `Proforma ${factura.numeroCompleto}`
     : esBorrador
-      ? 'Borrador de factura'
+      ? factura.esRectificativa
+        ? 'Borrador de rectificativa'
+        : 'Borrador de factura'
       : `${factura.esRectificativa ? 'Rectificativa' : 'Factura'} ${factura.numeroCompleto}`;
 
   const emitir = () => {
@@ -367,7 +369,7 @@ export default function FacturaDetallePage() {
         </p>
       )}
 
-      {esBorrador && puedeEditar && <AvisoRedSeguridad estado={redSeguridad} />}
+      {esBorrador && puedeEditar && <AvisoRedSeguridad estado={redSeguridad} donde="borrador" />}
 
       <div className="flex flex-wrap gap-2">
         {proformaPendiente && puedeEditar && (
@@ -707,12 +709,22 @@ function ModalRectificativa({
             <X size={18} />
           </button>
         </div>
-        <p className="text-sm text-slate-600">
-          Se emitirá una factura rectificativa en la serie de rectificativas que anula esta por completo
-          ({formatoImporte(-(factura.totalFacturaDoc ?? factura.totalFactura), factura.moneda ?? 'EUR')}
-          {factura.moneda && factura.monedaCuenta && factura.moneda !== factura.monedaCuenta ? ', con el mismo tipo de cambio' : ''}). Si solo
-          había que corregir algo, después emite una factura nueva con los datos buenos.
-        </p>
+        {bloqueada ? (
+          // Sin VERI*FACTU no se emite: el texto dice lo que va a pasar de verdad.
+          <p className="text-sm text-slate-600">
+            Se guardará como borrador una rectificativa que anula esta factura por completo
+            ({formatoImporte(-(factura.totalFacturaDoc ?? factura.totalFactura), factura.moneda ?? 'EUR')}
+            {factura.moneda && factura.monedaCuenta && factura.moneda !== factura.monedaCuenta ? ', con el mismo tipo de cambio' : ''}). La
+            podrás pasar a factura cuando VERI*FACTU esté activo.
+          </p>
+        ) : (
+          <p className="text-sm text-slate-600">
+            Se emitirá una factura rectificativa en la serie de rectificativas que anula esta por completo
+            ({formatoImporte(-(factura.totalFacturaDoc ?? factura.totalFactura), factura.moneda ?? 'EUR')}
+            {factura.moneda && factura.monedaCuenta && factura.moneda !== factura.monedaCuenta ? ', con el mismo tipo de cambio' : ''}). Si solo
+            había que corregir algo, después emite una factura nueva con los datos buenos.
+          </p>
+        )}
         <div>
           <label htmlFor="tipo-rect" className="mb-1 block text-sm font-medium text-slate-700">Causa</label>
           <select id="tipo-rect" value={tipo} onChange={(e) => setTipo(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
@@ -734,8 +746,7 @@ function ModalRectificativa({
         </div>
         {bloqueada && (
           <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-            Esta empresa todavía no tiene VERI*FACTU activo y no puede emitir facturas. La rectificativa se guardará como borrador y la podrás
-            emitir cuando esté activo.
+            Esta empresa todavía no tiene VERI*FACTU activo, así que la rectificativa no se emite ahora.
           </p>
         )}
         {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
