@@ -9,6 +9,8 @@ interface FormPresentarProps {
   codigo: '111' | '115' | '190' | '200' | '303' | '347' | '390';
   ejercicio: number;
   trimestre?: number;
+  /** Periodo del 303 mensual ('01'..'12'); si va, sustituye al trimestre. */
+  periodo?: string;
   onSuccess?: () => void;
   isLoading?: boolean;
 }
@@ -17,6 +19,7 @@ export function FormPresentar({
   codigo,
   ejercicio,
   trimestre,
+  periodo,
   onSuccess,
   isLoading = false,
 }: FormPresentarProps) {
@@ -51,7 +54,7 @@ export function FormPresentar({
     try {
       const payload = {
         ejercicio,
-        ...(trimestre && { trimestre }),
+        ...(periodo ? { periodo } : trimestre ? { trimestre } : {}),
         justificante: {
           numero: formData.numero,
           fecha: formData.fecha,
