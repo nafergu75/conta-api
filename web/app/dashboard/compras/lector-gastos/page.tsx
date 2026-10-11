@@ -34,12 +34,15 @@ function inicialDe(g: GastoExtraido, paisExistente: string | null): FormInicial 
     proveedor = { tipo: 'nuevo', nombreFiscal: g.proveedor ?? '', nifCif: nif, pais, direccion: '', cp: '', municipio: '', provincia: '' };
   }
   const fecha = g.fecha && /^\d{4}-\d{2}-\d{2}$/.test(g.fecha) ? g.fecha : hoyIso();
+  const cuentaLeida = g.cuentaContableBase && /^6\d{2,9}$/.test(g.cuentaContableBase) ? g.cuentaContableBase : null;
+  // Sin cuenta leida, la linea va a la cuenta habitual del proveedor (se puede cambiar).
+  const habitual = !cuentaLeida && g.cuentaHabitual ? g.cuentaHabitual.codigo : null;
   return {
     proveedor,
     numeroFacturaProveedor: g.numeroFactura ?? '',
     fechaEmision: fecha,
     tipoGasto: tipo,
-    cuentaGasto: g.cuentaContableBase && /^6\d{2,9}$/.test(g.cuentaContableBase) ? g.cuentaContableBase : null,
+    cuentaGasto: cuentaLeida,
     lineas: [
       {
         descripcion: g.conceptoGasto?.trim() || 'Gasto',
@@ -47,6 +50,7 @@ function inicialDe(g: GastoExtraido, paisExistente: string | null): FormInicial 
         precioUnitario: base,
         tipoIva,
         tipoRetencion: TIPO_GASTO_INFO[tipo].retenciones.includes(ret) ? ret : 0,
+        cuenta: habitual,
       },
     ],
     totalDocumento: Number.isFinite(Number(g.total)) && Number(g.total) !== 0 ? Number(g.total) : undefined,
@@ -267,6 +271,12 @@ export default function LectorGastosPage() {
                   <p className="mt-1 text-slate-600">
                     Cuenta sugerida: <span className="font-mono">{leido.cuentaContableBase}</span>
                     {leido.cuentaContableNombre && ` (${leido.cuentaContableNombre})`}
+                  </p>
+                )}
+                {!leido.cuentaContableBase && leido.cuentaHabitual && (
+                  <p className="mt-1 text-slate-600">
+                    Cuenta habitual de este proveedor: <span className="font-mono">{leido.cuentaHabitual.codigo}</span> {leido.cuentaHabitual.nombre}. La hemos puesto en la línea; puedes
+                    cambiarla con «Cambiar cuenta».
                   </p>
                 )}
               </div>
