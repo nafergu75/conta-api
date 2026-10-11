@@ -440,7 +440,7 @@ function Enlazar({ subcuenta, onHecho }: { subcuenta: SinEnlazar; onHecho: (text
           <label htmlFor={`${ids}-buscar`} className="block text-xs font-medium text-slate-600">
             {subcuenta.tipo === 'cliente' ? 'Cliente' : 'Proveedor'}
           </label>
-          <BuscadorTercero id={`${ids}-buscar`} tipo={subcuenta.tipo} elegido={ficha} onElegir={setFicha} />
+          <BuscadorTercero id={`${ids}-buscar`} tipo={subcuenta.tipo} elegido={ficha} onElegir={setFicha} textoInicial={subcuenta.nombre} />
           {ficha && ficha.subcuentas.length > 0 && (
             <p className="mt-1 text-xs text-slate-500">
               Ya tiene {ficha.subcuentas.join(' y ')}: si no tiene movimientos, se cambia por la {subcuenta.codigo}.
