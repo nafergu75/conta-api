@@ -63,15 +63,30 @@ const centimos = (n: number) => Math.round(n * 100);
 
 /**
  * Tramos cuyo IVA leido no coincide al centimo con el de la linea que se
- * propone en el formulario (la de su tipo). Solo diferencias de redondeo
- * (hasta 5 centimos): una mayor ya la marca el servidor en "Comprueba estos datos".
+ * propone al abrir el formulario (la de su tipo): solo diferencias de hasta
+ * 5 centimos, las del redondeo. Se compara con la propuesta inicial: el
+ * formulario no avisa de los cambios del usuario.
+ *
+ * El servidor marca el IVA de un tramo (CUOTA_TIPO) cuando se aparta de
+ * base x tipo en mas de un centimo por partida de ese tipo, sea cual sea la
+ * diferencia. Ese tramo ya sale en "Comprueba estos datos" con su tarjeta, asi
+ * que aqui no se repite: el aviso queda para lo que el servidor deja pasar.
  */
-function cuotasDescuadradas(g: GastoExtraido & { tramos?: TramoGasto[] }, lineas: FormInicial['lineas']): Array<{ tipoIva: number; leida: number; linea: number }> {
+function cuotasDescuadradas(
+  g: GastoExtraido & { tramos?: TramoGasto[] },
+  lineas: FormInicial['lineas'],
+  campos: InfoLectura['campos'],
+): Array<{ tipoIva: number; leida: number; linea: number }> {
+  const conTarjeta = new Set(
+    Object.entries(campos)
+      .filter(([id, c]) => /^desglose\.\d+\.cuota$/.test(id) && c && c.estado !== 'ok' && typeof c.tipoIva === 'number')
+      .map(([, c]) => c!.tipoIva as number),
+  );
   return tramosValidos(g).flatMap((t) => {
     const tipo = Number(t.tipoIva);
     const leida = Number(t.cuota);
     // Con un tipo que no es de los de la app, la linea lleva otro: no se compara.
-    if (!Number.isFinite(leida) || tipoIvaMasCercano(tipo) !== tipo) return [];
+    if (!Number.isFinite(leida) || tipoIvaMasCercano(tipo) !== tipo || conTarjeta.has(tipo)) return [];
     const suyas = (lineas ?? []).filter((l) => l.tipoIva === tipo);
     if (suyas.length !== 1) return [];
     const linea = calcularLinea({ cantidad: suyas[0].cantidad, precioUnitario: suyas[0].precioUnitario, tipoIva: tipo }).iva;
@@ -272,7 +287,7 @@ export default function LectorGastosPage() {
   // Si lo unico marcado era el tipo de documento, "es una factura de gasto" ya es la revision.
   const revisadoEnviado = !!info?.requiereRevision && !infoPanel?.requiereRevision ? !noEsFactura : revisado;
   const esImagen = archivo?.type.startsWith('image/');
-  const descuadres = leido && inicial ? cuotasDescuadradas(leido, inicial.lineas) : [];
+  const descuadres = leido && inicial && info ? cuotasDescuadradas(leido, inicial.lineas, info.campos) : [];
   const anuncio = leyendo
     ? segundos < 10
       ? 'Leyendo la factura. Tarda unos segundos.'
@@ -467,7 +482,7 @@ export default function LectorGastosPage() {
 
               {descuadres.length > 0 && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-                  <p className="font-semibold">El IVA de la factura y el de {descuadres.length === 1 ? 'la línea' : 'las líneas'} no coinciden al céntimo</p>
+                  <p className="font-semibold">En la propuesta inicial, el IVA de la factura y el de {descuadres.length === 1 ? 'la línea' : 'las líneas'} no coinciden al céntimo</p>
                   <ul className="mt-1 list-disc space-y-0.5 pl-5">
                     {descuadres.map((d) => {
                       const dif = Math.abs(centimos(d.linea) - centimos(d.leida));
@@ -478,7 +493,7 @@ export default function LectorGastosPage() {
                       );
                     })}
                   </ul>
-                  <p className="mt-1">Suele ser el redondeo. Se apuntará el IVA de la línea: compruébalo con la factura antes de registrarla.</p>
+                  <p className="mt-1">Suele ser el redondeo. Se apuntará el IVA que dé la línea: compruébalo con la factura antes de registrarla.</p>
                 </div>
               )}
 
