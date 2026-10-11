@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { ArrowLeft, CaretRight, FilePdf, FileXls, MagnifyingGlass, X } from '@phosphor-icons/react';
 import { Tooltip } from '@/app/dashboard/components/Tooltip';
 import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
@@ -19,6 +20,8 @@ interface FilaTercero {
   nombre: string;
   nif: string | null;
   cuentas: string[];
+  /** Subcuentas propias de la ficha (430N; 400N y 410N). */
+  subcuentas?: string[];
   saldoInicial: number;
   debe: number;
   haber: number;
@@ -27,13 +30,17 @@ interface FilaTercero {
   pendienteFacturas: number | null;
 }
 
+/** NIF y subcuentas (o, si no tiene, las cuentas en las que se le ha encontrado). */
+const cuentasDe = (t: Pick<FilaTercero, 'nif' | 'cuentas' | 'subcuentas'>) =>
+  [t.nif, (t.subcuentas?.length ? t.subcuentas : t.cuentas).join(', ')].filter(Boolean).join(' · ');
+
 interface Listado {
   terceros: FilaTercero[];
   totales: { saldoInicial: number; debe: number; haber: number; saldoFinal: number };
 }
 
 interface Detalle {
-  tercero: { id: string; nombre: string; nif: string | null; saldoInicial: number; debe: number; haber: number; saldoFinal: number };
+  tercero: { id: string; nombre: string; nif: string | null; cuentas: string[]; subcuentas?: string[]; saldoInicial: number; debe: number; haber: number; saldoFinal: number };
   facturasPendientes: Array<{
     id: string;
     numeroCompleto: string | null;
@@ -50,8 +57,21 @@ interface Detalle {
 const sinTildes = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w-]+/g, '_');
 
 export default function MayorTercerosPage() {
+  // useSearchParams necesita un Suspense para generar la página.
+  return (
+    <Suspense fallback={<p className="p-6 text-slate-500">Cargando…</p>}>
+      <MayorTerceros />
+    </Suspense>
+  );
+}
+
+function MayorTerceros() {
   const anioActual = new Date().getFullYear();
-  const [tipo, setTipo] = useState<Tipo>('clientes');
+  // Desde la ficha de un cliente o proveedor (o Carmen): ?tipo=clientes&tercero=<id> abre su detalle.
+  const sp = useSearchParams();
+  const tipoUrl = sp?.get('tipo') === 'proveedores' || sp?.get('tipo') === 'proveedor' ? 'proveedores' : sp?.get('tipo') ? 'clientes' : null;
+  const terceroUrl = sp?.get('tercero') ?? '';
+  const [tipo, setTipo] = useState<Tipo>(tipoUrl ?? 'clientes');
   const [ejercicios, setEjercicios] = useState<number[]>([anioActual]);
   const [ejercicio, setEjercicio] = useState(anioActual);
   const [hasta, setHasta] = useState('');
@@ -62,6 +82,13 @@ export default function MayorTercerosPage() {
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState('');
   const [abierto, setAbierto] = useState<FilaTercero | null>(null);
+
+  // El tercero de la URL se abre aunque no salga en la lista (sin saldo o fuera del filtro).
+  useEffect(() => {
+    if (!terceroUrl) return;
+    if (tipoUrl) setTipo(tipoUrl);
+    setAbierto({ id: terceroUrl, nombre: '', nif: null, cuentas: [], saldoInicial: 0, debe: 0, haber: 0, saldoFinal: 0, movimientos: 0, pendienteFacturas: null });
+  }, [terceroUrl, tipoUrl]);
 
   useEffect(() => {
     apiFetch<number[]>(companyPath('/informes-contables/ejercicios'))
@@ -124,7 +151,7 @@ export default function MayorTercerosPage() {
       <div>
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-bold text-slate-900 sm:text-3xl">Mayor de clientes y proveedores</h1>
-          <Tooltip text="Saldos sacados de la contabilidad (cuentas 43 de clientes y 40/41 de proveedores). El cliente o proveedor de cada apunte sale de la factura enlazada al asiento, de la referencia del apunte o de su subcuenta." />
+          <Tooltip text="Saldos sacados de la contabilidad (cuentas 43 de clientes y 40/41 de proveedores). Cada cliente y proveedor tiene su subcuenta; los apuntes antiguos en la cuenta general se asignan por la factura enlazada al asiento o por la referencia del apunte." />
         </div>
         <p className="mt-2 text-slate-600">Lo que te debe cada cliente y lo que debes a cada proveedor, con sus movimientos.</p>
       </div>
@@ -233,7 +260,7 @@ export default function MayorTercerosPage() {
                   <tr key={t.id} onClick={() => setAbierto(t)} className="cursor-pointer hover:bg-blue-50/50">
                     <td className="px-4 py-2">
                       <div className="font-medium text-slate-900">{t.nombre}</div>
-                      <div className="font-mono text-xs text-slate-500">{[t.nif, t.cuentas.join(', ')].filter(Boolean).join(' · ')}</div>
+                      <div className="font-mono text-xs text-slate-500">{cuentasDe(t)}</div>
                     </td>
                     <td className="whitespace-nowrap px-4 py-2 text-right font-mono tabular-nums text-slate-600">{t.saldoInicial ? importe(t.saldoInicial) : ''}</td>
                     <td className="whitespace-nowrap px-4 py-2 text-right font-mono tabular-nums">{t.debe ? importe(t.debe) : ''}</td>
@@ -268,7 +295,7 @@ export default function MayorTercerosPage() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="truncate font-medium text-slate-900">{t.nombre}</div>
-                      {t.nif && <div className="font-mono text-xs text-slate-500">{t.nif}</div>}
+                      {!!(t.nif || t.subcuentas?.length) && <div className="font-mono text-xs text-slate-500">{cuentasDe({ ...t, cuentas: [] })}</div>}
                     </div>
                     <div className={`whitespace-nowrap font-mono text-base font-semibold tabular-nums ${t.saldoFinal < 0 ? 'text-amber-700' : 'text-slate-900'}`}>{importe(t.saldoFinal)} €</div>
                   </div>
@@ -321,22 +348,26 @@ function DetalleTercero({ tipo, fila, periodo, onCerrar }: { tipo: Tipo; fila: F
 
   const descargar = async (formato: 'pdf' | 'xlsx') => {
     try {
-      await apiDownload(`${ruta}?${qs}&formato=${formato}`, `mayor_${sinTildes(fila.nombre)}.${formato}`);
+      await apiDownload(`${ruta}?${qs}&formato=${formato}`, `mayor_${sinTildes(fila.nombre || detalle?.tercero.nombre || 'tercero')}.${formato}`);
     } catch (e) {
       setError(errorMessage(e));
     }
   };
 
+  // Abierto con un enlace: el nombre y las cuentas llegan con el detalle.
+  const nombre = fila.nombre || detalle?.tercero.nombre || '';
+  const datos = fila.nombre ? cuentasDe(fila) : detalle ? cuentasDe(detalle.tercero) : '';
+
   return (
-    <div className="fixed inset-0 z-50 !mt-0 flex items-stretch justify-end bg-slate-900/40" onClick={onCerrar} role="dialog" aria-modal="true" aria-label={`Mayor de ${fila.nombre}`}>
+    <div className="fixed inset-0 z-50 !mt-0 flex items-stretch justify-end bg-slate-900/40" onClick={onCerrar} role="dialog" aria-modal="true" aria-label={`Mayor de ${nombre}`}>
       <div className="flex h-full w-full max-w-5xl flex-col bg-slate-50 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3 border-b border-slate-200 bg-white p-4">
           <div className="min-w-0">
             <button onClick={onCerrar} className="mb-1 flex items-center gap-1 text-sm text-slate-500 hover:text-slate-800 sm:hidden">
               <ArrowLeft size={14} /> Volver
             </button>
-            <h2 className="truncate text-lg font-semibold text-slate-900">{fila.nombre}</h2>
-            <p className="font-mono text-xs text-slate-500">{[fila.nif, fila.cuentas.join(', ')].filter(Boolean).join(' · ')}</p>
+            <h2 className="truncate text-lg font-semibold text-slate-900">{nombre || 'Cargando…'}</h2>
+            <p className="font-mono text-xs text-slate-500">{datos}</p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <button onClick={() => descargar('pdf')} disabled={!detalle} className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">
