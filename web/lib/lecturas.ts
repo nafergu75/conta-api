@@ -322,9 +322,22 @@ export function fechaLegible(v: string): string {
 
 const ES_IMPORTE = /^(desglose\.\d+\.(base|cuota|recargo)|retencion\.importe|totales\.)/;
 
+/** Los tipos de documento que da el servidor, en castellano. */
+const TIPO_DOCUMENTO: Record<string, string> = {
+  factura: 'Factura',
+  simplificada: 'Factura simplificada',
+  rectificativa: 'Factura rectificativa',
+  ticket: 'Ticket',
+  recibo: 'Recibo',
+  nomina: 'Nómina',
+  seguros_sociales: 'Seguros sociales',
+  otro: 'Otro documento',
+};
+
 /** El valor leido de un campo, como lo leeria una persona. */
 export function valorLegible(id: string, v: string | number | null): string {
   if (v === null || v === undefined || v === '') return 'sin leer';
+  if (id === 'tipoDocumento') return TIPO_DOCUMENTO[String(v)] ?? 'Otro documento';
   if (typeof v === 'number') {
     if (id === 'retencion.tipo') return `${String(v).replace('.', ',')} %`;
     if (ES_IMPORTE.test(id)) return euros(v);
