@@ -82,9 +82,10 @@ function cuotasDescuadradas(g: GastoExtraido & { tramos?: TramoGasto[] }, lineas
 
 /**
  * Lo leido, en la forma del formulario. Con varios tipos de IVA, una linea por
- * tipo con su base (si no, el formulario las juntaria al tipo mayor) y, de
- * descripcion, las partidas de ese tipo que manda el servidor. La cuenta
- * propuesta va para toda la factura, asi que sale igual en cada linea.
+ * tipo con su base (si no, el formulario las juntaria al tipo mayor). De
+ * descripcion, con uno o con varios tipos, las partidas del tramo que manda el
+ * servidor. La cuenta propuesta va para toda la factura, asi que sale igual en
+ * cada linea.
  */
 function inicialDe(g: GastoExtraido & { tramos?: TramoGasto[] }, paisExistente: string | null): FormInicial {
   const tipo = g.tipoGastoSugerido && TIPO_GASTO_INFO[g.tipoGastoSugerido] ? g.tipoGastoSugerido : 'SUMINISTROS';
@@ -112,7 +113,7 @@ function inicialDe(g: GastoExtraido & { tramos?: TramoGasto[] }, paisExistente: 
           tipoIva: tipoIvaMasCercano(Number(t.tipoIva)),
           tipoRetencion,
         }))
-      : [{ descripcion: concepto, cantidad: 1, precioUnitario: base, tipoIva, tipoRetencion }];
+      : [{ descripcion: (tramos.length === 1 && tramos[0].descripcion?.trim()) || concepto, cantidad: 1, precioUnitario: base, tipoIva, tipoRetencion }];
   return {
     proveedor,
     numeroFacturaProveedor: g.numeroFactura ?? '',
