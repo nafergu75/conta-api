@@ -1,321 +1,230 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import Link from 'next/link';
-import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
-import { ejercicioAnualAPresentar, ejerciciosSeleccionables } from '@/lib/aeatCalendar';
-import { CaretLeft, Download, MagnifyingGlass, X } from '@phosphor-icons/react';
-import { CasillasViewer } from '../components/CasillasViewer';
+import { useEffect, useMemo, useState } from 'react';
+import { MagnifyingGlass, X } from '@phosphor-icons/react';
+import { apiFetch, errorMessage } from '@/lib/api';
+import { ejercicioAnualAPresentar } from '@/lib/aeatCalendar';
 import { FormPresentar } from '../components/FormPresentar';
+import {
+  CabeceraBorrador,
+  Cargando,
+  Cifra,
+  DescargarFichero,
+  ErrorCarga,
+  ErroresYAvisos,
+  eur,
+  rutaBorrador,
+  SelectorEjercicio,
+} from '../components/BorradorAeat';
 
-interface Tercero {
+interface Declarado {
   nif: string;
+  nifFichero: string;
   nombre: string;
-  tipoTercero: 'cliente' | 'proveedor';
-  totalOperaciones: number;
+  clave: 'A' | 'B';
+  provincia: string | null;
+  importeAnual: number;
+  trimestres: [number, number, number, number];
+  metalico?: number;
+  arrendamiento?: boolean;
 }
 
-interface Modelo347 {
-  id: string;
+interface Borrador347 {
   ejercicio: number;
-  terceros: Tercero[];
-  totalTerceros: number;
-  totalOperaciones: number;
-  estado: 'vigente' | 'presentado';
-  casillas: Record<string, any>;
+  diseno: string;
+  revisar: string;
+  declarante: { nif: string; razonSocial: string; telefono: string; contacto: string; numeroIdentificativo: string };
+  resumen: { numeroDeclarados: number; importeTotal: number; numeroInmuebles: number; importeArrendamientos: number };
+  declarados: Declarado[];
+  advertencias: string[];
+  errores: string[];
 }
+
+const CLAVES: Record<string, string> = { A: 'A · Compras', B: 'B · Ventas' };
 
 export default function Modelo347Page() {
-  const [modelo, setModelo] = useState<Modelo347 | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [avisoDescarga, setAvisoDescarga] = useState('');
   // Modelo anual: se presenta por el ejercicio anterior.
   const [ejercicio, setEjercicio] = useState(ejercicioAnualAPresentar);
-  const [searchTercero, setSearchTercero] = useState('');
+  const [borrador, setBorrador] = useState<Borrador347 | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [busqueda, setBusqueda] = useState('');
+  // Persona de contacto y teléfono del registro del declarante (posiciones 59-107).
+  const [contacto, setContacto] = useState('');
+  const [telefono, setTelefono] = useState('');
+  const [aplicados, setAplicados] = useState({ contacto: '', telefono: '' });
 
   useEffect(() => {
-    const fetchModelo = async () => {
-      try {
-        setLoading(true);
-        setError('');
-        setModelo(await apiFetch<Modelo347>(companyPath(`/tax-models/347?ejercicio=${ejercicio}`)));
-      } catch (err) {
-        setError(errorMessage(err));
-      } finally {
-        setLoading(false);
-      }
+    let vivo = true;
+    setLoading(true);
+    setError('');
+    apiFetch<Borrador347>(rutaBorrador('347', ejercicio, aplicados))
+      .then((b) => vivo && setBorrador(b))
+      .catch((e) => vivo && setError(errorMessage(e)))
+      .finally(() => vivo && setLoading(false));
+    return () => {
+      vivo = false;
     };
+  }, [ejercicio, aplicados]);
 
-    fetchModelo();
-  }, [ejercicio]);
+  const filtrados = useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
+    const lista = borrador?.declarados ?? [];
+    return q ? lista.filter((d) => d.nombre.toLowerCase().includes(q) || d.nif.toLowerCase().includes(q)) : lista;
+  }, [borrador, busqueda]);
 
-  const eur = new Intl.NumberFormat('es-ES', {
-    style: 'currency',
-    currency: 'EUR',
-  });
+  if (loading && !borrador) return <Cargando />;
+  if (error || !borrador) return <ErrorCarga mensaje={error || 'No se ha podido preparar el borrador.'} />;
 
-  const descargarAEAT = () => {
-    // El backend aun no genera el fichero de este modelo (solo el del 303).
-    setAvisoDescarga(
-      'La descarga del fichero AEAT de este modelo aún no está disponible. Puedes copiar las casillas desde esta pantalla.',
-    );
-  };
-
-  if (loading) {
-    return (
-      <div className="space-y-4">
-        <div className="h-10 w-32 animate-pulse rounded-lg bg-slate-200" />
-        <div className="h-96 animate-pulse rounded-lg bg-slate-200" />
-      </div>
-    );
-  }
-
-  if (error || !modelo) {
-    return (
-      <div className="space-y-4">
-        <Link href="/dashboard/fiscal" className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700">
-          <CaretLeft size={20} />
-          Volver a Fiscal
-        </Link>
-        <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center">
-          <p className="text-red-800">{error || 'Modelo no encontrado'}</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Separar clientes y proveedores
-  const clientes = modelo.terceros.filter((t) => t.tipoTercero === 'cliente');
-  const proveedores = modelo.terceros.filter((t) => t.tipoTercero === 'proveedor');
-
-  // Filtrar por búsqueda
-  const filtrarTerceros = (terceros: Tercero[]) => {
-    if (!searchTercero.trim()) return terceros;
-    const search = searchTercero.toLowerCase();
-    return terceros.filter((t) =>
-      t.nombre.toLowerCase().includes(search) || t.nif.toLowerCase().includes(search)
-    );
-  };
-
-  const clientesFiltrados = filtrarTerceros(clientes);
-  const proveedoresFiltrados = filtrarTerceros(proveedores);
-
-  const totalClientes = clientes.reduce((sum, t) => sum + t.totalOperaciones, 0);
-  const totalProveedores = proveedores.reduce((sum, t) => sum + t.totalOperaciones, 0);
-
+  const b = borrador;
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <Link href="/dashboard/fiscal" className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700 mb-4">
-          <CaretLeft size={20} />
-          Volver a Fiscal
-        </Link>
-        <h1 className="text-3xl font-bold text-slate-900">Modelo 347 – Operaciones con Terceros</h1>
-        <p className="mt-2 text-slate-600">Declaración de operaciones con terceros superiores a 3.000,06€</p>
+      <CabeceraBorrador
+        titulo="Modelo 347 · Operaciones con terceras personas"
+        subtitulo="Clientes y proveedores con los que has operado más de 3.005,06 € en el año (IVA incluido)."
+        diseno={`Borrador con el diseño oficial de la AEAT «${b.diseno}». ${b.revisar}`}
+      />
+
+      <div className="grid gap-4 rounded-lg border border-slate-200 bg-white p-4 md:grid-cols-[auto_1fr_1fr_auto] md:items-end">
+        <SelectorEjercicio ejercicio={ejercicio} onChange={setEjercicio} />
+        <label className="block text-sm font-medium text-slate-700">
+          Persona de contacto
+          <input
+            value={contacto}
+            onChange={(e) => setContacto(e.target.value)}
+            placeholder="Primer apellido, segundo apellido y nombre"
+            className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          />
+        </label>
+        <label className="block text-sm font-medium text-slate-700">
+          Teléfono de contacto
+          <input
+            value={telefono}
+            onChange={(e) => setTelefono(e.target.value)}
+            placeholder={b.declarante.telefono || '9 cifras'}
+            inputMode="tel"
+            className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          />
+        </label>
+        <button
+          type="button"
+          onClick={() => setAplicados({ contacto: contacto.trim(), telefono: telefono.trim() })}
+          className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+        >
+          Aplicar
+        </button>
       </div>
 
-      {/* Período Selector y Búsqueda */}
-      <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
-        <div>
-          <label className="block text-sm font-medium text-slate-700">Ejercicio</label>
-          <select
-            value={ejercicio}
-            onChange={(e) => setEjercicio(parseInt(e.target.value))}
-            className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          >
-            {ejerciciosSeleccionables().map((year) => (
-              <option key={year} value={year}>
-                {year}
-              </option>
-            ))}
-          </select>
-        </div>
+      <ErroresYAvisos errores={b.errores} advertencias={b.advertencias} ejercicio={ejercicio} />
 
-        {/* Búsqueda de Terceros */}
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-2">
-            Buscar tercero
-          </label>
-          <div className="relative">
-            <MagnifyingGlass
-              size={16}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-            />
+      {/* Registro de tipo 1: declarante y resumen */}
+      <section className="rounded-lg border border-slate-200 bg-white p-4">
+        <h2 className="font-semibold text-slate-900">Declarante</h2>
+        <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+          <div>
+            <dt className="text-slate-500">NIF</dt>
+            <dd className="font-mono">{b.declarante.nif || '—'}</dd>
+          </div>
+          <div>
+            <dt className="text-slate-500">Razón social</dt>
+            <dd>{b.declarante.razonSocial || '—'}</dd>
+          </div>
+          <div>
+            <dt className="text-slate-500">Persona de contacto y teléfono</dt>
+            <dd>
+              {b.declarante.contacto || '—'} · {b.declarante.telefono || '—'}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-slate-500">Número identificativo</dt>
+            <dd className="font-mono">{b.declarante.numeroIdentificativo}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Cifra etiqueta="Número total de personas y entidades" valor={String(b.resumen.numeroDeclarados)} />
+        <Cifra etiqueta="Importe total de las operaciones" valor={eur.format(b.resumen.importeTotal)} />
+        <Cifra etiqueta="Número total de inmuebles" valor={String(b.resumen.numeroInmuebles)} />
+        <Cifra etiqueta="Importe de arrendamientos de locales" valor={eur.format(b.resumen.importeArrendamientos)} />
+      </div>
+
+      {/* Registros de tipo 2: declarados */}
+      <section className="rounded-lg border border-slate-200 bg-white p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="font-semibold text-slate-900">
+            Declarados ({filtrados.length} de {b.declarados.length})
+          </h2>
+          <div className="relative w-full sm:w-72">
+            <MagnifyingGlass size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden />
             <input
               type="text"
-              value={searchTercero}
-              onChange={(e) => setSearchTercero(e.target.value)}
-              placeholder="Buscar por nombre o NIF..."
-              className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-9 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+              placeholder="Buscar por nombre o NIF"
+              aria-label="Buscar declarado"
+              className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-9 text-sm"
             />
-            {searchTercero && (
-              <button
-                onClick={() => setSearchTercero('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                title="Limpiar búsqueda"
-              >
+            {busqueda && (
+              <button type="button" onClick={() => setBusqueda('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600" title="Limpiar búsqueda">
                 <X size={16} />
               </button>
             )}
           </div>
         </div>
-      </div>
-
-      {/* Resumen Rápido */}
-      <div className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-lg border border-slate-200 bg-white p-6">
-          <p className="text-sm text-slate-600">Total de Terceros Reportados</p>
-          <p className="mt-2 text-2xl font-bold text-slate-900">{modelo.totalTerceros}</p>
-          <p className="mt-1 text-xs text-slate-500">Clientes: {clientes.length}, Proveedores: {proveedores.length}</p>
-        </div>
-
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-6">
-          <p className="text-sm text-emerald-600">Volumen Clientes (Ventas)</p>
-          <p className="mt-2 text-2xl font-bold text-emerald-900">{eur.format(totalClientes)}</p>
-          <p className="mt-1 text-xs text-emerald-600">{clientes.length} clientes reportados</p>
-        </div>
-
-        <div className="rounded-lg border border-orange-200 bg-orange-50 p-6">
-          <p className="text-sm text-orange-600">Volumen Proveedores (Compras)</p>
-          <p className="mt-2 text-2xl font-bold text-orange-900">{eur.format(totalProveedores)}</p>
-          <p className="mt-1 text-xs text-orange-600">{proveedores.length} proveedores reportados</p>
-        </div>
-      </div>
-
-      {/* Casillas Completas */}
-      <CasillasViewer
-        casillas={modelo.casillas}
-        titulo="Casillas del Modelo 347"
-        descripcion={`Ejercicio ${modelo.ejercicio} – Operaciones superiores a 3.000,06€`}
-        estado={modelo.estado}
-      />
-
-      {/* Desglose Clientes */}
-      {clientes.length > 0 && (
-        <div className="rounded-lg border border-slate-200 bg-white p-6">
-          <h3 className="mb-4 font-semibold text-slate-900">
-            Clientes Reportados (Ventas) – {clientesFiltrados.length}/{clientes.length}
-          </h3>
-          {clientesFiltrados.length === 0 ? (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-center">
-              <p className="text-sm text-amber-800">
-                No se encontraron clientes con ese nombre o NIF.
-              </p>
-              <button
-                onClick={() => setSearchTercero('')}
-                className="mt-2 text-sm text-amber-700 hover:text-amber-900 font-medium underline"
-              >
-                Limpiar búsqueda
-              </button>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200">
-                    <th className="text-left py-3">NIF/CIF</th>
-                    <th className="text-left py-3">Nombre</th>
-                    <th className="text-right py-3">Volumen Operaciones</th>
+        {b.declarados.length === 0 ? (
+          <p className="text-sm text-slate-600">Nadie supera 3.005,06 € en {ejercicio}: no hace falta presentar el 347.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[960px] text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-slate-600">
+                  <th className="py-2 text-left font-medium">NIF</th>
+                  <th className="py-2 text-left font-medium">Nombre o razón social</th>
+                  <th className="py-2 text-left font-medium">Provincia</th>
+                  <th className="py-2 text-left font-medium">Clave</th>
+                  <th className="py-2 text-right font-medium">Importe anual</th>
+                  <th className="py-2 text-right font-medium">1T</th>
+                  <th className="py-2 text-right font-medium">2T</th>
+                  <th className="py-2 text-right font-medium">3T</th>
+                  <th className="py-2 text-right font-medium">4T</th>
+                  <th className="py-2 text-right font-medium">En metálico</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtrados.map((d) => (
+                  <tr key={`${d.clave}-${d.nifFichero || d.nif}-${d.arrendamiento ? 'X' : ''}`} className="border-b border-slate-100">
+                    <td className="py-2 font-mono">{d.nifFichero || d.nif || '—'}</td>
+                    <td className="py-2">
+                      {d.nombre}
+                      {d.arrendamiento && <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">Arrendamiento de local</span>}
+                    </td>
+                    <td className={`py-2 font-mono ${d.provincia ? '' : 'text-red-700'}`}>{d.provincia ?? 'Falta'}</td>
+                    <td className="py-2">{CLAVES[d.clave] ?? d.clave}</td>
+                    <td className="py-2 text-right font-medium tabular-nums">{eur.format(d.importeAnual)}</td>
+                    {d.trimestres.map((t, i) => (
+                      <td key={i} className="py-2 text-right tabular-nums">
+                        {eur.format(t)}
+                      </td>
+                    ))}
+                    <td className="py-2 text-right tabular-nums">{d.metalico ? eur.format(d.metalico) : '—'}</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {clientesFiltrados.slice(0, 10).map((cliente, i) => (
-                    <tr key={i} className="border-b border-slate-100 hover:bg-slate-50">
-                      <td className="py-3 font-mono">{cliente.nif}</td>
-                      <td className="py-3">{cliente.nombre}</td>
-                      <td className="text-right py-3 font-medium">{eur.format(cliente.totalOperaciones)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-          {clientesFiltrados.length > 10 && (
-            <p className="mt-2 text-xs text-slate-500">
-              ... y {clientesFiltrados.length - 10} clientes más
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* Desglose Proveedores */}
-      {proveedores.length > 0 && (
-        <div className="rounded-lg border border-slate-200 bg-white p-6">
-          <h3 className="mb-4 font-semibold text-slate-900">
-            Proveedores Reportados (Compras) – {proveedoresFiltrados.length}/{proveedores.length}
-          </h3>
-          {proveedoresFiltrados.length === 0 ? (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-center">
-              <p className="text-sm text-amber-800">
-                No se encontraron proveedores con ese nombre o NIF.
-              </p>
-              <button
-                onClick={() => setSearchTercero('')}
-                className="mt-2 text-sm text-amber-700 hover:text-amber-900 font-medium underline"
-              >
-                Limpiar búsqueda
-              </button>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200">
-                    <th className="text-left py-3">NIF/CIF</th>
-                    <th className="text-left py-3">Nombre</th>
-                    <th className="text-right py-3">Volumen Operaciones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {proveedoresFiltrados.slice(0, 10).map((proveedor, i) => (
-                    <tr key={i} className="border-b border-slate-100 hover:bg-slate-50">
-                      <td className="py-3 font-mono">{proveedor.nif}</td>
-                      <td className="py-3">{proveedor.nombre}</td>
-                      <td className="text-right py-3 font-medium">{eur.format(proveedor.totalOperaciones)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-          {proveedoresFiltrados.length > 10 && (
-            <p className="mt-2 text-xs text-slate-500">
-              ... y {proveedoresFiltrados.length - 10} proveedores más
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* Nota Informativa */}
-      <div className="rounded-lg border-l-4 border-l-blue-500 bg-blue-50 p-4">
-        <p className="text-sm text-blue-900">
-          <strong>Nota importante:</strong> El modelo 347 incluye operaciones realizadas con terceros superiores
-          a 3.000,06€ durante el ejercicio. Se reportan por separado clientes (ventas) y proveedores (compras).
-        </p>
-      </div>
-
-      {/* Acciones Finales */}
-      <div className="space-y-4">
-        {/* Botón de Descarga AEAT */}
-        {modelo.estado === 'vigente' && (
-          <>
-            <button
-              onClick={descargarAEAT}
-              className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-6 py-3 text-sm font-medium text-white hover:bg-emerald-700 transition"
-            >
-              <Download size={18} />
-              Descargar Fichero AEAT (TXT)
-            </button>
-            {avisoDescarga && (
-              <p role="status" className="mt-2 text-sm text-amber-700">{avisoDescarga}</p>
-            )}
-          </>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
+      </section>
 
-        {/* Formulario de Presentación */}
-        {modelo.estado === 'vigente' && <FormPresentar codigo="347" ejercicio={ejercicio} />}
+      <div className="rounded-lg border-l-4 border-l-blue-500 bg-blue-50 p-4 text-sm text-blue-900">
+        Se declaran los clientes (clave B) y proveedores (clave A) que superan 3.005,06 € en el año, con IVA. No entran las compras con
+        retención de IRPF (van en el 190 o el 180) ni las operaciones con el extranjero (las intracomunitarias van en el 349). El fichero se importa en la sede de la AEAT
+        (presentación mediante fichero).
+      </div>
+
+      <div className="space-y-4">
+        <DescargarFichero ruta={rutaBorrador('347', ejercicio, aplicados, true)} nombre={`347_${ejercicio}.txt`} bloqueado={b.errores.length > 0} />
+        <FormPresentar codigo="347" ejercicio={ejercicio} />
       </div>
     </div>
   );
