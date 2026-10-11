@@ -106,11 +106,13 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
 }
 
 /** Descarga binaria (PDF, fichero AEAT...) con el token de la sesion. */
-export async function apiDownload(path: string, nombreFichero: string): Promise<void> {
+export async function apiDownload(path: string, nombreFichero: string, init: RequestInit = {}): Promise<void> {
+  // init: p. ej. un POST con cuerpo JSON (datos que no deben ir en la URL).
+  const headers = new Headers(init.headers);
   const token = getToken();
-  const res = await fetch(`${API_BASE}${path}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-  });
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  if (init.body && typeof init.body === 'string' && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+  const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
   if (res.status === 401) {
     redirigirALogin();
     throw new ApiError('Tu sesión ha caducado. Vuelve a iniciar sesión.', 401);
