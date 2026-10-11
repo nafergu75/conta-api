@@ -89,6 +89,9 @@ export default function GastoDetailPage() {
   // Sin cuenta en las lineas, el asiento usa la del tipo de gasto.
   const cuenta =
     gasto.cuentaGasto ?? (gasto.lineas.some((l) => l.accountCode) ? 'Varias (ver líneas)' : esTipoGasto(gasto.tipoGasto) ? TIPO_GASTO_INFO[gasto.tipoGasto].cuenta : null);
+  // Con varias cuentas, la de cada linea (la que no tiene propia va a la del tipo de gasto).
+  const variasCuentas = !gasto.cuentaGasto && gasto.lineas.some((l) => l.accountCode);
+  const cuentaDeLinea = (l: { accountCode: string | null }) => l.accountCode ?? (esTipoGasto(gasto.tipoGasto) ? TIPO_GASTO_INFO[gasto.tipoGasto].cuenta : '');
 
   return (
     <div className="mx-auto max-w-4xl p-4 pb-24 md:p-6">
@@ -240,7 +243,7 @@ export default function GastoDetailPage() {
               <tr key={l.id}>
                 <td className="px-6 py-3 text-slate-900">
                   {l.descripcion}
-                  {l.accountCode && !gasto.cuentaGasto && <span className="ml-2 font-mono text-xs text-slate-500">{l.accountCode}</span>}
+                  {variasCuentas && <span className="ml-2 font-mono text-xs text-slate-500">{cuentaDeLinea(l)}</span>}
                 </td>
                 <td className="px-6 py-3 text-right font-mono text-slate-700">{String(l.cantidad).replace('.', ',')}</td>
                 <td className="px-6 py-3 text-right font-mono text-slate-700">{fmt(l.precioUnitario)}</td>
@@ -256,7 +259,10 @@ export default function GastoDetailPage() {
         <ul className="divide-y divide-slate-200 xl:hidden">
           {gasto.lineas.map((l) => (
             <li key={l.id} className="px-4 py-3 text-sm">
-              <p className="break-words font-medium text-slate-900">{l.descripcion}</p>
+              <p className="break-words font-medium text-slate-900">
+                {l.descripcion}
+                {variasCuentas && <span className="ml-2 font-mono text-xs font-normal text-slate-500">{cuentaDeLinea(l)}</span>}
+              </p>
               <p className="text-slate-600">
                 {String(l.cantidad).replace('.', ',')} × {fmt(l.precioUnitario)} = <span className="font-mono">{fmt(l.baseLine)}</span>
               </p>

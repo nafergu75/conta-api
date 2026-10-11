@@ -3,14 +3,30 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft } from '@phosphor-icons/react';
-import { getToken, clearSession, getCompanyId } from '@/lib/auth';
+import { getToken } from '@/lib/auth';
+import { ApiError, apiFetch, companyPath } from '@/lib/api';
+import { BloqueContabilidadTercero } from '@/components/contabilidad/BloqueContabilidadTercero';
 import { DatosFiscalesCliente, type DatosFiscales } from './DatosFiscalesCliente';
-
-const API = '/api/conta';
 
 interface Cliente extends DatosFiscales {
   email?: string;
   telefono?: string;
+  /** Subcuenta propia (430 + numero). */
+  subcuenta430?: string | null;
+  /** Subcuentas que ya estan en el plan contable (con movimientos). */
+  subcuentasEnPlan?: string[];
+}
+
+/** Factura del listado GET /income-invoices?customerId= */
+interface FacturaApi {
+  id: string;
+  numeroCompleto: string | null;
+  estadoDocumento: string;
+  fechaEmision: string;
+  fechaVencimiento?: string | null;
+  estado: string;
+  baseTotal: number;
+  totalFactura: number;
 }
 
 interface Factura {
@@ -46,31 +62,28 @@ export default function ClienteDetailPage() {
 
       setLoading(true);
       try {
-        const [clienteRes, facturasRes] = await Promise.all([
-          fetch(`${API}/companies/${getCompanyId()}/clientes/${clienteId}`, {
-            headers: { Authorization: `Bearer ${token}` },
+        // apiFetch: un 401 lleva al login. Las facturas, de la empresa activa (antes se pedian sin ella y salia vacio).
+        const [c, f] = await Promise.all([
+          apiFetch<Cliente>(companyPath(`/clientes/${encodeURIComponent(clienteId)}`)).catch((e) => {
+            if (e instanceof ApiError && e.status === 404) return null;
+            throw e;
           }),
-          fetch(`${API}/income-invoices?customerId=${clienteId}`, {
-            headers: { Authorization: `Bearer ${token}` },
-          }),
+          apiFetch<{ items: FacturaApi[] }>(companyPath(`/income-invoices?customerId=${encodeURIComponent(clienteId)}&take=200`)).catch(() => ({ items: [] as FacturaApi[] })),
         ]);
-
-        if (clienteRes.status === 401) {
-          clearSession();
-          router.replace('/login');
-          return;
-        }
-
-        if (clienteRes.ok) {
-          const j = await clienteRes.json();
-          setCliente(j.data);
-        }
-
-        if (facturasRes.ok) {
-          const j = await facturasRes.json();
-          setFacturas(j.data?.items ?? j.data ?? []);
-        }
-
+        setCliente(c);
+        setFacturas(
+          (f.items ?? [])
+            .filter((x) => x.estadoDocumento !== 'BORRADOR')
+            .map((x) => ({
+              id: x.id,
+              numero: x.numeroCompleto ?? '',
+              fecha: x.fechaEmision,
+              vencimiento: x.fechaVencimiento ?? undefined,
+              total: Number(x.totalFactura) || 0,
+              base: Number(x.baseTotal) || 0,
+              estado: x.estado,
+            })),
+        );
         setError(null);
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Error desconocido');
@@ -138,6 +151,8 @@ export default function ClienteDetailPage() {
         )}
 
         <DatosFiscalesCliente cliente={cliente} onGuardado={(c) => setCliente((x) => (x ? { ...x, ...c } : x))} />
+
+        <BloqueContabilidadTercero tipo="cliente" id={clienteId} subcuentas={[{ codigo: cliente.subcuenta430 }]} subcuentasEnPlan={cliente.subcuentasEnPlan} />
 
         {/* Tabs */}
         <div className="flex gap-4 border-b border-slate-200 mb-6">

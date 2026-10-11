@@ -21,6 +21,9 @@ interface Proveedor {
   cp?: string | null;
   pais?: string | null;
   activo?: boolean;
+  /** Subcuentas contables propias: 400 (compras) y 410 (servicios), con el mismo numero. */
+  subcuenta400?: string | null;
+  subcuenta410?: string | null;
 }
 
 interface Pagina {
@@ -44,6 +47,15 @@ export default function ProveedoresPage() {
   const [aviso, setAviso] = useState<{ texto: string; desactivar?: Proveedor } | null>(null);
   // Texto del 403 si su acceso no incluye proveedores (null = si lo incluye).
   const [sinAcceso, setSinAcceso] = useState<string | null>(null);
+  // Desde el plan contable (+ bajo la 430, 400 o 410): ?nuevo=1 abre el alta.
+  useEffect(() => {
+    try {
+      if (puedeEscribir && new URLSearchParams(window.location.search).get('nuevo') === '1') setShowForm(true);
+    } catch {
+      // Sin acceso a la URL: se abre con el boton.
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const peticion = useRef(0);
 
   useEffect(() => {
@@ -135,7 +147,7 @@ export default function ProveedoresPage() {
             <input
               id="pr-buscar"
               type="text"
-              placeholder="Nombre, NIF o email"
+              placeholder="Nombre, NIF, email o subcuenta"
               value={busqueda}
               onChange={(e) => setBusqueda(e.target.value)}
               className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-9 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
@@ -193,6 +205,11 @@ export default function ProveedoresPage() {
                       </Link>
                     </h3>
                     <p className="text-sm font-mono text-slate-500 break-all">{proveedor.nifCif}</p>
+                    {(proveedor.subcuenta400 || proveedor.subcuenta410) && (
+                      <p className="text-xs text-slate-500">
+                        Subcuentas <span className="font-mono">{[proveedor.subcuenta400, proveedor.subcuenta410].filter(Boolean).join(' · ')}</span>
+                      </p>
+                    )}
                     <div className="mt-1 flex flex-wrap gap-1.5">
                       {proveedor.activo === false && <span className="rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">Inactivo</span>}
                       {proveedor.pais && proveedor.pais !== 'ES' && (

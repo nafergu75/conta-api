@@ -1,10 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { CaretDown, CaretRight, Plus, X, MagnifyingGlass, PencilSimple } from '@phosphor-icons/react';
 import { Tooltip } from '@/app/dashboard/components/Tooltip';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
+import type { LongitudSubcuentas } from '@/lib/subcuentas';
 
 /**
  * Plan contable de la empresa activa (ChartOfAccounts).
@@ -14,6 +16,10 @@ import { getUser, tieneAlgunPermiso } from '@/lib/auth';
  * (el backend lo crea la primera vez) y las subcuentas se guardan de verdad.
  * Los grupos y subgrupos del PGC son fijos: no se pueden crear. Las subcuentas
  * propias se pueden renombrar y desactivar (no borrar: puede haber asientos).
+ *
+ * Las subcuentas de clientes y proveedores (430, 400 y 410 + numero) dicen de
+ * quien son y se cambian desde su ficha; bajo la 430, la 400 y la 410 no se
+ * crean a mano: el + lleva a dar de alta el cliente o el proveedor.
  */
 interface Cuenta {
   id: string;
@@ -24,7 +30,20 @@ interface Cuenta {
   parentCodigo: string | null;
   esPersonalizadaEmpresa: boolean;
   activo: boolean;
+  /** Cliente o proveedor de la subcuenta (null si no es de ninguna ficha). */
+  tercero?: { tipo: 'cliente' | 'proveedor'; id: string; nombre: string; nif: string | null } | null;
 }
+
+/** Cuentas cuyas subcuentas son las de cada cliente o proveedor. */
+const CUENTAS_DE_TERCEROS: Record<string, { texto: string; href: string }> = {
+  '430': { texto: 'Nuevo cliente', href: '/dashboard/clientes?nuevo=1' },
+  '400': { texto: 'Nuevo proveedor', href: '/dashboard/proveedores?nuevo=1' },
+  '410': { texto: 'Nuevo proveedor', href: '/dashboard/proveedores?nuevo=1' },
+};
+
+const fichaDe = (t: NonNullable<Cuenta['tercero']>) => `/dashboard/${t.tipo === 'cliente' ? 'clientes' : 'proveedores'}/${encodeURIComponent(t.id)}`;
+
+const mismoNombre = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
 type Modal = { modo: 'crear'; padre: Cuenta } | { modo: 'editar'; cuenta: Cuenta };
 
@@ -40,9 +59,9 @@ function badge(naturaleza: string) {
   return NATURALEZA[naturaleza] ?? { color: 'bg-gray-100 text-gray-800', label: naturaleza, tooltip: 'Tipo de cuenta.' };
 }
 
-/** Siguiente codigo libre de 7 digitos bajo `padre` (629 -> 6290001, 6290002...). */
-function siguienteCodigo(padre: Cuenta, hijos: Cuenta[]): string {
-  const largo = Math.max(7, padre.codigo.length + 1);
+/** Siguiente codigo libre bajo `padre` con los digitos de la empresa (629 -> 62900001, 62900002...). */
+function siguienteCodigo(padre: Cuenta, hijos: Cuenta[], longitud: number): string {
+  const largo = Math.max(longitud, padre.codigo.length + 1);
   const usados = new Set(hijos.map((h) => h.codigo));
   for (let n = 1; n < 10 ** (largo - padre.codigo.length); n++) {
     const codigo = padre.codigo + String(n).padStart(largo - padre.codigo.length, '0');
@@ -65,6 +84,14 @@ export default function PlanContablePage() {
   const [aviso, setAviso] = useState('');
 
   const puedeEditar = tieneAlgunPermiso(getUser(), ['contabilidad:write']);
+  // Digitos de las subcuentas de la empresa, para proponer el codigo de una nueva.
+  const [longitud, setLongitud] = useState(8);
+
+  useEffect(() => {
+    apiFetch<LongitudSubcuentas>(companyPath('/reglas-contables/longitud-subcuentas'))
+      .then((l) => setLongitud(l.longitud))
+      .catch(() => undefined);
+  }, []);
 
   const cargar = useCallback(async () => {
     try {
@@ -99,7 +126,7 @@ export default function PlanContablePage() {
     if (!q) return null;
     const porCodigo = new Map(cuentas.map((c) => [c.codigo, c]));
     const set = new Set<string>();
-    const coinciden = cuentas.filter((c) => c.codigo.includes(q) || c.nombre.toLowerCase().includes(q));
+    const coinciden = cuentas.filter((c) => c.codigo.includes(q) || c.nombre.toLowerCase().includes(q) || (c.tercero?.nif ?? '').toLowerCase().includes(q));
     for (const c of coinciden) {
       let x: Cuenta | undefined = c;
       while (x) {
@@ -136,7 +163,7 @@ export default function PlanContablePage() {
 
   const abrirModal = (padre: Cuenta) => {
     setModal({ modo: 'crear', padre });
-    setForm({ codigo: siguienteCodigo(padre, hijosDe.get(padre.codigo) ?? []), nombre: '', activo: true });
+    setForm({ codigo: siguienteCodigo(padre, hijosDe.get(padre.codigo) ?? [], longitud), nombre: '', activo: true });
     setFormError('');
   };
 
@@ -250,11 +277,21 @@ export default function PlanContablePage() {
           <span className="font-mono text-gray-500 min-w-16">{c.codigo}</span>
           <span className="flex-1">
             {c.nombre}
-            {c.esPersonalizadaEmpresa && (
+            {c.esPersonalizadaEmpresa && !c.tercero && (
               <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">propia</span>
             )}
             {!c.activo && (
               <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">inactiva</span>
+            )}
+            {c.tercero && (
+              <span className="block text-xs text-slate-500 sm:ml-2 sm:inline">
+                {/* La subcuenta ya lleva el nombre fiscal: solo se repite si es distinto. */}
+                {c.tercero.tipo === 'cliente' ? 'Cliente' : 'Proveedor'}
+                {mismoNombre(c.tercero.nombre, c.nombre) ? ' · ' : `: ${c.tercero.nombre} · `}
+                <Link href={fichaDe(c.tercero)} className="font-medium text-blue-600 hover:underline">
+                  ver ficha<span className="sr-only"> de {c.tercero.nombre}</span>
+                </Link>
+              </span>
             )}
           </span>
           {c.nivel >= 3 && (
@@ -264,7 +301,7 @@ export default function PlanContablePage() {
             </span>
           )}
           {c.nivel <= 2 && <span className="text-xs text-gray-500">{hijos.length} {c.nivel === 1 ? 'subgrupos' : 'cuentas'}</span>}
-          {puedeEditar && c.esPersonalizadaEmpresa && (
+          {puedeEditar && c.esPersonalizadaEmpresa && !c.tercero && (
             <button
               onClick={() => abrirEdicion(c)}
               className="p-1.5 text-gray-500 hover:bg-blue-50 hover:text-blue-600 rounded opacity-0 group-hover/fila:opacity-100 focus:opacity-100 transition"
@@ -273,7 +310,17 @@ export default function PlanContablePage() {
               <PencilSimple size={16} />
             </button>
           )}
-          {puedeEditar && admiteSubcuentas && c.activo && (
+          {puedeEditar && admiteSubcuentas && c.activo && CUENTAS_DE_TERCEROS[c.codigo] && (
+            <Link
+              href={CUENTAS_DE_TERCEROS[c.codigo].href}
+              className="p-1.5 text-gray-500 hover:bg-blue-50 hover:text-blue-600 rounded opacity-0 group-hover/fila:opacity-100 focus:opacity-100 transition"
+              title={`${CUENTAS_DE_TERCEROS[c.codigo].texto}: su subcuenta se crea sola`}
+              aria-label={`${CUENTAS_DE_TERCEROS[c.codigo].texto} (su subcuenta de la ${c.codigo} se crea sola)`}
+            >
+              <Plus size={16} />
+            </Link>
+          )}
+          {puedeEditar && admiteSubcuentas && c.activo && !CUENTAS_DE_TERCEROS[c.codigo] && (
             <button
               onClick={() => abrirModal(c)}
               className="p-1.5 text-gray-500 hover:bg-blue-50 hover:text-blue-600 rounded opacity-0 group-hover/fila:opacity-100 focus:opacity-100 transition"
@@ -295,7 +342,7 @@ export default function PlanContablePage() {
       <div>
         <div className="flex items-center gap-3">
           <h1 className="text-3xl font-bold text-gray-900">Plan contable</h1>
-          <Tooltip text="Cuentas de la empresa según el PGC de PYMES. Los grupos, subgrupos y cuentas son los oficiales; debajo de cada cuenta puedes crear subcuentas propias (por ejemplo, una por proveedor o por tipo de gasto)." />
+          <Tooltip text="Cuentas de la empresa según el PGC de PYMES. Los grupos, subgrupos y cuentas son los oficiales; debajo de cada cuenta puedes crear subcuentas propias (por ejemplo, una por tipo de gasto). Las de clientes y proveedores se crean solas con cada ficha y llevan su nombre." />
         </div>
         <p className="mt-2 text-gray-600">
           PGC PYMES (RD 1515/2007).{puedeEditar ? ' Pasa el ratón por una cuenta y pulsa + para crear una subcuenta.' : ''}

@@ -6,6 +6,7 @@ import { ArrowLeft, Download } from '@phosphor-icons/react';
 import { getToken, getCompanyId } from '@/lib/auth';
 import { ApiError, apiFetch, companyPath } from '@/lib/api';
 import { mensajeSinAcceso, PantallaSinAcceso } from '@/components/dashboard/SinAcceso';
+import { BloqueContabilidadTercero } from '@/components/contabilidad/BloqueContabilidadTercero';
 
 import { SupplierTabs } from '@/components/suppliers/SupplierTabs';
 import { SupplierDatosTab } from '@/components/suppliers/SupplierDatosTab';
@@ -28,6 +29,10 @@ interface Proveedor {
   cp?: string | null;
   activo?: boolean;
   companyId?: string;
+  /** Subcuentas propias con el mismo numero: 400 (compras) y 410 (servicios). */
+  subcuenta400?: string | null;
+  subcuenta410?: string | null;
+  subcuentasEnPlan?: string[];
 }
 
 export default function DetalleProveedorPage() {
@@ -108,7 +113,20 @@ export default function DetalleProveedorPage() {
       id: 'datos',
       label: 'Datos',
       icon: '📋',
-      component: <SupplierDatosTab proveedor={proveedor} companyId={companyId} onUpdate={setProveedor} />,
+      component: (
+        <>
+          <BloqueContabilidadTercero
+            tipo="proveedor"
+            id={proveedorId}
+            subcuentas={[
+              { codigo: proveedor.subcuenta400, etiqueta: 'compras' },
+              { codigo: proveedor.subcuenta410, etiqueta: 'servicios' },
+            ]}
+            subcuentasEnPlan={proveedor.subcuentasEnPlan}
+          />
+          <SupplierDatosTab proveedor={proveedor} companyId={companyId} onUpdate={setProveedor} />
+        </>
+      ),
     },
     {
       id: 'facturas',

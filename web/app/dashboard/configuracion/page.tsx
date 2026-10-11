@@ -26,6 +26,7 @@ import { NOMBRE_MONEDA } from '@/lib/moneda';
 import { NOMBRE_FORMA, puedeVer, type EjercicioConfig, type SerieConfig } from '@/lib/configuracion';
 import { useConfiguracion } from './contexto';
 import { BASE, Indice } from './indice';
+import { LongitudSubcuentas } from './LongitudSubcuentas';
 
 /**
  * Portada de Configuracion: lista de comprobacion de la puesta en marcha
@@ -329,6 +330,8 @@ export default function ConfiguracionPortada() {
           </Tarjeta>
         )}
       </div>
+
+      {verContabilidad && <LongitudSubcuentas puedeEditar={tieneAlgunPermiso(user, ['contabilidad:write'])} />}
     </>
   );
 }

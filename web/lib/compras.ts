@@ -190,6 +190,8 @@ export interface GastoExtraido {
   tipoDocumento: 'factura' | 'nomina' | 'seguros_sociales';
   proveedorExistente: { id: string; nombreFiscal: string; nifCif: string } | null;
   duplicada: { facturaId: string; numeroCompleto: string } | null;
+  /** Cuenta que mas usa el proveedor en sus ultimas facturas (si sigue activa). */
+  cuentaHabitual?: { codigo: string; nombre: string } | null;
 }
 
 /** POST /gastos-extractor/confirmar */

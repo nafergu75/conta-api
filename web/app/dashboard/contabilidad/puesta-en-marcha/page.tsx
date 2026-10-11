@@ -27,15 +27,18 @@ import {
   type Lectura,
   type NecesitaMapeo,
 } from '../importacion';
+import { PlanAnterior } from './PlanAnterior';
 
 /**
  * Puesta en marcha: cargar la contabilidad que se llevaba en otro programa.
- *  1. Balance de sumas y saldos al cierre -> asiento de apertura.
- *  2. Diario o mayor del año en curso hasta hoy (opcional).
- *  3. Balance y PyG de años anteriores, solo para comparar (columna N-1).
+ *  1. Plan de cuentas: todas las cuentas y subcuentas, y enlace de las de
+ *     clientes y proveedores con sus fichas.
+ *  2. Balance de sumas y saldos al cierre -> asiento de apertura.
+ *  3. Diario o mayor del año en curso hasta hoy (opcional).
+ *  4. Balance y PyG de años anteriores, solo para comparar (columna N-1).
  */
 
-type Pestana = 'apertura' | 'diario' | 'anteriores';
+type Pestana = 'plan' | 'apertura' | 'diario' | 'anteriores';
 
 interface Estado {
   ejercicios: Array<{ label: string; estado: string }>;
@@ -70,7 +73,7 @@ const anioActual = new Date().getFullYear();
 
 export default function PuestaEnMarchaPage() {
   const puedeEditar = tieneAlgunPermiso(getUser(), ['contabilidad:write']);
-  const [pestana, setPestana] = useState<Pestana>('apertura');
+  const [pestana, setPestana] = useState<Pestana>('plan');
   const [estado, setEstado] = useState<Estado | null>(null);
   const [error, setError] = useState('');
   const [aviso, setAviso] = useState('');
@@ -112,7 +115,7 @@ export default function PuestaEnMarchaPage() {
           <Tooltip text="Trae los saldos y movimientos que llevabas en otro programa (A3, Contasol, Sage, Holded, FacturaScripts...). Vale cualquier Excel o CSV: se reconocen las columnas y puedes corregirlas." />
         </div>
         <p className="mt-2 text-slate-600">
-          Carga el balance del último cierre para crear el asiento de apertura y, si empiezas a mitad de año, los movimientos del año en curso.
+          Trae tu plan de cuentas, carga el balance del último cierre para crear el asiento de apertura y, si empiezas a mitad de año, los movimientos del año en curso.
         </p>
       </div>
 
@@ -177,15 +180,16 @@ export default function PuestaEnMarchaPage() {
       )}
 
       {!puedeEditar ? (
-        <p className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600">Necesitas permiso de escritura en contabilidad para importar datos.</p>
+        <p className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600">Para importar datos hace falta el permiso Contabilidad «Modificar». Pídeselo al administrador de la empresa. Si ya te lo han dado, sal y vuelve a entrar.</p>
       ) : (
         <>
           <div className="flex gap-1 overflow-x-auto border-b border-slate-200" role="tablist">
             {(
               [
-                ['apertura', '1. Balance de apertura'],
-                ['diario', '2. Movimientos del año'],
-                ['anteriores', '3. Años anteriores'],
+                ['plan', '1. Plan de cuentas'],
+                ['apertura', '2. Balance de apertura'],
+                ['diario', '3. Movimientos del año'],
+                ['anteriores', '4. Años anteriores'],
               ] as Array<[Pestana, string]>
             ).map(([id, texto]) => (
               <button
@@ -205,6 +209,7 @@ export default function PuestaEnMarchaPage() {
             ))}
           </div>
 
+          {pestana === 'plan' && <PlanAnterior onHecho={hecho} />}
           {pestana === 'apertura' && <ImportarApertura onHecho={hecho} />}
           {pestana === 'diario' && <ImportarDiario onHecho={hecho} />}
           {pestana === 'anteriores' && <ImportarComparativo onHecho={hecho} />}

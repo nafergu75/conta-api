@@ -51,6 +51,8 @@ interface Resumen {
   importeCobradoCuenta?: number;
   importePendienteCuenta?: number;
   estado: string;
+  /** Subcuenta del cliente o proveedor contra la que va el cobro o pago (43000012, 41000007...). */
+  cuentaTercero?: string | null;
   cobros: Cobro[];
 }
 
@@ -226,6 +228,7 @@ export default function CobrosFactura({
           base={base}
           pendiente={pendiente}
           pendienteCuenta={resumen.importePendienteCuenta ?? pendiente}
+          cuentaTercero={resumen.cuentaTercero ?? null}
           moneda={moneda}
           monedaCuenta={monedaCuenta}
           fechaMinima={fechaFactura}
@@ -248,6 +251,7 @@ function ModalCobro({
   base,
   pendiente,
   pendienteCuenta,
+  cuentaTercero,
   moneda,
   monedaCuenta,
   fechaMinima,
@@ -256,6 +260,8 @@ function ModalCobro({
 }: {
   tipo: Tipo;
   base: string;
+  /** Subcuenta del tercero (null si aun no tiene: la recibe al registrar). */
+  cuentaTercero: string | null;
   /** En la moneda de la factura. */
   pendiente: number;
   /** En la moneda de cuenta (430), al tipo de la factura. */
@@ -468,7 +474,8 @@ function ModalCobro({
             )}
             {previa && (
               <p className="rounded-md bg-slate-50 p-2 text-xs text-slate-700">
-                Cliente (430): {fmtCuenta(previa.a430)} · Banco: {fmtCuenta(previa.banco)}
+                {tipo === 'INGRESO' ? 'Cliente' : 'Proveedor'} ({cuentaTercero ?? (tipo === 'INGRESO' ? 'su subcuenta 430' : 'su subcuenta 400 o 410')}): {fmtCuenta(previa.a430)} · Banco:{' '}
+                {fmtCuenta(previa.banco)}
                 {com > 0 ? ` · Comisión (626): ${fmtCuenta(com)}` : ''}
                 {previa.dif !== 0 &&
                   ` · Diferencia de cambio (${previa.dif > 0 ? '768' : '668'}): ${fmtCuenta(Math.abs(previa.dif))} ${previa.dif > 0 ? 'de ganancia' : 'de pérdida'}`}
