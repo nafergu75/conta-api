@@ -36,6 +36,25 @@ function conFechaDeHoy(info: InfoLectura, g: GastoExtraido): InfoLectura {
   };
 }
 
+const RANGO: Record<InfoLectura['estado'], number> = { ok: 0, revisar: 1, error: 2 };
+
+/**
+ * Sin la tarjeta del tipo de documento: la nomina o los seguros sociales los
+ * explica el recuadro azul de la pagina (con su matiz) y, si el usuario dice
+ * que es una factura de gasto, ese dato ya esta revisado. La casilla solo
+ * sigue haciendo falta si queda algo mas marcado.
+ */
+function sinTipoDocumento(info: InfoLectura): InfoLectura {
+  const { tipoDocumento: _quitado, ...campos } = info.campos;
+  const resto = Object.values(campos).filter((c) => !!c);
+  const peorCampo = Math.max(0, ...resto.map((c) => RANGO[c.estado]));
+  const peorTodos = Math.max(peorCampo, _quitado ? RANGO[_quitado.estado] : 0);
+  // Algo marcado sin campo (QR ilegible, archivo repetido) pesa mas que todos los campos juntos.
+  const sinCampo = RANGO[info.estado] > peorTodos || info.qr.estado === 'ILEGIBLE' || info.qr.estado === 'NO_COINCIDE';
+  const requiereRevision = info.requiereRevision && (peorCampo > 0 || sinCampo);
+  return { ...info, campos, requiereRevision };
+}
+
 /** Lo leido, en la forma del formulario. */
 function inicialDe(g: GastoExtraido, paisExistente: string | null): FormInicial {
   const tipo = g.tipoGastoSugerido && TIPO_GASTO_INFO[g.tipoGastoSugerido] ? g.tipoGastoSugerido : 'SUMINISTROS';
@@ -208,7 +227,13 @@ export default function LectorGastosPage() {
   };
 
   const noEsFactura = tipoDocumento === 'nomina' || tipoDocumento === 'seguros_sociales';
-  const faltaRevision = !!info?.requiereRevision && !revisado;
+  const leidaComoNoFactura = leido?.tipoDocumento === 'nomina' || leido?.tipoDocumento === 'seguros_sociales';
+  const infoPanel = info && leidaComoNoFactura ? sinTipoDocumento(info) : info;
+  // Una rectificativa no se puede registrar como un gasto normal (sumaria en vez de restar).
+  const rectificativa = info?.campos.tipoDocumento?.estado === 'error';
+  const faltaRevision = !!infoPanel?.requiereRevision && !revisado;
+  // Si lo unico marcado era el tipo de documento, "es una factura de gasto" ya es la revision.
+  const revisadoEnviado = !!info?.requiereRevision && !infoPanel?.requiereRevision ? !noEsFactura : revisado;
   const esImagen = archivo?.type.startsWith('image/');
 
   return (
@@ -251,7 +276,7 @@ export default function LectorGastosPage() {
               </button>
             </div>
           </div>
-        ) : !leido || !inicial || !info ? (
+        ) : !leido || !inicial || !info || !infoPanel ? (
           <div className="mx-auto max-w-2xl">
             <div
               role="button"
@@ -351,7 +376,14 @@ export default function LectorGastosPage() {
 
             {/* Datos leidos, editables */}
             <section className="flex min-w-0 flex-col gap-4">
-              <PanelLectura info={info} lector="gastos" revisado={revisado} onRevisado={setRevisado} />
+              <PanelLectura
+                info={infoPanel}
+                lector="gastos"
+                revisado={revisado}
+                onRevisado={setRevisado}
+                conCasilla={!rectificativa && !leido.duplicada}
+                sinArreglo={[...(rectificativa ? ['tipoDocumento'] : []), ...(leido.duplicada ? ['numero'] : [])]}
+              />
               {leido.cuentaContableBase && (
                 <p className="text-sm text-slate-600">
                   Cuenta sugerida: <span className="font-mono">{leido.cuentaContableBase}</span>
@@ -391,9 +423,11 @@ export default function LectorGastosPage() {
                 key={lectura}
                 modo="lector"
                 inicial={inicial}
-                extra={{ tipoDocumento, confianza: leido.confianza, lecturaId: info.lecturaId, revisado }}
+                extra={{ tipoDocumento, confianza: leido.confianza, lecturaId: info.lecturaId, revisado: revisadoEnviado }}
                 bloqueado={
-                  leido.duplicada
+                  rectificativa
+                    ? 'Las facturas rectificativas todavía no se pueden registrar con el lector: no la registres como un gasto normal.'
+                    : leido.duplicada
                     ? `Ya registraste esta factura (${leido.duplicada.numeroCompleto}): no se registra dos veces.`
                     : noEsFactura
                       ? 'Confirma antes si es una factura de gasto (aviso de arriba).'
