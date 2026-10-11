@@ -4,6 +4,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { CaretDown, CaretRight, MagnifyingGlass, Plus, Trash, WarningCircle, X } from '@phosphor-icons/react';
 import { ApiError, apiFetch, campoDelError, companyPath, errorMessage } from '@/lib/api';
+import { getUser, tieneAlgunPermiso } from '@/lib/auth';
+import { useCuentasLinea } from '@/lib/subcuentas';
+import { CuentaLinea } from '@/components/contabilidad/CuentaLinea';
 import { formatoImporte, parseImporte } from '@/lib/moneda';
 import { PAISES, pareceNifIvaUe, useEmpresaEspanola } from '@/lib/fiscal';
 import {
@@ -105,7 +108,7 @@ interface LineaForm {
   descuento: number;
   tipoIva: number;
   tipoRetencion: number;
-  /** Cuenta propia de la linea (facturas con varias cuentas). */
+  /** Cuenta propia de la linea («Cambiar cuenta»); sin ella, la de la factura o la del tipo de gasto. */
   cuenta?: string;
 }
 
@@ -173,6 +176,9 @@ export default function FormFacturaGasto({
       : [lineaVacia()],
   );
   const [observaciones, setObservaciones] = useState(inicial?.observaciones ?? '');
+  // Cuentas de gasto del plan para el «Cambiar cuenta» de cada linea (una sola peticion).
+  const catalogo = useCuentasLinea('gasto');
+  const puedeCrearCuenta = tieneAlgunPermiso(getUser(), ['compras:write', 'contabilidad:write']);
   const [totalDocumento, setTotalDocumento] = useState(numeroATexto(inicial?.totalDocumento));
 
   const [guardando, setGuardando] = useState(false);
@@ -309,8 +315,8 @@ export default function FormFacturaGasto({
         descuentoPorcentaje: l.descuento,
         tipoIva: l.tipoIva,
         tipoRetencion: valores[i].tipoRetencion,
-        // La cuenta de cada linea solo se conserva si no se ha elegido una para toda la factura.
-        ...(l.cuenta && !cuentaGlobal ? { cuenta: l.cuenta } : {}),
+        // La cuenta propia de la linea manda sobre la de la factura.
+        ...(l.cuenta ? { cuenta: l.cuenta } : {}),
       })),
       ...(observaciones.trim() ? { observaciones: observaciones.trim() } : {}),
       ...(modo === 'lector' && Number.isFinite(totalDoc) ? { totalDocumento: totalDoc } : {}),
@@ -335,7 +341,7 @@ export default function FormFacturaGasto({
       setConflicto(conflictoGasto(err));
       // Campos plegados: se despliegan para poder marcarlos.
       if (campo === 'fechaRegistro') setMostrarRegistro(true);
-      if (campo === 'cuentaGasto' || /^lineas\.\d+\.cuenta$/.test(campo ?? '')) setMostrarCuenta(true);
+      if (campo === 'cuentaGasto') setMostrarCuenta(true);
       setIntentoFallido((n) => n + 1);
       if (err instanceof ApiError && err.status === 409 && err.detalles && typeof err.detalles === 'object') {
         const d = err.detalles as { facturaId?: unknown; proveedorId?: unknown };
@@ -510,7 +516,7 @@ export default function FormFacturaGasto({
                 value={cuenta}
                 placeholder={`${TIPO_GASTO_INFO[tipoGasto].cuenta} (la del tipo de gasto)`}
                 onChange={(e) => setCuenta(e.target.value.replace(/[^\d]/g, ''))}
-                {...marca('cuentaGasto', 'lineas.0.cuenta')}
+                {...marca('cuentaGasto')}
                 className={campoBase}
               />
               <datalist id="fg-cuentas">
@@ -520,8 +526,10 @@ export default function FormFacturaGasto({
                   </option>
                 ))}
               </datalist>
-              <p className={ayuda}>Vacía, se usa la del tipo de gasto. Tiene que ser una cuenta del grupo 6 de tu plan contable (por ejemplo, 629 Otros servicios).</p>
-              {!cuenta.trim() && lineas.some((l) => l.cuenta) && <p className={ayuda}>Esta factura tiene cuentas distintas por línea: se conservan mientras no elijas una aquí.</p>}
+              <p className={ayuda}>
+                Vacía, se usa la del tipo de gasto. Tiene que ser una cuenta del grupo 6 de tu plan contable (por ejemplo, 629 Otros servicios). Vale para las líneas que no
+                tienen una cuenta propia: cada línea se puede llevar a otra con «Cambiar cuenta».
+              </p>
             </div>
           )}
         </div>
@@ -629,6 +637,22 @@ export default function FormFacturaGasto({
                   >
                     <Trash size={18} />
                   </button>
+                </div>
+                <div className="col-span-2 xl:col-span-12">
+                  <CuentaLinea
+                    tipo="gasto"
+                    catalogo={catalogo}
+                    valor={l.cuenta}
+                    onCambiar={(codigo) => cambiarLinea(l.clave, { cuenta: codigo ?? undefined })}
+                    porDefecto={{
+                      codigo: cuenta.trim() || TIPO_GASTO_INFO[tipoGasto].cuenta,
+                      texto: cuenta.trim() ? 'la de la factura' : 'la del tipo de gasto',
+                    }}
+                    linea={i + 1}
+                    id={`fg-lcuenta-${l.clave}`}
+                    puedeCrear={puedeCrearCuenta}
+                    invalido={inv(`${c}.cuenta`)}
+                  />
                 </div>
               </div>
             );
@@ -998,8 +1022,8 @@ function idDelCampo(campo: string | undefined, lineas: Array<{ clave: number }>)
   if (campo === 'lineas') return lineas[0] ? `fg-precio-${lineas[0].clave}` : undefined;
   const m = /^lineas\.(\d+)\.(\w+)/.exec(campo);
   if (m) {
-    if (m[2] === 'cuenta') return 'fg-cuenta';
     const linea = lineas[Number(m[1])];
+    if (m[2] === 'cuenta') return linea ? `fg-lcuenta-${linea.clave}` : 'fg-cuenta';
     return linea ? `${ID_LINEA[m[2]] ?? 'fg-desc'}-${linea.clave}` : undefined;
   }
   // Otro dato del proveedor nuevo: al menos se lleva la vista a su bloque.
