@@ -4,20 +4,37 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, CheckCircle, FileArrowUp, WarningCircle } from '@phosphor-icons/react';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
+import PanelLectura from '@/components/lector/PanelLectura';
+import { descartarLectura, ErrorLectura, esCancelada, leerFactura, type InfoLectura } from '@/lib/lecturas';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { pareceNifIvaUe } from '@/lib/fiscal';
 import FormFacturaGasto, { type FormInicial } from '@/components/compras/FormFacturaGasto';
 import { hoyIso, paisDelPrefijo, TIPO_GASTO_INFO, tipoIvaMasCercano, type GastoExtraido, type GastoRegistrado } from '@/lib/compras';
 
 /**
- * Lector de gastos: se sube el PDF o la foto de una factura de proveedor, la IA
- * la lee, el usuario revisa y corrige todos los datos y, al registrarla, se
- * crea la factura de gasto con su asiento en borrador (se aprueba en el Motor
+ * Lector de gastos: se sube el PDF o la foto de una factura de proveedor, el
+ * servidor la lee (Azure y, si hace falta, Claude) y valida cada dato; el
+ * usuario revisa y corrige todos los datos y, al registrarla, se crea la
+ * factura de gasto con su asiento en borrador (se aprueba en el Motor
  * contable). El archivo se lee en el servidor; aqui solo se ve la vista previa.
  */
 
 const MAX_BYTES = 4 * 1024 * 1024;
 const TIPOS = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+const MOTIVO_FECHA_HOY = 'No se ha leído la fecha: se ha puesto la de hoy; cámbiala si no es la de la factura.';
+
+/** Si no se leyo la fecha, el formulario pone la de hoy: el panel lo dice y la marca para corregir. */
+function conFechaDeHoy(info: InfoLectura, g: GastoExtraido): InfoLectura {
+  if (g.fecha && /^\d{4}-\d{2}-\d{2}$/.test(g.fecha)) return info;
+  const previo = info.campos.fechaEmision;
+  const motivos = [MOTIVO_FECHA_HOY, ...(previo?.motivos ?? []).filter((m) => m !== MOTIVO_FECHA_HOY)];
+  return {
+    ...info,
+    estado: 'error',
+    requiereRevision: true,
+    campos: { ...info.campos, fechaEmision: { estado: 'error', confianza: null, fuente: previo?.fuente ?? 'calculado', valorLeido: null, motivos } },
+  };
+}
 
 /** Lo leido, en la forma del formulario. */
 function inicialDe(g: GastoExtraido, paisExistente: string | null): FormInicial {
@@ -66,6 +83,13 @@ export default function LectorGastosPage() {
   const [tipoDocumento, setTipoDocumento] = useState<GastoExtraido['tipoDocumento']>('factura');
   const [registrado, setRegistrado] = useState<GastoRegistrado | null>(null);
   const [lectura, setLectura] = useState(0);
+  const [info, setInfo] = useState<InfoLectura | null>(null);
+  const [revisado, setRevisado] = useState(false);
+  const [alternativa, setAlternativa] = useState<{ ruta: string; texto: string } | null>(null);
+  const [segundos, setSegundos] = useState(0);
+  // Lectura en curso o sin registrar: "Leer otra" corta la espera y la descarta.
+  const lecturaIdRef = useRef<string | null>(null);
+  const cortarRef = useRef<AbortController | null>(null);
 
   // La vista previa usa una URL local del archivo: se libera al cambiar de archivo.
   useEffect(() => {
@@ -78,21 +102,48 @@ export default function LectorGastosPage() {
     return () => URL.revokeObjectURL(url);
   }, [archivo]);
 
+  // Segundos que lleva leyendo, para el texto de espera.
+  useEffect(() => {
+    if (!leyendo) return;
+    setSegundos(0);
+    const t = setInterval(() => setSegundos((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [leyendo]);
+
+  // Al salir de la pantalla se corta la espera (la lectura sin registrar se purga sola).
+  useEffect(() => () => cortarRef.current?.abort(), []);
+
   const abrirSelector = () => {
     if (!leyendo) inputRef.current?.click();
   };
 
+  /** Corta la lectura en curso y descarta la que no se ha registrado. */
+  const soltarLectura = () => {
+    cortarRef.current?.abort();
+    cortarRef.current = null;
+    const id = lecturaIdRef.current;
+    lecturaIdRef.current = null;
+    if (id) void descartarLectura('gastos', id);
+  };
+
   const reiniciar = () => {
+    if (!registrado) soltarLectura();
+    lecturaIdRef.current = null;
     setArchivo(null);
     setLeido(null);
     setInicial(null);
+    setInfo(null);
+    setRevisado(false);
     setRegistrado(null);
     setError('');
+    setAlternativa(null);
+    setLeyendo(false);
     if (inputRef.current) inputRef.current.value = '';
   };
 
   const leer = async (f: File) => {
     setError('');
+    setAlternativa(null);
     setRegistrado(null);
     if (!TIPOS.includes(f.type)) {
       setError('Solo se pueden leer PDF e imágenes (JPG, PNG o WEBP).');
@@ -102,14 +153,23 @@ export default function LectorGastosPage() {
       setError('El archivo pesa más de 4 MB: redúcelo o haz la foto con menos resolución.');
       return;
     }
+    soltarLectura();
+    const cortar = new AbortController();
+    cortarRef.current = cortar;
     setArchivo(f);
     setLeido(null);
     setInicial(null);
+    setInfo(null);
+    setRevisado(false);
     setLeyendo(true);
     try {
-      const datos = new FormData();
-      datos.append('archivo', f, f.name);
-      const g = await apiFetch<GastoExtraido>(companyPath('/gastos-extractor/extraer-ia'), { method: 'POST', body: datos });
+      const r = await leerFactura('gastos', f, {
+        signal: cortar.signal,
+        alEmpezar: (id) => {
+          lecturaIdRef.current = id;
+        },
+      });
+      const g = r.gasto;
       // El pais del proveedor ya dado de alta (un proveedor extranjero no lleva IVA español).
       let pais: string | null = null;
       if (g.proveedorExistente) {
@@ -117,14 +177,21 @@ export default function LectorGastosPage() {
           .then((p) => p.pais ?? null)
           .catch(() => null);
       }
+      if (cortar.signal.aborted) return;
       setLeido(g);
+      setInfo(conFechaDeHoy(r.lectura, g));
       setTipoDocumento(g.tipoDocumento ?? 'factura');
       setInicial(inicialDe(g, pais));
       setLectura((n) => n + 1);
     } catch (err) {
+      if (esCancelada(err) || cortar.signal.aborted) return;
       setError(errorMessage(err));
+      if (err instanceof ErrorLectura && err.alternativa) setAlternativa(err.alternativa);
     } finally {
-      setLeyendo(false);
+      if (cortarRef.current === cortar) {
+        cortarRef.current = null;
+        setLeyendo(false);
+      }
     }
   };
 
@@ -141,7 +208,7 @@ export default function LectorGastosPage() {
   };
 
   const noEsFactura = tipoDocumento === 'nomina' || tipoDocumento === 'seguros_sociales';
-  const confianza = leido ? Math.round((leido.confianza <= 1 ? leido.confianza * 100 : leido.confianza) || 0) : 0;
+  const faltaRevision = !!info?.requiereRevision && !revisado;
   const esImagen = archivo?.type.startsWith('image/');
 
   return (
@@ -184,7 +251,7 @@ export default function LectorGastosPage() {
               </button>
             </div>
           </div>
-        ) : !leido || !inicial ? (
+        ) : !leido || !inicial || !info ? (
           <div className="mx-auto max-w-2xl">
             <div
               role="button"
@@ -206,9 +273,13 @@ export default function LectorGastosPage() {
               className="cursor-pointer rounded-xl border-2 border-dashed border-emerald-200 bg-white p-8 text-center transition-colors hover:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-accent-600 md:p-12"
             >
               <FileArrowUp size={48} weight="duotone" className="mx-auto mb-4 text-accent-600" />
-              <h2 className="mb-2 text-lg font-semibold text-slate-900">{leyendo ? 'Leyendo la factura...' : 'Sube el PDF o la foto de la factura'}</h2>
-              <p className="mb-6 text-sm text-slate-600">
-                {leyendo ? 'Tarda unos segundos.' : 'Arrástrala aquí o pulsa para elegirla. PDF, JPG, PNG o WEBP de hasta 4 MB. En el móvil puedes hacer la foto directamente.'}
+              <h2 className="mb-2 text-lg font-semibold text-slate-900">{leyendo ? 'Leyendo la factura…' : 'Sube el PDF o la foto de la factura'}</h2>
+              <p role={leyendo ? 'status' : undefined} className="mb-6 text-sm text-slate-600">
+                {leyendo
+                  ? segundos < 10
+                    ? 'Tarda unos segundos.'
+                    : 'Sigue leyendo; las facturas largas tardan un poco más.'
+                  : 'Arrástrala aquí o pulsa para elegirla. PDF, JPG, PNG o WEBP de hasta 4 MB. En el móvil puedes hacer la foto directamente.'}
               </p>
               <button
                 type="button"
@@ -219,8 +290,20 @@ export default function LectorGastosPage() {
                 disabled={leyendo}
                 className="inline-flex items-center gap-2 rounded-lg bg-accent-600 px-6 py-3 font-semibold text-white transition-all hover:bg-accent-700 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-60"
               >
-                {leyendo ? 'Leyendo...' : 'Seleccionar archivo'}
+                {leyendo ? 'Leyendo…' : 'Seleccionar archivo'}
               </button>
+              {leyendo && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    reiniciar();
+                  }}
+                  className="mt-3 block w-full text-sm font-semibold text-slate-600 hover:underline sm:mx-auto sm:w-auto"
+                >
+                  Cancelar
+                </button>
+              )}
               {archivo && (
                 <p className="mt-4 break-all text-sm text-slate-600">
                   {archivo.name} ({(archivo.size / 1024 / 1024).toFixed(2).replace('.', ',')} MB)
@@ -230,7 +313,17 @@ export default function LectorGastosPage() {
             {error && (
               <p role="alert" className="mt-4 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
                 <WarningCircle size={18} className="mt-0.5 shrink-0" />
-                {error}
+                <span>
+                  {error}
+                  {alternativa && (
+                    <>
+                      {' '}
+                      <Link href={alternativa.ruta} className="font-semibold underline">
+                        {alternativa.texto}
+                      </Link>
+                    </>
+                  )}
+                </span>
               </p>
             )}
             <p className="mt-4 text-sm text-slate-500">
@@ -258,18 +351,13 @@ export default function LectorGastosPage() {
 
             {/* Datos leidos, editables */}
             <section className="flex min-w-0 flex-col gap-4">
-              <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm">
-                <p className="text-slate-700">
-                  Confianza de la lectura: <span className={`font-semibold ${confianza >= 80 ? 'text-emerald-700' : confianza >= 60 ? 'text-amber-700' : 'text-rose-700'}`}>{confianza} %</span>
-                  {confianza < 60 && ' · revisa los datos con cuidado'}
+              <PanelLectura info={info} lector="gastos" revisado={revisado} onRevisado={setRevisado} />
+              {leido.cuentaContableBase && (
+                <p className="text-sm text-slate-600">
+                  Cuenta sugerida: <span className="font-mono">{leido.cuentaContableBase}</span>
+                  {leido.cuentaContableNombre && ` (${leido.cuentaContableNombre})`}
                 </p>
-                {leido.cuentaContableBase && (
-                  <p className="mt-1 text-slate-600">
-                    Cuenta sugerida: <span className="font-mono">{leido.cuentaContableBase}</span>
-                    {leido.cuentaContableNombre && ` (${leido.cuentaContableNombre})`}
-                  </p>
-                )}
-              </div>
+              )}
 
               {leido.duplicada && (
                 <p className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
@@ -278,17 +366,6 @@ export default function LectorGastosPage() {
                     Ver la factura
                   </Link>
                 </p>
-              )}
-
-              {leido.errores?.length > 0 && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-                  <p className="mb-1 font-semibold">Revisa estos puntos:</p>
-                  <ul className="list-disc space-y-1 pl-5">
-                    {leido.errores.map((e, i) => (
-                      <li key={i}>{e}</li>
-                    ))}
-                  </ul>
-                </div>
               )}
 
               {noEsFactura && (
@@ -314,13 +391,15 @@ export default function LectorGastosPage() {
                 key={lectura}
                 modo="lector"
                 inicial={inicial}
-                extra={{ tipoDocumento, confianza: leido.confianza }}
+                extra={{ tipoDocumento, confianza: leido.confianza, lecturaId: info.lecturaId, revisado }}
                 bloqueado={
                   leido.duplicada
                     ? `Ya registraste esta factura (${leido.duplicada.numeroCompleto}): no se registra dos veces.`
                     : noEsFactura
                       ? 'Confirma antes si es una factura de gasto (aviso de arriba).'
-                      : undefined
+                      : faltaRevision
+                        ? 'Marca que has revisado los datos señalados (arriba) antes de registrar.'
+                        : undefined
                 }
                 avisoProveedor="No está dado de alta: se creará al registrar la factura."
                 onGuardado={(r) => setRegistrado(r)}
