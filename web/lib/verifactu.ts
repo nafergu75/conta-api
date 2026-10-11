@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { apiFetch, companyPath } from './api';
+import { ApiError, apiFetch, companyPath } from './api';
 
 /**
  * Red de seguridad de VERI*FACTU (lo que devuelve GET /verifactu/red-seguridad).
@@ -17,6 +17,8 @@ export interface EstadoRedSeguridad {
   /** false: empresa extranjera, en el SII o foral (la red no le afecta). */
   aplica: boolean;
   exclusion: 'SII' | 'FORAL' | null;
+  /** El SII está marcado en los ajustes fiscales, pero ningún administrador ha aprobado la exclusión. */
+  siiSinAprobar?: boolean;
   /** Desde cuándo bloquea (AAAA-MM-DD, hora de Madrid). */
   inicio: string;
   redActiva: boolean;
@@ -47,6 +49,15 @@ export function useRedSeguridad(): EstadoRedSeguridad | null {
   return estado;
 }
 
+const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+
+/** «2027-01-01» -> «1 de enero de 2027». */
+export function fechaLarga(iso: string): string {
+  const [a, m, d] = iso.split('-');
+  const mes = MESES[Number(m) - 1];
+  return mes ? `${Number(d)} de ${mes} de ${a}` : iso;
+}
+
 /** Referencia del BOE con la forma BOE-A-AAAA-NNNNN (la misma regla que el servidor). */
 export function esReferenciaBoe(texto: string): boolean {
   return /^BOE-A-\d{4}-\d{1,6}$/.test(texto.trim().toUpperCase());
@@ -61,3 +72,24 @@ export function hoyEspana(ahora: Date = new Date()): string {
 
 /** Tope de una factura simplificada (F2): 3.000 € con el IVA incluido. */
 export const LIMITE_SIMPLIFICADA = 3000;
+
+/**
+ * Guarda los datos de la empresa (PUT /legal-config). Si ya hay facturas
+ * emitidas y se cambia el NIF (o se pasa a autónomo o se deja de serlo), el
+ * servidor pide que un administrador lo confirme (409 CONFIRMAR_CAMBIO_NIF):
+ * se pregunta con su texto y, si acepta, se vuelve a enviar confirmándolo.
+ */
+export async function guardarDatosEmpresa<T>(datos: object): Promise<T> {
+  const enviar = (cuerpo: object) =>
+    apiFetch<T>(companyPath('/legal-config'), { method: 'PUT', body: JSON.stringify(cuerpo) });
+  try {
+    return await enviar(datos);
+  } catch (e) {
+    const codigo = e instanceof ApiError && e.detalles && typeof e.detalles === 'object' ? (e.detalles as { codigo?: unknown }).codigo : undefined;
+    if (!(e instanceof ApiError) || e.status !== 409 || codigo !== 'CONFIRMAR_CAMBIO_NIF') throw e;
+    if (!window.confirm(e.message)) {
+      throw new ApiError('No se ha guardado nada: los datos de la empresa siguen como estaban.', 409, e.detalles);
+    }
+    return enviar({ ...datos, confirmarCambioNif: true });
+  }
+}
