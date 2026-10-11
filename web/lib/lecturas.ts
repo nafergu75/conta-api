@@ -126,8 +126,8 @@ export const ALTA_MANUAL: Record<LectorPantalla, { ruta: string; texto: string }
 
 export const MENSAJE_TARDA = 'La lectura está tardando más de lo normal. Prueba otra vez dentro de un rato o registra la factura a mano.';
 const MENSAJE_SIN_IA: Record<LectorPantalla, string> = {
-  gastos: 'La lectura automática de facturas no está activada. Puedes registrar la factura a mano.',
-  ventas: 'La lectura automática de facturas no está activada. Puedes crear la factura a mano en Ventas.',
+  gastos: 'La lectura automática de facturas no está activada en esta instalación.',
+  ventas: 'La lectura automática de facturas no está activada en esta instalación.',
 };
 const MENSAJE_CERRADA = 'Esta lectura ya se cerró. Vuelve a subir la factura.';
 
