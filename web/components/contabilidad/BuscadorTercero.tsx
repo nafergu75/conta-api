@@ -14,10 +14,13 @@ export function BuscadorTercero({
   elegido,
   onElegir,
   id = 'inf-tercero',
+  tipo,
 }: {
   elegido: { nombre: string; nif: string | null; tipo: 'cliente' | 'proveedor'; subcuentas: string[] } | null;
   onElegir: (t: TerceroEncontrado | null) => void;
   id?: string;
+  /** Solo clientes o solo proveedores (sin el, los dos). */
+  tipo?: 'cliente' | 'proveedor';
 }) {
   const [q, setQ] = useState('');
   const [resultados, setResultados] = useState<TerceroEncontrado[] | null>(null);
@@ -37,7 +40,7 @@ export function BuscadorTercero({
     let vigente = true;
     const t = setTimeout(() => {
       setBuscando(true);
-      buscarTerceros(texto)
+      buscarTerceros(texto, tipo)
         .then((r) => vigente && (setResultados(r), setError('')))
         .catch((e) => vigente && setError(errorMessage(e)))
         .finally(() => vigente && setBuscando(false));
@@ -46,7 +49,7 @@ export function BuscadorTercero({
       vigente = false;
       clearTimeout(t);
     };
-  }, [q]);
+  }, [q, tipo]);
 
   // Un clic fuera cierra la lista.
   useEffect(() => {
@@ -126,7 +129,9 @@ export function BuscadorTercero({
           ) : buscando && !resultados ? (
             <li className="px-3 py-2 text-slate-500">Buscando…</li>
           ) : resultados && resultados.length === 0 ? (
-            <li className="px-3 py-2 text-slate-500">Ningún cliente ni proveedor coincide con «{q.trim()}».</li>
+            <li className="px-3 py-2 text-slate-500">
+              {tipo === 'cliente' ? 'Ningún cliente' : tipo === 'proveedor' ? 'Ningún proveedor' : 'Ningún cliente ni proveedor'} coincide con «{q.trim()}».
+            </li>
           ) : (
             resultados?.map((t) => (
               <li key={`${t.tipo}-${t.id}`} role="option" aria-selected={false}>

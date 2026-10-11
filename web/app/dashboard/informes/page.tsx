@@ -6,7 +6,7 @@ import { FilePdf, FileXls, MagnifyingGlass } from '@phosphor-icons/react';
 import { Tooltip } from '@/app/dashboard/components/Tooltip';
 import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { TablaInforme, type Tabla } from './TablaInforme';
-import { BuscadorTercero } from './BuscadorTercero';
+import { BuscadorTercero } from '@/components/contabilidad/BuscadorTercero';
 
 /**
  * Informes contables de cualquier ejercicio (tambien los ya cerrados), en
