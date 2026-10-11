@@ -5,11 +5,11 @@ import Link from 'next/link';
 import { ArrowLeft, CheckCircle, FileArrowUp, WarningCircle } from '@phosphor-icons/react';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import PanelLectura from '@/components/lector/PanelLectura';
-import { anuncioLecturaTerminada, descartarLectura, ErrorLectura, esCancelada, leerFactura, porcentaje, type InfoLectura, type TramoGasto } from '@/lib/lecturas';
+import { anuncioLecturaTerminada, descartarLectura, descripcionNeutraTramo, ErrorLectura, esCancelada, euros, leerFactura, porcentaje, type InfoLectura, type TramoGasto } from '@/lib/lecturas';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { pareceNifIvaUe } from '@/lib/fiscal';
 import FormFacturaGasto, { type FormInicial } from '@/components/compras/FormFacturaGasto';
-import { hoyIso, paisDelPrefijo, TIPO_GASTO_INFO, tipoIvaMasCercano, type GastoExtraido, type GastoRegistrado } from '@/lib/compras';
+import { calcularLinea, hoyIso, paisDelPrefijo, TIPO_GASTO_INFO, tipoIvaMasCercano, type GastoExtraido, type GastoRegistrado } from '@/lib/compras';
 
 /**
  * Lector de gastos: se sube el PDF o la foto de una factura de proveedor, el
@@ -55,10 +55,36 @@ function sinTipoDocumento(info: InfoLectura): InfoLectura {
   return { ...info, campos, requiereRevision };
 }
 
+/** Tramos con base y tipo numericos. */
+const tramosValidos = (g: GastoExtraido & { tramos?: TramoGasto[] }): TramoGasto[] =>
+  (g.tramos ?? []).filter((t) => Number.isFinite(Number(t.base)) && Number.isFinite(Number(t.tipoIva)));
+
+const centimos = (n: number) => Math.round(n * 100);
+
+/**
+ * Tramos cuyo IVA leido no coincide al centimo con el de la linea que se
+ * propone en el formulario (la de su tipo). Solo diferencias de redondeo
+ * (hasta 5 centimos): una mayor ya la marca el servidor en "Comprueba estos datos".
+ */
+function cuotasDescuadradas(g: GastoExtraido & { tramos?: TramoGasto[] }, lineas: FormInicial['lineas']): Array<{ tipoIva: number; leida: number; linea: number }> {
+  return tramosValidos(g).flatMap((t) => {
+    const tipo = Number(t.tipoIva);
+    const leida = Number(t.cuota);
+    // Con un tipo que no es de los de la app, la linea lleva otro: no se compara.
+    if (!Number.isFinite(leida) || tipoIvaMasCercano(tipo) !== tipo) return [];
+    const suyas = (lineas ?? []).filter((l) => l.tipoIva === tipo);
+    if (suyas.length !== 1) return [];
+    const linea = calcularLinea({ cantidad: suyas[0].cantidad, precioUnitario: suyas[0].precioUnitario, tipoIva: tipo }).iva;
+    const diferencia = Math.abs(centimos(linea) - centimos(leida));
+    return diferencia > 0 && diferencia <= 5 ? [{ tipoIva: tipo, leida, linea }] : [];
+  });
+}
+
 /**
  * Lo leido, en la forma del formulario. Con varios tipos de IVA, una linea por
- * tipo con su base (si no, el formulario las juntaria al tipo mayor). La
- * cuenta propuesta va para toda la factura, asi que sale igual en cada linea.
+ * tipo con su base (si no, el formulario las juntaria al tipo mayor) y, de
+ * descripcion, las partidas de ese tipo que manda el servidor. La cuenta
+ * propuesta va para toda la factura, asi que sale igual en cada linea.
  */
 function inicialDe(g: GastoExtraido & { tramos?: TramoGasto[] }, paisExistente: string | null): FormInicial {
   const tipo = g.tipoGastoSugerido && TIPO_GASTO_INFO[g.tipoGastoSugerido] ? g.tipoGastoSugerido : 'SUMINISTROS';
@@ -76,11 +102,11 @@ function inicialDe(g: GastoExtraido & { tramos?: TramoGasto[] }, paisExistente: 
   const fecha = g.fecha && /^\d{4}-\d{2}-\d{2}$/.test(g.fecha) ? g.fecha : hoyIso();
   const concepto = g.conceptoGasto?.trim() || 'Gasto';
   const tipoRetencion = TIPO_GASTO_INFO[tipo].retenciones.includes(ret) ? ret : 0;
-  const tramos = (g.tramos ?? []).filter((t) => Number.isFinite(Number(t.base)) && Number.isFinite(Number(t.tipoIva)));
+  const tramos = tramosValidos(g);
   const lineas: FormInicial['lineas'] =
     tramos.length > 1
       ? tramos.map((t) => ({
-          descripcion: `${concepto} (IVA del ${porcentaje(Number(t.tipoIva))})`,
+          descripcion: t.descripcion?.trim() || descripcionNeutraTramo(Number(t.tipoIva)),
           cantidad: 1,
           precioUnitario: Number(t.base),
           tipoIva: tipoIvaMasCercano(Number(t.tipoIva)),
@@ -245,6 +271,7 @@ export default function LectorGastosPage() {
   // Si lo unico marcado era el tipo de documento, "es una factura de gasto" ya es la revision.
   const revisadoEnviado = !!info?.requiereRevision && !infoPanel?.requiereRevision ? !noEsFactura : revisado;
   const esImagen = archivo?.type.startsWith('image/');
+  const descuadres = leido && inicial ? cuotasDescuadradas(leido, inicial.lineas) : [];
   const anuncio = leyendo
     ? segundos < 10
       ? 'Leyendo la factura. Tarda unos segundos.'
@@ -434,6 +461,23 @@ export default function LectorGastosPage() {
                     </button>
                     .
                   </p>
+                </div>
+              )}
+
+              {descuadres.length > 0 && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                  <p className="font-semibold">El IVA de la factura y el de {descuadres.length === 1 ? 'la línea' : 'las líneas'} no coinciden al céntimo</p>
+                  <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                    {descuadres.map((d) => {
+                      const dif = Math.abs(centimos(d.linea) - centimos(d.leida));
+                      return (
+                        <li key={d.tipoIva} className="break-words">
+                          {d.tipoIva === 0 ? 'Parte exenta' : `IVA del ${porcentaje(d.tipoIva)}`}: la factura pone {euros(d.leida)} y la línea da {euros(d.linea)} ({dif === 1 ? 'un céntimo' : `${dif} céntimos`} de diferencia).
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  <p className="mt-1">Suele ser el redondeo. Se apuntará el IVA de la línea: compruébalo con la factura antes de registrarla.</p>
                 </div>
               )}
 
