@@ -6,9 +6,11 @@ import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { ConfirmationModal } from '@/components/dashboard/ConfirmationModal';
 
 interface FormPresentarProps {
-  codigo: '111' | '115' | '190' | '200' | '303' | '347' | '390';
+  codigo: '111' | '115' | '180' | '190' | '200' | '202' | '303' | '347' | '349' | '390';
   ejercicio: number;
   trimestre?: number;
+  /** Periodo con su codigo ('05', '2T', '1P'...): 349 y 202. */
+  periodo?: string;
   onSuccess?: () => void;
   isLoading?: boolean;
 }
@@ -17,6 +19,7 @@ export function FormPresentar({
   codigo,
   ejercicio,
   trimestre,
+  periodo,
   onSuccess,
   isLoading = false,
 }: FormPresentarProps) {
@@ -52,6 +55,7 @@ export function FormPresentar({
       const payload = {
         ejercicio,
         ...(trimestre && { trimestre }),
+        ...(periodo && { periodo }),
         justificante: {
           numero: formData.numero,
           fecha: formData.fecha,
