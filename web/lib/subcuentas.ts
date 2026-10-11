@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch, companyPath, errorMessage } from './api';
 
 /**
@@ -9,6 +9,7 @@ import { apiFetch, companyPath, errorMessage } from './api';
  *
  * Rutas del backend (todas bajo /companies/:companyId):
  *  - /cuentas-linea              cuentas de gasto o de ingreso para las lineas
+ *  - /cuentas-linea/nombres      nombre de la cuenta que ya lleva una linea
  *  - /informes-contables/...     buscador de terceros y su saldo contable
  *  - /reglas-contables/longitud-subcuentas
  */
@@ -67,8 +68,14 @@ export interface CatalogoCuentas {
   listado: ListadoCuentasLinea | null;
   cargando: boolean;
   error: string;
-  /** Nombre de una cuenta del catalogo (o null si no esta). */
+  /** Nombre de una cuenta del catalogo, o de una pedida con pedirNombre (null si aun no se sabe). */
   nombreDe: (codigo: string | null | undefined) => string | null;
+  /**
+   * Pide al servidor el nombre de una cuenta que no esta en el catalogo: la que
+   * ya lleva una linea y es de uso contable (608, 640...) cuando quien la ve no
+   * recibe esas cuentas. Las peticiones de todas las lineas van juntas.
+   */
+  pedirNombre: (codigo: string) => void;
   /** Anade al catalogo una subcuenta recien creada (sin volver a pedirlo todo). */
   anadir: (c: SubcuentaCreada) => void;
   recargar: () => void;
@@ -101,10 +108,36 @@ export function useCuentasLinea(tipo: TipoCuentaLinea, activo = true): CatalogoC
     };
   }, [tipo, activo, vuelta]);
 
+  // Nombres sueltos (GET /cuentas-linea/nombres), fuera de la lista, por «tipo:codigo».
+  const [sueltos, setSueltos] = useState<Record<string, string>>({});
+  const pedidos = useRef(new Set<string>());
+  const cola = useRef<string[]>([]);
+  const enCola = useRef(false);
+
+  const pedirNombre = useCallback(
+    (codigo: string) => {
+      if (!codigo || pedidos.current.has(`${tipo}:${codigo}`)) return;
+      pedidos.current.add(`${tipo}:${codigo}`);
+      cola.current.push(codigo);
+      if (enCola.current) return;
+      enCola.current = true;
+      // Se espera al final del render para pedir de una vez las de todas las lineas.
+      setTimeout(() => {
+        const codigos = cola.current.splice(0);
+        enCola.current = false;
+        apiFetch<Array<{ codigo: string; nombre: string }>>(companyPath(`/cuentas-linea/nombres?tipo=${tipo}&codigos=${encodeURIComponent(codigos.join(','))}`))
+          .then((l) => setSueltos((s) => ({ ...s, ...Object.fromEntries(l.map((c) => [`${tipo}:${c.codigo}`, c.nombre])) })))
+          // Sin nombre se sigue viendo el codigo, como antes: no merece un error en la factura.
+          .catch(() => undefined);
+      }, 0);
+    },
+    [tipo],
+  );
+
   const nombreDe = useCallback(
     (codigo: string | null | undefined) =>
-      codigo ? ([...(listado?.cuentas ?? []), ...(listado?.otras ?? [])].find((c) => c.codigo === codigo)?.nombre ?? null) : null,
-    [listado],
+      codigo ? ([...(listado?.cuentas ?? []), ...(listado?.otras ?? [])].find((c) => c.codigo === codigo)?.nombre ?? sueltos[`${tipo}:${codigo}`] ?? null) : null,
+    [listado, sueltos, tipo],
   );
 
   const anadir = useCallback((c: SubcuentaCreada) => {
@@ -117,7 +150,7 @@ export function useCuentasLinea(tipo: TipoCuentaLinea, activo = true): CatalogoC
 
   const recargar = useCallback(() => setVuelta((n) => n + 1), []);
 
-  return { listado, cargando, error, nombreDe, anadir, recargar };
+  return { listado, cargando, error, nombreDe, pedirNombre, anadir, recargar };
 }
 
 /** Sin tildes y en minusculas, para buscar «electricidad» con «electricidád». */
