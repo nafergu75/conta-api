@@ -448,9 +448,6 @@ export default function AdministracionPage() {
       </header>
 
       <main className="mx-auto flex max-w-6xl flex-col gap-5 px-4 py-6 md:px-8 md:py-8">
-        {/* VERI*FACTU: bloqueo de emision desde el 1-1-2027 (afecta a toda la plataforma). */}
-        <RedSeguridadVerifactu />
-
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div role="tablist" aria-label="Qué administrar" className="inline-flex self-start rounded-lg border border-slate-200 bg-white p-1">
             {(['empresas', 'usuarios'] as const).map((t) => (
@@ -643,6 +640,11 @@ export default function AdministracionPage() {
               : `${usuariosFiltrados.length} de ${usuarios.length} usuarios`}
           </p>
         )}
+
+        {/* VERI*FACTU: bloqueo de emision desde el 1-1-2027 (afecta a toda la plataforma). Va
+            despues de las listas: se usa como mucho una vez y no debe separar el boton
+            «Nueva empresa» de sus pestañas. */}
+        <RedSeguridadVerifactu />
       </main>
 
       {modal === 'empresa' && (
