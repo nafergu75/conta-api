@@ -525,7 +525,7 @@ function Enlazar({ subcuenta, onHecho }: { subcuenta: SinEnlazar; onHecho: (text
             type="button"
             onClick={() => setModo(valor)}
             aria-pressed={modo === valor}
-            className={`flex-1 rounded-md px-3 py-1.5 text-center ${modo === valor ? 'bg-emerald-600 font-medium text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+            className={`flex-1 rounded-md px-3 py-1.5 text-center sm:whitespace-nowrap ${modo === valor ? 'bg-emerald-600 font-medium text-white' : 'text-slate-600 hover:bg-slate-50'}`}
           >
             {texto}
           </button>
