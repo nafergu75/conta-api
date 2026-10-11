@@ -176,6 +176,11 @@ const campo =
   'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-500';
 const etiqueta = 'mb-1 block text-sm font-medium text-slate-700';
 
+const BOTON_PRINCIPAL =
+  'rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50';
+const BOTON_SECUNDARIO =
+  'rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50';
+
 export default function NuevaFacturaPage() {
   return (
     <Suspense fallback={<p className="p-6 text-slate-500">Cargando…</p>}>
@@ -724,7 +729,7 @@ function FormularioFactura() {
         </p>
       )}
 
-      {!esProforma && <AvisoRedSeguridad estado={redSeguridad} />}
+      {!esProforma && <AvisoRedSeguridad estado={redSeguridad} donde="formulario" />}
 
       {error && (
         <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
@@ -1229,8 +1234,8 @@ function FormularioFactura() {
       </section>
 
       {emisionBloqueada && (
-        <p id="motivo-sin-emitir" className="text-right text-sm text-rose-700">
-          No se puede pasar a factura: falta VERI*FACTU. Guarda el borrador y la podrás emitir cuando esté activo.
+        <p id="motivo-sin-emitir" className="text-left text-sm text-rose-700 sm:text-right">
+          No se puede pasar a factura sin VERI*FACTU. Guarda el borrador y pásalo a factura cuando esté activo.
         </p>
       )}
       <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
@@ -1249,7 +1254,8 @@ function FormularioFactura() {
               type="button"
               disabled={guardando}
               onClick={() => guardar(false)}
-              className="rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              // Con el bloqueo, guardar el borrador es lo único que se puede hacer: pasa a ser el botón principal.
+              className={emisionBloqueada ? BOTON_PRINCIPAL : BOTON_SECUNDARIO}
             >
               Guardar borrador
             </button>
@@ -1259,7 +1265,7 @@ function FormularioFactura() {
               onClick={() => guardar(true)}
               title={emisionBloqueada ? redSeguridad?.motivo ?? undefined : undefined}
               aria-describedby={emisionBloqueada ? 'motivo-sin-emitir' : undefined}
-              className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+              className={emisionBloqueada ? BOTON_SECUNDARIO : BOTON_PRINCIPAL}
             >
               {guardando ? 'Guardando…' : 'Pasar a factura'}
             </button>
