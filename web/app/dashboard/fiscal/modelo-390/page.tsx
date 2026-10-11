@@ -1,309 +1,139 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
-import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
-import { ejercicioAnualAPresentar, ejerciciosSeleccionables } from '@/lib/aeatCalendar';
-import { CaretLeft, Info, Download } from '@phosphor-icons/react';
-import { CasillasViewer } from '../components/CasillasViewer';
+import { apiFetch, errorMessage } from '@/lib/api';
+import { ejercicioAnualAPresentar } from '@/lib/aeatCalendar';
 import { FormPresentar } from '../components/FormPresentar';
+import {
+  CabeceraBorrador,
+  Cargando,
+  Cifra,
+  DescargarFichero,
+  ErrorCarga,
+  ErroresYAvisos,
+  eur,
+  PaginaCasillas,
+  rutaBorrador,
+  SelectorEjercicio,
+  type PaginaBorrador,
+} from '../components/BorradorAeat';
 
-interface Modelo390 {
-  id: string;
+interface Borrador390 {
   ejercicio: number;
-  totalRepercutido: number;
-  totalSoportado: number;
-  resultadoAnual: number;
-  estado: 'vigente' | 'presentado';
-  casillas: Record<string, any>;
-  desgloseTrimestral: Array<{
-    numero: number;
-    baseRepercutido: number;
-    cuotaRepercutido: number;
-    baseSoportado: number;
-    cuotaSoportado: number;
-    resultado: number;
-  }>;
+  diseno: string;
+  revisar: string;
+  paginas: PaginaBorrador[];
+  casillas: Record<string, number | string>;
+  liquidaciones: { casilla85: number; casilla95: number; casilla97: number; casilla98: number; casilla662: number; finales: number[] };
+  paginasNoGeneradas: Array<{ codigo: string; motivo: string }>;
+  advertencias: string[];
+  errores: string[];
 }
 
+const num = (c: Record<string, number | string>, k: string) => (typeof c[k] === 'number' ? (c[k] as number) : 0);
+
+/** [87] y [118] son porcentajes con 2 decimales implícitos. */
+const FORMATO = {
+  '87': (v: number | string) => `${(Number(v) / 100).toLocaleString('es-ES', { minimumFractionDigits: 2 })} %`,
+  '118': (v: number | string) => `${(Number(v) / 100).toLocaleString('es-ES', { minimumFractionDigits: 2 })} %`,
+};
+
 export default function Modelo390Page() {
-  const [modelo, setModelo] = useState<Modelo390 | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [avisoDescarga, setAvisoDescarga] = useState('');
   // Modelo anual: se presenta por el ejercicio anterior.
   const [ejercicio, setEjercicio] = useState(ejercicioAnualAPresentar);
+  const [ultimoPeriodo, setUltimoPeriodo] = useState<'compensar' | 'devolver'>('compensar');
+  const [borrador, setBorrador] = useState<Borrador390 | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    const fetchModelo = async () => {
-      try {
-        setLoading(true);
-        setError('');
-        setModelo(await apiFetch<Modelo390>(companyPath(`/tax-models/390?ejercicio=${ejercicio}`)));
-      } catch (err) {
-        setError(errorMessage(err));
-      } finally {
-        setLoading(false);
-      }
+    let vivo = true;
+    setLoading(true);
+    setError('');
+    apiFetch<Borrador390>(rutaBorrador('390', ejercicio, { ultimoPeriodo }))
+      .then((b) => vivo && setBorrador(b))
+      .catch((e) => vivo && setError(errorMessage(e)))
+      .finally(() => vivo && setLoading(false));
+    return () => {
+      vivo = false;
     };
+  }, [ejercicio, ultimoPeriodo]);
 
-    fetchModelo();
-  }, [ejercicio]);
+  if (loading && !borrador) return <Cargando />;
+  if (error || !borrador) return <ErrorCarga mensaje={error || 'No se ha podido preparar el borrador.'} />;
 
-  const eur = new Intl.NumberFormat('es-ES', {
-    style: 'currency',
-    currency: 'EUR',
-  });
-
-  const descargarAEAT = () => {
-    // El backend aun no genera el fichero de este modelo (solo el del 303).
-    setAvisoDescarga(
-      'La descarga del fichero AEAT de este modelo aún no está disponible. Puedes copiar las casillas desde esta pantalla.',
-    );
-  };
-
-  if (loading) {
-    return (
-      <div className="space-y-4">
-        <div className="h-10 w-32 animate-pulse rounded-lg bg-slate-200" />
-        <div className="h-96 animate-pulse rounded-lg bg-slate-200" />
-      </div>
-    );
-  }
-
-  if (error || !modelo) {
-    const isNotAvailable = error?.includes('no encontrado') || error?.includes('404');
-    return (
-      <div className="space-y-6">
-        {/* Header con botón de vuelta */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-slate-900">Modelo 390 – Resumen Anual de IVA</h1>
-            <p className="mt-2 text-slate-600">Consolidación de los 4 trimestres (303) en resumen anual</p>
-          </div>
-          <Link href="/dashboard/fiscal" className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
-            <CaretLeft size={18} />
-            Volver
-          </Link>
-        </div>
-
-        {/* Estado: No disponible */}
-        <div className={`rounded-lg border-l-4 p-6 ${isNotAvailable ? 'border-l-amber-500 bg-amber-50' : 'border-l-red-500 bg-red-50'}`}>
-          <h3 className={`text-lg font-semibold ${isNotAvailable ? 'text-amber-900' : 'text-red-900'}`}>
-            {isNotAvailable ? 'Modelo no disponible' : 'Error al cargar'}
-          </h3>
-          <p className={`mt-2 ${isNotAvailable ? 'text-amber-800' : 'text-red-800'}`}>
-            {isNotAvailable
-              ? `No hay datos del Modelo 390 para el ejercicio ${ejercicio}.`
-              : error}
-          </p>
-
-          {isNotAvailable && (
-            <div className={`mt-4 space-y-2 text-sm ${isNotAvailable ? 'text-amber-700' : 'text-red-700'}`}>
-              <p><strong>Posibles razones:</strong></p>
-              <ul className="list-inside list-disc space-y-1">
-                <li>Aún no se han generado los 4 trimestres del Modelo 303 para este ejercicio.</li>
-                <li>Los trimestres del Modelo 303 aún no han sido procesados correctamente.</li>
-              </ul>
-              <p className="mt-3"><strong>Qué hacer:</strong></p>
-              <p>
-                Dirígete a{' '}
-                <Link href="/dashboard/fiscal" className="font-semibold underline hover:no-underline">
-                  Modelos Fiscales
-                </Link>
-                {' '}y genera primero los 4 trimestres del Modelo 303 (Q1, Q2, Q3, Q4) para el ejercicio {ejercicio}.
-              </p>
-            </div>
-          )}
-
-          <Link href="/dashboard/fiscal" className="mt-4 inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">
-            <CaretLeft size={18} />
-            Ir a Modelos Fiscales
-          </Link>
-        </div>
-      </div>
-    );
-  }
+  const b = borrador;
+  const c = b.casillas;
+  const trimestres = b.liquidaciones.finales;
 
   return (
     <div className="space-y-6">
-      {/* Header con botón de vuelta siempre visible */}
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex-1">
-          <div className="flex items-center gap-3">
-            <div>
-              <h1 className="text-3xl font-bold text-slate-900">Modelo 390 – Resumen Anual de IVA</h1>
-              <p className="mt-2 text-slate-600">Consolidación de los 4 trimestres (303) en resumen anual</p>
-            </div>
-            {/* Tooltip informativo */}
-            <div className="group relative">
-              <button
-                type="button"
-                className="mt-1 inline-flex items-center justify-center rounded-full bg-blue-100 p-1.5 text-blue-600 hover:bg-blue-200"
-                title="Información sobre este modelo"
-              >
-                <Info size={18} />
-              </button>
-              <div className="pointer-events-none absolute right-0 top-8 z-50 hidden w-64 rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-700 shadow-lg group-hover:pointer-events-auto group-hover:block">
-                <p className="font-semibold text-slate-900">¿Qué es el Modelo 390?</p>
-                <p className="mt-2">
-                  Es el resumen anual del IVA. Se calcula automáticamente consolidando los 4 trimestres del Modelo 303 del mismo ejercicio.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-        <Link
-          href="/dashboard/fiscal"
-          className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition"
-        >
-          <CaretLeft size={18} />
-          Volver
-        </Link>
-      </div>
-
-      {/* Período Selector */}
-      <div className="flex flex-wrap gap-4 rounded-lg border border-slate-200 bg-white p-4">
-        <div>
-          <label className="block text-sm font-medium text-slate-700">Ejercicio</label>
-          <select
-            value={ejercicio}
-            onChange={(e) => setEjercicio(parseInt(e.target.value))}
-            className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          >
-            {ejerciciosSeleccionables().map((year) => (
-              <option key={year} value={year}>
-                {year}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      {/* Resumen Anual */}
-      <div className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-lg border border-blue-200 bg-blue-50 p-6">
-          <p className="text-sm text-blue-600">IVA Repercutido (Ventas)</p>
-          <p className="mt-2 text-2xl font-bold text-blue-900">{eur.format(modelo.totalRepercutido)}</p>
-          <p className="mt-1 text-xs text-blue-600">Total anual – Suma Q1-Q4</p>
-        </div>
-
-        <div className="rounded-lg border border-slate-200 bg-white p-6">
-          <p className="text-sm text-slate-600">IVA Soportado (Compras)</p>
-          <p className="mt-2 text-2xl font-bold text-slate-900">{eur.format(modelo.totalSoportado)}</p>
-          <p className="mt-1 text-xs text-slate-500">Total anual – Suma Q1-Q4</p>
-        </div>
-
-        <div className={`rounded-lg border-2 p-6 ${modelo.resultadoAnual > 0 ? 'border-amber-200 bg-amber-50' : 'border-green-200 bg-green-50'}`}>
-          <p className={`text-sm ${modelo.resultadoAnual > 0 ? 'text-amber-600' : 'text-green-600'}`}>
-            {modelo.resultadoAnual > 0 ? 'A Ingresar' : 'A Devolver'}
-          </p>
-          <p className={`mt-2 text-2xl font-bold ${modelo.resultadoAnual > 0 ? 'text-amber-900' : 'text-green-900'}`}>
-            {eur.format(Math.abs(modelo.resultadoAnual))}
-          </p>
-          <p className="mt-1 text-xs text-slate-500">Resultado neto del ejercicio</p>
-        </div>
-      </div>
-
-      {/* Desglose Trimestral */}
-      {modelo.desgloseTrimestral && modelo.desgloseTrimestral.length > 0 && (
-        <div className="rounded-lg border border-slate-200 bg-white p-6">
-          <h3 className="mb-4 font-semibold text-slate-900">Desglose Trimestral (Modelo 303)</h3>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-200">
-                  <th className="text-left py-3">Trimestre</th>
-                  <th className="text-right py-3">Base Repercutido</th>
-                  <th className="text-right py-3">Cuota Repercutido</th>
-                  <th className="text-right py-3">Base Soportado</th>
-                  <th className="text-right py-3">Cuota Soportado</th>
-                  <th className="text-right py-3">Resultado</th>
-                </tr>
-              </thead>
-              <tbody>
-                {modelo.desgloseTrimestral.map((trimestre) => (
-                  <tr key={trimestre.numero} className="border-b border-slate-100 hover:bg-slate-50">
-                    <td className="py-3 font-medium">Q{trimestre.numero}</td>
-                    <td className="text-right py-3">{eur.format(trimestre.baseRepercutido)}</td>
-                    <td className="text-right py-3 font-medium text-blue-600">{eur.format(trimestre.cuotaRepercutido)}</td>
-                    <td className="text-right py-3">{eur.format(trimestre.baseSoportado)}</td>
-                    <td className="text-right py-3 font-medium text-slate-700">{eur.format(trimestre.cuotaSoportado)}</td>
-                    <td className={`text-right py-3 font-medium ${trimestre.resultado > 0 ? 'text-amber-600' : 'text-green-600'}`}>
-                      {eur.format(Math.abs(trimestre.resultado))}
-                    </td>
-                  </tr>
-                ))}
-                <tr className="border-t-2 border-slate-300 bg-slate-50 font-bold">
-                  <td className="py-3">Total Anual</td>
-                  <td className="text-right py-3">{eur.format(modelo.desgloseTrimestral.reduce((sum, t) => sum + t.baseRepercutido, 0))}</td>
-                  <td className="text-right py-3 text-blue-900">{eur.format(modelo.totalRepercutido)}</td>
-                  <td className="text-right py-3">{eur.format(modelo.desgloseTrimestral.reduce((sum, t) => sum + t.baseSoportado, 0))}</td>
-                  <td className="text-right py-3 text-slate-900">{eur.format(modelo.totalSoportado)}</td>
-                  <td className={`text-right py-3 ${modelo.resultadoAnual > 0 ? 'text-amber-900' : 'text-green-900'}`}>
-                    {eur.format(Math.abs(modelo.resultadoAnual))}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Casillas Completas */}
-      <CasillasViewer
-        casillas={modelo.casillas}
-        titulo="Casillas del Modelo 390"
-        descripcion={`Ejercicio ${modelo.ejercicio} – Resumen Anual de IVA`}
-        estado={modelo.estado}
+      <CabeceraBorrador
+        titulo="Modelo 390 · Resumen anual del IVA"
+        subtitulo="Resumen del IVA devengado y deducible del año, el resultado de los 303 y el volumen de operaciones."
+        diseno={`Borrador con el diseño oficial de la AEAT, versión ${b.diseno}. ${b.revisar}`}
       />
 
-      {/* Sección de ayuda */}
-      <div className="space-y-4">
-        <div className="rounded-lg border-l-4 border-l-blue-500 bg-blue-50 p-4">
-          <div className="flex gap-3">
-            <Info size={18} className="mt-0.5 flex-shrink-0 text-blue-600" />
-            <div className="text-sm text-blue-900">
-              <p className="font-semibold">¿Cómo funciona este resumen?</p>
-              <p className="mt-1">
-                El Modelo 390 consolida automáticamente los 4 trimestres (Q1, Q2, Q3, Q4) del Modelo 303 del mismo ejercicio.
-                Los datos que ves arriba provienen de esos trimestres.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Próximos pasos */}
-        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-          <p className="text-sm font-semibold text-slate-900">Próximos pasos</p>
-          <ul className="mt-2 space-y-2 text-sm text-slate-700">
-            <li>✓ Revisa los datos del desglose trimestral para verificar que son correctos.</li>
-            <li>✓ Consulta las casillas AEAT para ver el detalle técnico de tu declaración.</li>
-            <li>✓ Una vez verificado, marca el modelo como presentado cuando lo hayas declarado a Hacienda.</li>
-          </ul>
-        </div>
+      <div className="flex flex-wrap items-end gap-4 rounded-lg border border-slate-200 bg-white p-4">
+        <SelectorEjercicio ejercicio={ejercicio} onChange={setEjercicio} />
+        <label className="block text-sm font-medium text-slate-700">
+          Si el último periodo salió negativo
+          <select
+            value={ultimoPeriodo}
+            onChange={(e) => setUltimoPeriodo(e.target.value as 'compensar' | 'devolver')}
+            className="mt-1 block rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          >
+            <option value="compensar">Lo dejé a compensar [97]</option>
+            <option value="devolver">Pedí la devolución [98]</option>
+          </select>
+        </label>
       </div>
 
-      {/* Acciones Finales */}
-      <div className="space-y-4">
-        {/* Botón de Descarga AEAT */}
-        {modelo.estado === 'vigente' && (
-          <>
-            <button
-              onClick={descargarAEAT}
-              className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-6 py-3 text-sm font-medium text-white hover:bg-emerald-700 transition"
-            >
-              <Download size={18} />
-              Descargar Fichero AEAT (TXT)
-            </button>
-            {avisoDescarga && (
-              <p role="status" className="mt-2 text-sm text-amber-700">{avisoDescarga}</p>
-            )}
-          </>
-        )}
+      <ErroresYAvisos errores={b.errores} advertencias={b.advertencias} ejercicio={ejercicio} />
 
-        {/* Formulario de Presentación */}
-        {modelo.estado === 'vigente' && <FormPresentar codigo="390" ejercicio={ejercicio} />}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Cifra etiqueta="[47] Total cuotas devengadas" valor={eur.format(num(c, '47'))} />
+        <Cifra etiqueta="[64] Suma de deducciones" valor={eur.format(num(c, '64'))} />
+        <Cifra etiqueta="[65] Resultado del régimen general" valor={eur.format(num(c, '65'))} />
+        <Cifra etiqueta="[86] Resultado de la liquidación" valor={eur.format(num(c, '86'))} nota={`Con [85] compensado del año anterior: ${eur.format(num(c, '85'))}`} />
+        <Cifra etiqueta="[95] Total a ingresar en los 303" valor={eur.format(num(c, '95'))} />
+        <Cifra etiqueta="[97] / [98] Último periodo" valor={eur.format(num(c, '97') || num(c, '98'))} nota={num(c, '98') ? 'A devolver' : 'A compensar'} />
+        <Cifra etiqueta="[662] Pendiente de compensar" valor={eur.format(num(c, '662'))} />
+        <Cifra etiqueta="[108] Volumen de operaciones" valor={eur.format(num(c, '108'))} />
+      </div>
+
+      <section className="rounded-lg border border-slate-200 bg-white p-4">
+        <h2 className="font-semibold text-slate-900">Resultado de los 303 del año</h2>
+        <p className="mt-1 text-sm text-slate-600">Sirve para comprobar que el 390 cuadra con lo que presentaste cada trimestre.</p>
+        <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {trimestres.map((t, i) => (
+            <Cifra key={i} etiqueta={`${i + 1}T`} valor={eur.format(t)} nota={t > 0 ? 'A ingresar' : t < 0 ? 'Negativo' : 'Sin actividad o compensado'} />
+          ))}
+        </div>
+      </section>
+
+      <div className="space-y-3">
+        {b.paginas.map((p) => (
+          <PaginaCasillas key={p.codigo} pagina={p} formato={FORMATO} />
+        ))}
+      </div>
+
+      {b.paginasNoGeneradas.length > 0 && (
+        <section className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+          <h2 className="font-semibold text-slate-900">Páginas que no van en el fichero</h2>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            {b.paginasNoGeneradas.map((p) => (
+              <li key={p.codigo}>
+                <span className="font-mono">{p.codigo}</span>: {p.motivo}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      <div className="space-y-4">
+        <DescargarFichero ruta={rutaBorrador('390', ejercicio, { ultimoPeriodo }, true)} nombre={`390_${ejercicio}.txt`} bloqueado={b.errores.length > 0} />
+        <FormPresentar codigo="390" ejercicio={ejercicio} />
       </div>
     </div>
   );
