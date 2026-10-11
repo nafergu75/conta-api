@@ -92,12 +92,16 @@ export const NAV_GROUPS: NavGroup[] = [
         requiredRoles: ['ventas:read', 'contabilidad:read'],
       },
       {
+        // Antes abria la pagina generica "Interfaz próximamente" (/dashboard/lector, que ahora redirige aqui).
         label: 'Lector de facturas (OCR)',
-        slug: 'lector',
-        description:
-          'Lee facturas en PDF o imagen con visión de Claude y las convierte en datos contables.',
+        slug: 'ventas/lector-ingresos',
+        description: 'Lee facturas emitidas en PDF o imagen y las registra como facturas de venta.',
         implemented: true,
-        endpoints: ['POST /companies/:id/income-reader'],
+        endpoints: [
+          'POST /companies/:id/ingresos-extractor/lecturas',
+          'GET /companies/:id/ingresos-extractor/lecturas/:id',
+          'POST /companies/:id/ingresos-extractor/confirmar',
+        ],
         requiredRoles: ['ventas:read', 'contabilidad:read'],
       },
     ],

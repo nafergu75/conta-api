@@ -4,23 +4,123 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, CheckCircle, FileArrowUp, WarningCircle } from '@phosphor-icons/react';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
+import PanelLectura from '@/components/lector/PanelLectura';
+import { anuncioLecturaTerminada, descartarLectura, descripcionNeutraTramo, ErrorLectura, esCancelada, euros, leerFactura, porcentaje, type InfoLectura, type TramoGasto } from '@/lib/lecturas';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { pareceNifIvaUe } from '@/lib/fiscal';
 import FormFacturaGasto, { type FormInicial } from '@/components/compras/FormFacturaGasto';
-import { hoyIso, paisDelPrefijo, TIPO_GASTO_INFO, tipoIvaMasCercano, type GastoExtraido, type GastoRegistrado } from '@/lib/compras';
+import { calcularLinea, hoyIso, paisDelPrefijo, TIPO_GASTO_INFO, tipoIvaMasCercano, type GastoExtraido, type GastoRegistrado } from '@/lib/compras';
 
 /**
- * Lector de gastos: se sube el PDF o la foto de una factura de proveedor, la IA
- * la lee, el usuario revisa y corrige todos los datos y, al registrarla, se
- * crea la factura de gasto con su asiento en borrador (se aprueba en el Motor
+ * Lector de gastos: se sube el PDF o la foto de una factura de proveedor, el
+ * servidor la lee (Azure y, si hace falta, Claude) y valida cada dato; el
+ * usuario revisa y corrige todos los datos y, al registrarla, se crea la
+ * factura de gasto con su asiento en borrador (se aprueba en el Motor
  * contable). El archivo se lee en el servidor; aqui solo se ve la vista previa.
  */
 
 const MAX_BYTES = 4 * 1024 * 1024;
 const TIPOS = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+const MOTIVO_FECHA_HOY = 'No se ha leído la fecha: se ha puesto la de hoy; cámbiala si no es la de la factura.';
 
-/** Lo leido, en la forma del formulario. */
-function inicialDe(g: GastoExtraido, paisExistente: string | null): FormInicial {
+/** Si no se leyo la fecha, el formulario pone la de hoy: el panel lo dice y la marca para corregir. */
+function conFechaDeHoy(info: InfoLectura, g: GastoExtraido): InfoLectura {
+  if (g.fecha && /^\d{4}-\d{2}-\d{2}$/.test(g.fecha)) return info;
+  const previo = info.campos.fechaEmision;
+  const motivos = [MOTIVO_FECHA_HOY, ...(previo?.motivos ?? []).filter((m) => m !== MOTIVO_FECHA_HOY)];
+  return {
+    ...info,
+    estado: 'error',
+    requiereRevision: true,
+    campos: { ...info.campos, fechaEmision: { estado: 'error', confianza: null, fuente: previo?.fuente ?? 'calculado', valorLeido: null, motivos } },
+  };
+}
+
+const RANGO: Record<InfoLectura['estado'], number> = { ok: 0, revisar: 1, error: 2 };
+
+/**
+ * Sin la tarjeta del tipo de documento: la nomina o los seguros sociales los
+ * explica el recuadro azul de la pagina (con su matiz) y, si el usuario dice
+ * que es una factura de gasto, ese dato ya esta revisado. La casilla solo
+ * sigue haciendo falta si queda algo mas marcado.
+ */
+function sinTipoDocumento(info: InfoLectura): InfoLectura {
+  const { tipoDocumento: _quitado, ...campos } = info.campos;
+  const resto = Object.values(campos).filter((c) => !!c);
+  const peorCampo = Math.max(0, ...resto.map((c) => RANGO[c.estado]));
+  const peorTodos = Math.max(peorCampo, _quitado ? RANGO[_quitado.estado] : 0);
+  // Algo marcado sin campo (QR ilegible, archivo repetido) pesa mas que todos los campos juntos.
+  const sinCampo = RANGO[info.estado] > peorTodos || (info.generales ?? []).length > 0 || info.qr.estado === 'ILEGIBLE' || info.qr.estado === 'NO_COINCIDE';
+  const requiereRevision = info.requiereRevision && (peorCampo > 0 || sinCampo);
+  return { ...info, campos, requiereRevision };
+}
+
+/** Tramos con base y tipo numericos. */
+const tramosValidos = (g: GastoExtraido & { tramos?: TramoGasto[] }): TramoGasto[] =>
+  (g.tramos ?? []).filter((t) => Number.isFinite(Number(t.base)) && Number.isFinite(Number(t.tipoIva)));
+
+const centimos = (n: number) => Math.round(n * 100);
+
+/**
+ * El motivo de la comprobacion CUOTA_TIPO del servidor (validaciones.ts):
+ * "El IVA del 21 % no corresponde a su base (sale ... y pone ...)." o, al 0 %,
+ * "La base exenta no lleva IVA y pone ...".
+ */
+const esMotivoCuotaTipo = (m: string) => /^El IVA del .+ no corresponde a su base/.test(m) || /^La base exenta no lleva IVA/.test(m);
+
+/**
+ * Tramos cuyo IVA leido no coincide al centimo con el de la linea que se
+ * propone al abrir el formulario (la de su tipo): solo diferencias de hasta
+ * 5 centimos, las del redondeo. Se compara con la propuesta inicial: el
+ * formulario no avisa de los cambios del usuario.
+ *
+ * El servidor marca el IVA de un tramo (CUOTA_TIPO) cuando se aparta de
+ * base x tipo en mas de un centimo por partida de ese tipo, sea cual sea la
+ * diferencia. Ese tramo ya sale en "Comprueba estos datos" con una tarjeta que
+ * dice cuanto sale y cuanto pone, asi que aqui no se repite. Solo se quita el
+ * aviso por ese motivo: si el IVA del tramo esta marcado por otra cosa (poca
+ * seguridad al leerlo, calculado a partir de la base...), su tarjeta no habla
+ * del descuadre y el aviso sigue saliendo.
+ */
+function cuotasDescuadradas(
+  g: GastoExtraido & { tramos?: TramoGasto[] },
+  lineas: FormInicial['lineas'],
+  campos: InfoLectura['campos'],
+): Array<{ tipoIva: number; leida: number; linea: number }> {
+  const conTarjeta = new Set(
+    Object.entries(campos)
+      .filter(([id, c]) => /^desglose\.\d+\.cuota$/.test(id) && c && c.estado !== 'ok' && typeof c.tipoIva === 'number' && c.motivos.some(esMotivoCuotaTipo))
+      .map(([, c]) => c!.tipoIva as number),
+  );
+  return tramosValidos(g).flatMap((t) => {
+    const tipo = Number(t.tipoIva);
+    const leida = Number(t.cuota);
+    // Con un tipo que no es de los de la app, la linea lleva otro: no se compara.
+    if (!Number.isFinite(leida) || tipoIvaMasCercano(tipo) !== tipo || conTarjeta.has(tipo)) return [];
+    const suyas = (lineas ?? []).filter((l) => l.tipoIva === tipo);
+    if (suyas.length !== 1) return [];
+    const linea = calcularLinea({ cantidad: suyas[0].cantidad, precioUnitario: suyas[0].precioUnitario, tipoIva: tipo }).iva;
+    const diferencia = Math.abs(centimos(linea) - centimos(leida));
+    return diferencia > 0 && diferencia <= 5 ? [{ tipoIva: tipo, leida, linea }] : [];
+  });
+}
+
+/** Las partidas del unico tramo; vacio si no lo hay o si solo trae el texto neutro. */
+function descripcionUnTipo(t: TramoGasto | undefined): string {
+  const d = t?.descripcion?.trim() ?? '';
+  return d && d !== descripcionNeutraTramo(Number(t!.tipoIva)) ? d : '';
+}
+
+/**
+ * Lo leido, en la forma del formulario. Con varios tipos de IVA, una linea por
+ * tipo con su base (si no, el formulario las juntaria al tipo mayor). De
+ * descripcion, las partidas del tramo que manda el servidor. Con un solo tipo,
+ * si el servidor solo trae el texto neutro ("Base al 21 %"), el concepto de la
+ * factura: la lectura con IA no saca partidas y se perderia ("material de
+ * imprenta"); sin concepto, el texto neutro. La cuenta leida va para toda la factura;
+ * sin ella, cada linea lleva la cuenta habitual del proveedor.
+ */
+function inicialDe(g: GastoExtraido & { tramos?: TramoGasto[] }, paisExistente: string | null): FormInicial {
   const tipo = g.tipoGastoSugerido && TIPO_GASTO_INFO[g.tipoGastoSugerido] ? g.tipoGastoSugerido : 'SUMINISTROS';
   const base = Number(g.base) || 0;
   const tipoIva = g.tipoIva !== null && g.tipoIva !== undefined ? tipoIvaMasCercano(g.tipoIva) : base > 0 ? tipoIvaMasCercano(((Number(g.iva) || 0) / base) * 100) : 21;
@@ -35,24 +135,29 @@ function inicialDe(g: GastoExtraido, paisExistente: string | null): FormInicial 
   }
   const fecha = g.fecha && /^\d{4}-\d{2}-\d{2}$/.test(g.fecha) ? g.fecha : hoyIso();
   const cuentaLeida = g.cuentaContableBase && /^6\d{2,9}$/.test(g.cuentaContableBase) ? g.cuentaContableBase : null;
-  // Sin cuenta leida, la linea va a la cuenta habitual del proveedor (se puede cambiar).
+  // Sin cuenta leida, cada linea va a la cuenta habitual del proveedor (se puede cambiar con «Cambiar cuenta»).
   const habitual = !cuentaLeida && g.cuentaHabitual ? g.cuentaHabitual.codigo : null;
+  const concepto = g.conceptoGasto?.trim() || 'Gasto';
+  const tipoRetencion = TIPO_GASTO_INFO[tipo].retenciones.includes(ret) ? ret : 0;
+  const tramos = tramosValidos(g);
+  const lineas: FormInicial['lineas'] =
+    tramos.length > 1
+      ? tramos.map((t) => ({
+          descripcion: t.descripcion?.trim() || descripcionNeutraTramo(Number(t.tipoIva)),
+          cantidad: 1,
+          precioUnitario: Number(t.base),
+          tipoIva: tipoIvaMasCercano(Number(t.tipoIva)),
+          tipoRetencion,
+          cuenta: habitual,
+        }))
+      : [{ descripcion: descripcionUnTipo(tramos[0]) || g.conceptoGasto?.trim() || tramos[0]?.descripcion?.trim() || concepto, cantidad: 1, precioUnitario: base, tipoIva, tipoRetencion, cuenta: habitual }];
   return {
     proveedor,
     numeroFacturaProveedor: g.numeroFactura ?? '',
     fechaEmision: fecha,
     tipoGasto: tipo,
     cuentaGasto: cuentaLeida,
-    lineas: [
-      {
-        descripcion: g.conceptoGasto?.trim() || 'Gasto',
-        cantidad: 1,
-        precioUnitario: base,
-        tipoIva,
-        tipoRetencion: TIPO_GASTO_INFO[tipo].retenciones.includes(ret) ? ret : 0,
-        cuenta: habitual,
-      },
-    ],
+    lineas,
     totalDocumento: Number.isFinite(Number(g.total)) && Number(g.total) !== 0 ? Number(g.total) : undefined,
   };
 }
@@ -70,6 +175,14 @@ export default function LectorGastosPage() {
   const [tipoDocumento, setTipoDocumento] = useState<GastoExtraido['tipoDocumento']>('factura');
   const [registrado, setRegistrado] = useState<GastoRegistrado | null>(null);
   const [lectura, setLectura] = useState(0);
+  const [info, setInfo] = useState<InfoLectura | null>(null);
+  const [revisado, setRevisado] = useState(false);
+  const [alternativa, setAlternativa] = useState<{ ruta: string; texto: string } | null>(null);
+  const [segundos, setSegundos] = useState(0);
+  // Lectura en curso o sin registrar: "Leer otra" corta la espera y la descarta.
+  const lecturaIdRef = useRef<string | null>(null);
+  const cortarRef = useRef<AbortController | null>(null);
+  const panelRef = useRef<HTMLElement>(null);
 
   // La vista previa usa una URL local del archivo: se libera al cambiar de archivo.
   useEffect(() => {
@@ -82,21 +195,48 @@ export default function LectorGastosPage() {
     return () => URL.revokeObjectURL(url);
   }, [archivo]);
 
+  // Segundos que lleva leyendo, para el texto de espera.
+  useEffect(() => {
+    if (!leyendo) return;
+    setSegundos(0);
+    const t = setInterval(() => setSegundos((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [leyendo]);
+
+  // Al salir de la pantalla se corta la espera (la lectura sin registrar se purga sola).
+  useEffect(() => () => cortarRef.current?.abort(), []);
+
   const abrirSelector = () => {
     if (!leyendo) inputRef.current?.click();
   };
 
+  /** Corta la lectura en curso y descarta la que no se ha registrado. */
+  const soltarLectura = () => {
+    cortarRef.current?.abort();
+    cortarRef.current = null;
+    const id = lecturaIdRef.current;
+    lecturaIdRef.current = null;
+    if (id) void descartarLectura('gastos', id);
+  };
+
   const reiniciar = () => {
+    if (!registrado) soltarLectura();
+    lecturaIdRef.current = null;
     setArchivo(null);
     setLeido(null);
     setInicial(null);
+    setInfo(null);
+    setRevisado(false);
     setRegistrado(null);
     setError('');
+    setAlternativa(null);
+    setLeyendo(false);
     if (inputRef.current) inputRef.current.value = '';
   };
 
   const leer = async (f: File) => {
     setError('');
+    setAlternativa(null);
     setRegistrado(null);
     if (!TIPOS.includes(f.type)) {
       setError('Solo se pueden leer PDF e imágenes (JPG, PNG o WEBP).');
@@ -106,14 +246,23 @@ export default function LectorGastosPage() {
       setError('El archivo pesa más de 4 MB: redúcelo o haz la foto con menos resolución.');
       return;
     }
+    soltarLectura();
+    const cortar = new AbortController();
+    cortarRef.current = cortar;
     setArchivo(f);
     setLeido(null);
     setInicial(null);
+    setInfo(null);
+    setRevisado(false);
     setLeyendo(true);
     try {
-      const datos = new FormData();
-      datos.append('archivo', f, f.name);
-      const g = await apiFetch<GastoExtraido>(companyPath('/gastos-extractor/extraer-ia'), { method: 'POST', body: datos });
+      const r = await leerFactura('gastos', f, {
+        signal: cortar.signal,
+        alEmpezar: (id) => {
+          lecturaIdRef.current = id;
+        },
+      });
+      const g = r.gasto;
       // El pais del proveedor ya dado de alta (un proveedor extranjero no lleva IVA español).
       let pais: string | null = null;
       if (g.proveedorExistente) {
@@ -121,14 +270,21 @@ export default function LectorGastosPage() {
           .then((p) => p.pais ?? null)
           .catch(() => null);
       }
+      if (cortar.signal.aborted) return;
       setLeido(g);
+      setInfo(conFechaDeHoy(r.lectura, g));
       setTipoDocumento(g.tipoDocumento ?? 'factura');
       setInicial(inicialDe(g, pais));
       setLectura((n) => n + 1);
     } catch (err) {
+      if (esCancelada(err) || cortar.signal.aborted) return;
       setError(errorMessage(err));
+      if (err instanceof ErrorLectura && err.alternativa) setAlternativa(err.alternativa);
     } finally {
-      setLeyendo(false);
+      if (cortarRef.current === cortar) {
+        cortarRef.current = null;
+        setLeyendo(false);
+      }
     }
   };
 
@@ -145,8 +301,28 @@ export default function LectorGastosPage() {
   };
 
   const noEsFactura = tipoDocumento === 'nomina' || tipoDocumento === 'seguros_sociales';
-  const confianza = leido ? Math.round((leido.confianza <= 1 ? leido.confianza * 100 : leido.confianza) || 0) : 0;
+  const leidaComoNoFactura = leido?.tipoDocumento === 'nomina' || leido?.tipoDocumento === 'seguros_sociales';
+  const infoPanel = info && leidaComoNoFactura ? sinTipoDocumento(info) : info;
+  // Una rectificativa no se puede registrar como un gasto normal (sumaria en vez de restar).
+  const rectificativa = info?.campos.tipoDocumento?.estado === 'error';
+  const faltaRevision = !!infoPanel?.requiereRevision && !revisado;
+  // Si lo unico marcado era el tipo de documento, "es una factura de gasto" ya es la revision.
+  const revisadoEnviado = !!info?.requiereRevision && !infoPanel?.requiereRevision ? !noEsFactura : revisado;
   const esImagen = archivo?.type.startsWith('image/');
+  const descuadres = leido && inicial && info ? cuotasDescuadradas(leido, inicial.lineas, info.campos) : [];
+  const anuncio = leyendo
+    ? segundos < 10
+      ? 'Leyendo la factura. Tarda unos segundos.'
+      : 'Sigue leyendo; las facturas largas tardan un poco más.'
+    : infoPanel && !registrado
+      ? anuncioLecturaTerminada(infoPanel)
+      : '';
+
+  // Al terminar la lectura, el foco va a los datos leidos (sin mover la pantalla).
+  const lecturaLista = infoPanel?.lecturaId ?? null;
+  useEffect(() => {
+    if (lecturaLista) panelRef.current?.focus({ preventScroll: true });
+  }, [lecturaLista]);
 
   return (
     <div>
@@ -161,6 +337,10 @@ export default function LectorGastosPage() {
 
       <main className="mx-auto max-w-7xl px-4 pt-6 pb-24 md:px-8 md:py-8">
         {/* El input esta fuera de cualquier <label>: el boton y la zona lo abren con el ref. */}
+        {/* Siempre en la pagina: el lector de pantalla anuncia la espera y el final de la lectura. */}
+        <p role="status" className="sr-only">
+          {anuncio}
+        </p>
         <input ref={inputRef} type="file" accept="application/pdf,image/jpeg,image/png,image/webp" onChange={alElegir} className="hidden" tabIndex={-1} aria-hidden="true" />
 
         {!puedeEscribir ? (
@@ -188,31 +368,26 @@ export default function LectorGastosPage() {
               </button>
             </div>
           </div>
-        ) : !leido || !inicial ? (
+        ) : !leido || !inicial || !info || !infoPanel ? (
           <div className="mx-auto max-w-2xl">
+            {/* Zona para soltar el archivo; con el teclado se usa el boton "Seleccionar archivo". */}
             <div
-              role="button"
-              tabIndex={0}
               onClick={abrirSelector}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  abrirSelector();
-                }
-              }}
               onDragOver={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
               }}
               onDrop={alSoltar}
-              aria-label="Seleccionar el archivo de la factura"
-              aria-busy={leyendo}
-              className="cursor-pointer rounded-xl border-2 border-dashed border-emerald-200 bg-white p-8 text-center transition-colors hover:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-accent-600 md:p-12"
+              className={`rounded-xl border-2 border-dashed border-emerald-200 bg-white p-8 text-center transition-colors md:p-12 ${leyendo ? '' : 'cursor-pointer hover:border-emerald-400'}`}
             >
               <FileArrowUp size={48} weight="duotone" className="mx-auto mb-4 text-accent-600" />
-              <h2 className="mb-2 text-lg font-semibold text-slate-900">{leyendo ? 'Leyendo la factura...' : 'Sube el PDF o la foto de la factura'}</h2>
+              <h2 className="mb-2 text-lg font-semibold text-slate-900">{leyendo ? 'Leyendo la factura…' : 'Sube el PDF o la foto de la factura'}</h2>
               <p className="mb-6 text-sm text-slate-600">
-                {leyendo ? 'Tarda unos segundos.' : 'Arrástrala aquí o pulsa para elegirla. PDF, JPG, PNG o WEBP de hasta 4 MB. En el móvil puedes hacer la foto directamente.'}
+                {leyendo
+                  ? segundos < 10
+                    ? 'Tarda unos segundos.'
+                    : 'Sigue leyendo; las facturas largas tardan un poco más.'
+                  : 'Arrástrala aquí o pulsa para elegirla. PDF, JPG, PNG o WEBP de hasta 4 MB. En el móvil puedes hacer la foto directamente.'}
               </p>
               <button
                 type="button"
@@ -223,8 +398,20 @@ export default function LectorGastosPage() {
                 disabled={leyendo}
                 className="inline-flex items-center gap-2 rounded-lg bg-accent-600 px-6 py-3 font-semibold text-white transition-all hover:bg-accent-700 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-60"
               >
-                {leyendo ? 'Leyendo...' : 'Seleccionar archivo'}
+                {leyendo ? 'Leyendo…' : 'Seleccionar archivo'}
               </button>
+              {leyendo && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    reiniciar();
+                  }}
+                  className="mt-3 block w-full text-sm font-semibold text-slate-600 hover:underline sm:mx-auto sm:w-auto"
+                >
+                  Cancelar
+                </button>
+              )}
               {archivo && (
                 <p className="mt-4 break-all text-sm text-slate-600">
                   {archivo.name} ({(archivo.size / 1024 / 1024).toFixed(2).replace('.', ',')} MB)
@@ -234,7 +421,17 @@ export default function LectorGastosPage() {
             {error && (
               <p role="alert" className="mt-4 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
                 <WarningCircle size={18} className="mt-0.5 shrink-0" />
-                {error}
+                <span>
+                  {error}
+                  {alternativa && (
+                    <>
+                      {' '}
+                      <Link href={alternativa.ruta} className="font-semibold underline">
+                        {alternativa.texto}
+                      </Link>
+                    </>
+                  )}
+                </span>
               </p>
             )}
             <p className="mt-4 text-sm text-slate-500">
@@ -261,25 +458,27 @@ export default function LectorGastosPage() {
             </section>
 
             {/* Datos leidos, editables */}
-            <section className="flex min-w-0 flex-col gap-4">
-              <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm">
-                <p className="text-slate-700">
-                  Confianza de la lectura: <span className={`font-semibold ${confianza >= 80 ? 'text-emerald-700' : confianza >= 60 ? 'text-amber-700' : 'text-rose-700'}`}>{confianza} %</span>
-                  {confianza < 60 && ' · revisa los datos con cuidado'}
+            <section ref={panelRef} tabIndex={-1} aria-label="Datos leídos" className="flex min-w-0 flex-col gap-4 focus:outline-none">
+              <PanelLectura
+                info={infoPanel}
+                lector="gastos"
+                revisado={revisado}
+                onRevisado={setRevisado}
+                conCasilla={!rectificativa && !leido.duplicada}
+                sinArreglo={[...(rectificativa ? ['tipoDocumento'] : []), ...(leido.duplicada ? ['numero'] : [])]}
+              />
+              {leido.cuentaContableBase && (
+                <p className="text-sm text-slate-600">
+                  Cuenta sugerida: <span className="font-mono">{leido.cuentaContableBase}</span>
+                  {leido.cuentaContableNombre && ` (${leido.cuentaContableNombre})`}
                 </p>
-                {leido.cuentaContableBase && (
-                  <p className="mt-1 text-slate-600">
-                    Cuenta sugerida: <span className="font-mono">{leido.cuentaContableBase}</span>
-                    {leido.cuentaContableNombre && ` (${leido.cuentaContableNombre})`}
-                  </p>
-                )}
-                {!leido.cuentaContableBase && leido.cuentaHabitual && (
-                  <p className="mt-1 text-slate-600">
-                    Cuenta habitual de este proveedor: <span className="font-mono">{leido.cuentaHabitual.codigo}</span> {leido.cuentaHabitual.nombre}. La hemos puesto en la línea; puedes
-                    cambiarla con «Cambiar cuenta».
-                  </p>
-                )}
-              </div>
+              )}
+              {!leido.cuentaContableBase && leido.cuentaHabitual && (
+                <p className="text-sm text-slate-600">
+                  Cuenta habitual de este proveedor: <span className="font-mono">{leido.cuentaHabitual.codigo}</span> {leido.cuentaHabitual.nombre}. La hemos puesto en cada línea; puedes
+                  cambiarla con «Cambiar cuenta».
+                </p>
+              )}
 
               {leido.duplicada && (
                 <p className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
@@ -288,17 +487,6 @@ export default function LectorGastosPage() {
                     Ver la factura
                   </Link>
                 </p>
-              )}
-
-              {leido.errores?.length > 0 && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-                  <p className="mb-1 font-semibold">Revisa estos puntos:</p>
-                  <ul className="list-disc space-y-1 pl-5">
-                    {leido.errores.map((e, i) => (
-                      <li key={i}>{e}</li>
-                    ))}
-                  </ul>
-                </div>
               )}
 
               {noEsFactura && (
@@ -320,17 +508,38 @@ export default function LectorGastosPage() {
                 </div>
               )}
 
+              {descuadres.length > 0 && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                  <p className="font-semibold">En la propuesta inicial, el IVA de la factura y el de {descuadres.length === 1 ? 'la línea' : 'las líneas'} no coinciden al céntimo</p>
+                  <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                    {descuadres.map((d) => {
+                      const dif = Math.abs(centimos(d.linea) - centimos(d.leida));
+                      return (
+                        <li key={d.tipoIva} className="break-words">
+                          {d.tipoIva === 0 ? 'Parte exenta' : `IVA del ${porcentaje(d.tipoIva)}`}: la factura pone {euros(d.leida)} y la línea da {euros(d.linea)} ({dif === 1 ? 'un céntimo' : `${dif} céntimos`} de diferencia).
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  <p className="mt-1">Suele ser el redondeo. Se apuntará el IVA que dé la línea: compruébalo con la factura antes de registrarla.</p>
+                </div>
+              )}
+
               <FormFacturaGasto
                 key={lectura}
                 modo="lector"
                 inicial={inicial}
-                extra={{ tipoDocumento, confianza: leido.confianza }}
+                extra={{ tipoDocumento, confianza: leido.confianza, lecturaId: info.lecturaId, revisado: revisadoEnviado }}
                 bloqueado={
-                  leido.duplicada
+                  rectificativa
+                    ? 'Las facturas rectificativas todavía no se pueden registrar con el lector: no la registres como un gasto normal.'
+                    : leido.duplicada
                     ? `Ya registraste esta factura (${leido.duplicada.numeroCompleto}): no se registra dos veces.`
                     : noEsFactura
                       ? 'Confirma antes si es una factura de gasto (aviso de arriba).'
-                      : undefined
+                      : faltaRevision
+                        ? 'Marca que has revisado los datos señalados (arriba) antes de registrar.'
+                        : undefined
                 }
                 avisoProveedor="No está dado de alta: se creará al registrar la factura."
                 onGuardado={(r) => setRegistrado(r)}
