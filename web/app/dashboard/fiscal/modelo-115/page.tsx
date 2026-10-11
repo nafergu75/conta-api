@@ -211,6 +211,13 @@ export default function Modelo115Page() {
             {resumen && (
               <section className="space-y-4 rounded-lg border border-slate-200 bg-white p-4 md:p-6">
                 <h2 className="font-semibold text-slate-900">Resumen del año (datos del modelo 180)</h2>
+                <p className="text-sm text-slate-600">
+                  El 180 con los locales, el cuadre y el fichero para la sede está en{' '}
+                  <Link href="/dashboard/fiscal/modelo-180" className="text-blue-600 hover:underline">
+                    Modelo 180
+                  </Link>
+                  .
+                </p>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
                     <p className="text-xs text-slate-600">Base del año</p>
