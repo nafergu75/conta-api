@@ -3,7 +3,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, MagnifyingGlass, PencilSimple, Plus, X } from '@phosphor-icons/react';
 import { apiFetch, campoDelError, companyPath, errorMessage } from '@/lib/api';
-import { sinTildes, type CatalogoCuentas, type PropuestaSubcuenta, type SubcuentaCreada, type TipoCuentaLinea } from '@/lib/subcuentas';
+import {
+  sinTildes,
+  type CatalogoCuentas,
+  type CuentaElegible,
+  type PropuestaSubcuenta,
+  type SubcuentaCreada,
+  type TipoCuentaLinea,
+} from '@/lib/subcuentas';
 
 /**
  * Cuenta de gasto o de ingreso de una linea de factura.
@@ -13,6 +20,10 @@ import { sinTildes, type CatalogoCuentas, type PropuestaSubcuenta, type Subcuent
  * 70x en ventas) y «Crear subcuenta nueva», que propone el siguiente codigo libre
  * bajo la cuenta elegida y solo pide el nombre. La subcuenta queda en el plan
  * para las facturas siguientes. Todo sin salir de la factura.
+ *
+ * Debajo, aparte, «Otras cuentas (uso contable)»: descuentos, devoluciones,
+ * sueldos, amortizaciones... El servidor solo las manda a quien tiene
+ * Contabilidad «Modificar» y al administrador; a los demas no les sale el bloque.
  */
 
 interface Props {
@@ -49,11 +60,14 @@ export function CuentaLinea({ tipo, catalogo, valor, onCambiar, porDefecto, line
     if (abierto && !creando) buscador.current?.focus();
   }, [abierto, creando]);
 
-  const cuentas = useMemo(() => {
-    const todas = catalogo.listado?.cuentas ?? [];
+  // Las de uso contable (descuentos, sueldos, amortizaciones...) van aparte y solo
+  // llegan a quien tiene Contabilidad «Modificar» o es administrador.
+  const [cuentas, otras] = useMemo(() => {
     const t = sinTildes(q.trim());
-    return t ? todas.filter((c) => sinTildes(`${c.codigo} ${c.nombre}`).includes(t)) : todas;
+    const filtrar = (lista: CuentaElegible[]) => (t ? lista.filter((c) => sinTildes(`${c.codigo} ${c.nombre}`).includes(t)) : lista);
+    return [filtrar(catalogo.listado?.cuentas ?? []), filtrar(catalogo.listado?.otras ?? [])];
   }, [catalogo.listado, q]);
+  const hayOtras = (catalogo.listado?.otras?.length ?? 0) > 0;
 
   // Al cerrar, el foco vuelve a «Cambiar cuenta» de esta linea (si no, se pierde en la pagina).
   const cerrar = () => {
@@ -124,7 +138,7 @@ export function CuentaLinea({ tipo, catalogo, valor, onCambiar, porDefecto, line
                     // (el codigo exacto o la unica que coincide); con el buscador vacio no cambia nada.
                     if (e.key === 'Enter') {
                       e.preventDefault();
-                      const unica = cuentaDeIntro(q, cuentas);
+                      const unica = cuentaDeIntro(q, [...cuentas, ...otras]);
                       if (unica) elegir(unica);
                     }
                   }}
@@ -139,42 +153,38 @@ export function CuentaLinea({ tipo, catalogo, valor, onCambiar, porDefecto, line
               ) : catalogo.cargando && !catalogo.listado ? (
                 <p className="mt-2 text-slate-500">Cargando cuentas…</p>
               ) : (
-                <ul className="mt-2 max-h-60 overflow-y-auto rounded-lg border border-slate-200 bg-white" aria-label={`Cuentas para la línea ${linea}`}>
-                  {elegida && (
-                    <li>
-                      <button type="button" onClick={() => elegir(null)} className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-slate-50">
-                        <span className="w-5 shrink-0" />
-                        <span className="min-w-0">
-                          Volver a la de por defecto: <span className="font-mono">{porDefecto.codigo}</span>{' '}
-                          <span className="text-slate-500">({porDefecto.texto})</span>
-                        </span>
-                      </button>
-                    </li>
-                  )}
-                  {cuentas.length === 0 && <li className="px-3 py-2 text-slate-500">Ninguna cuenta coincide con «{q}».</li>}
-                  {cuentas.map((c) => {
-                    const actual = c.codigo === (elegida ?? '');
-                    return (
-                      <li key={c.codigo}>
-                        <button
-                          type="button"
-                          aria-current={actual || undefined}
-                          onClick={() => elegir(c.codigo)}
-                          className={`flex w-full items-start gap-2 border-t border-slate-100 px-3 py-2 text-left hover:bg-slate-50 ${actual ? 'bg-emerald-50' : ''}`}
-                        >
-                          <span className="w-5 shrink-0 text-emerald-700">{actual && <Check size={16} />}</span>
-                          <span className="shrink-0 font-mono text-slate-600" style={{ paddingLeft: Math.max(0, c.codigo.length - 3) * 2 }}>
-                            {c.codigo}
-                          </span>
-                          <span className="min-w-0 flex-1 text-slate-800">
-                            {c.nombre}
-                            {c.propia && <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">propia</span>}
+                <div className="mt-2 max-h-72 overflow-y-auto rounded-lg border border-slate-200 bg-white">
+                  <ul aria-label={`Cuentas para la línea ${linea}`}>
+                    {elegida && (
+                      <li>
+                        <button type="button" onClick={() => elegir(null)} className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-slate-50">
+                          <span className="w-5 shrink-0" />
+                          <span className="min-w-0">
+                            Volver a la de por defecto: <span className="font-mono">{porDefecto.codigo}</span>{' '}
+                            <span className="text-slate-500">({porDefecto.texto})</span>
                           </span>
                         </button>
                       </li>
-                    );
-                  })}
-                </ul>
+                    )}
+                    {cuentas.length === 0 && otras.length === 0 && <li className="px-3 py-2 text-slate-500">Ninguna cuenta coincide con «{q}».</li>}
+                    {cuentas.map((c) => (
+                      <FilaCuenta key={c.codigo} cuenta={c} actual={c.codigo === elegida} onElegir={elegir} />
+                    ))}
+                  </ul>
+                  {hayOtras && otras.length > 0 && (
+                    <div role="group" aria-labelledby={`cl-otras-${tipo}-${linea}`} className="border-t-4 border-slate-100">
+                      <p id={`cl-otras-${tipo}-${linea}`} className="px-3 pt-3 font-medium text-slate-900">
+                        Otras cuentas (uso contable)
+                      </p>
+                      <p className="px-3 pb-2 pt-0.5 text-xs text-slate-600">{TEXTO_OTRAS[tipo]}</p>
+                      <ul aria-label={`Otras cuentas (uso contable) para la línea ${linea}`}>
+                        {otras.map((c) => (
+                          <FilaCuenta key={c.codigo} cuenta={c} actual={c.codigo === elegida} onElegir={elegir} />
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
               )}
 
               <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
@@ -202,6 +212,37 @@ export function CuentaLinea({ tipo, catalogo, valor, onCambiar, porDefecto, line
   );
 }
 
+/** Cuando se usan las cuentas de uso contable de cada tipo (solo las ve quien lleva la contabilidad). */
+const TEXTO_OTRAS: Record<TipoCuentaLinea, string> = {
+  gasto:
+    'Descuentos y devoluciones de compras, existencias, impuesto de sociedades, sueldos y Seguridad Social, amortizaciones y deterioros. Una factura normal no va a ninguna de ellas: elígelas solo para un apunte que sepas que va ahí, como un descuento o un abono del proveedor.',
+  venta:
+    'Devoluciones, descuentos y rappels sobre ventas. Una factura normal no va a ninguna de ellas: elígelas solo para un apunte que sepas que va ahí, como un abono o un descuento por pronto pago al cliente.',
+  servicio: '',
+};
+
+function FilaCuenta({ cuenta: c, actual, onElegir }: { cuenta: CuentaElegible; actual: boolean; onElegir: (codigo: string) => void }) {
+  return (
+    <li>
+      <button
+        type="button"
+        aria-current={actual || undefined}
+        onClick={() => onElegir(c.codigo)}
+        className={`flex w-full items-start gap-2 border-t border-slate-100 px-3 py-2 text-left hover:bg-slate-50 ${actual ? 'bg-emerald-50' : ''}`}
+      >
+        <span className="w-5 shrink-0 text-emerald-700">{actual && <Check size={16} />}</span>
+        <span className="shrink-0 font-mono text-slate-600" style={{ paddingLeft: Math.max(0, c.codigo.length - 3) * 2 }}>
+          {c.codigo}
+        </span>
+        <span className="min-w-0 flex-1 text-slate-800">
+          {c.nombre}
+          {c.propia && <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">propia</span>}
+        </span>
+      </button>
+    </li>
+  );
+}
+
 /**
  * Cuenta que elige Intro en el buscador: la de codigo igual a lo escrito o, si no,
  * la unica que coincide. Con el buscador vacio o con varias coincidencias, ninguna.
@@ -217,7 +258,7 @@ function cuentaDeIntro(q: string, cuentas: Array<{ codigo: string }>): string | 
 /** Cuenta madre de la elegida (62800001 -> 628), si esta en el catalogo. */
 function madreDe(codigo: string | null, catalogo: CatalogoCuentas): string | null {
   if (!codigo) return null;
-  const c = catalogo.listado?.cuentas.find((x) => x.codigo === codigo);
+  const c = [...(catalogo.listado?.cuentas ?? []), ...(catalogo.listado?.otras ?? [])].find((x) => x.codigo === codigo);
   if (!c) return null;
   return c.madre && c.madre.length >= 3 ? c.madre : c.codigo;
 }

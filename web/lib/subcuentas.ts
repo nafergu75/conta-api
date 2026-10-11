@@ -35,7 +35,14 @@ export interface ListadoCuentasLinea {
   porDefecto: string;
   /** Digitos de las subcuentas nuevas. */
   longitud: number;
+  /** Las que pueden ir en la linea de una factura. */
   cuentas: CuentaElegible[];
+  /**
+   * Las de uso contable (descuentos y devoluciones, sueldos, amortizaciones...):
+   * solo llegan a quien tiene Contabilidad «Modificar» y al administrador; a los
+   * demas, vacia.
+   */
+  otras?: CuentaElegible[];
 }
 
 /** GET /cuentas-linea/siguiente */
@@ -95,7 +102,8 @@ export function useCuentasLinea(tipo: TipoCuentaLinea, activo = true): CatalogoC
   }, [tipo, activo, vuelta]);
 
   const nombreDe = useCallback(
-    (codigo: string | null | undefined) => (codigo ? (listado?.cuentas.find((c) => c.codigo === codigo)?.nombre ?? null) : null),
+    (codigo: string | null | undefined) =>
+      codigo ? ([...(listado?.cuentas ?? []), ...(listado?.otras ?? [])].find((c) => c.codigo === codigo)?.nombre ?? null) : null,
     [listado],
   );
 
