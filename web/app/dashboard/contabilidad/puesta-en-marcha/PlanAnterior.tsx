@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CheckCircle, LinkSimple, UserPlus, X } from '@phosphor-icons/react';
+import { CheckCircle, LinkSimple, UserPlus, WarningCircle, X } from '@phosphor-icons/react';
 import { apiFetch, campoDelError, companyPath, errorMessage } from '@/lib/api';
 import { BuscadorTercero } from '@/components/contabilidad/BuscadorTercero';
 import type { TerceroEncontrado } from '@/lib/subcuentas';
@@ -56,6 +56,12 @@ const TEXTO_ACCION: Record<Accion, { texto: string; color: string }> = {
   'ya-enlazada': { texto: 'Ya enlazada', color: 'bg-slate-100 text-slate-700' },
   'no-se-enlaza': { texto: 'No se enlaza', color: 'bg-red-100 text-red-800' },
 };
+
+/**
+ * Sin NIF, el servidor propone enlazar con la ficha que tiene el mismo nombre
+ * (si solo hay una) y lo dice en `motivo`: hay que comprobarlas antes de confirmar.
+ */
+const porNombre = (t: VistaPlan['terceros'][number]) => t.accion === 'enlazar' && !!t.motivo;
 
 /** El plan trae otra longitud y ya hay terceros con la de la app: convivirian las dos. */
 const longitudDistinta = (v: VistaPlan) => !!v.longitud.motivo && !!v.longitud.delPlan && v.longitud.delPlan !== v.longitud.actual && !v.longitud.seFija;
@@ -134,7 +140,11 @@ export function PlanAnterior({ onHecho }: { onHecho: (t: string) => void }) {
       r.crear && `${r.crear} fichas nuevas de clientes o proveedores`,
     ].filter(Boolean);
     const dosLongitudes = longitudDistinta(vista) ? `\n\nOjo: ${vista.longitud.motivo}` : '';
-    if (!window.confirm(`Se van a crear ${partes.join(', ')}.${dosLongitudes}\n\n¿Continuar?`)) return;
+    const nPorNombre = vista.terceros.filter(porNombre).length;
+    const comprobar = nPorNombre
+      ? `\n\nOjo: ${nPorNombre === 1 ? 'una subcuenta se enlaza' : `${nPorNombre} subcuentas se enlazan`} solo porque el nombre coincide con el de una ficha. ¿Las has comprobado en la lista?`
+      : '';
+    if (!window.confirm(`Se van a crear ${partes.join(', ')}.${dosLongitudes}${comprobar}\n\n¿Continuar?`)) return;
     setOcupado(true);
     setError('');
     try {
@@ -213,9 +223,10 @@ export function PlanAnterior({ onHecho }: { onHecho: (t: string) => void }) {
               </h3>
               <p className="text-xs text-slate-500">
                 {vista.resumen.enlazar} se enlazan con una ficha que ya tienes · {vista.resumen.crear} crean una ficha nueva con su NIF · {vista.resumen.pendientes} quedan
-                pendientes (sin NIF) · {vista.resumen.yaEnlazadas} ya estaban enlazadas
+                pendientes (cada una dice por qué) · {vista.resumen.yaEnlazadas} ya estaban enlazadas
                 {vista.resumen.noSeEnlazan ? ` · ${vista.resumen.noSeEnlazan} no se enlazan (revísalas)` : ''}.
               </p>
+              <AvisoPorNombre n={vista.terceros.filter(porNombre).length} />
               <ul className="max-h-96 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-200 bg-white text-sm">
                 {vista.terceros.map((t) => (
                   <li key={t.codigo} className="flex flex-col gap-1 px-3 py-2 sm:flex-row sm:items-start sm:gap-3">
@@ -229,9 +240,18 @@ export function PlanAnterior({ onHecho }: { onHecho: (t: string) => void }) {
                       </span>
                       {t.ficha && t.accion !== 'crear' && <span className="block text-xs text-slate-600">Ficha: {t.ficha.nombre}</span>}
                       {t.sustituye && <span className="block text-xs text-slate-600">Sustituye a su subcuenta {t.sustituye}, que no tiene movimientos.</span>}
-                      {t.motivo && <span className="block text-xs text-amber-700">{t.motivo}</span>}
+                      {t.motivo && (
+                        <span className="mt-0.5 flex items-start gap-1 text-xs text-amber-700">
+                          {porNombre(t) && <WarningCircle size={14} className="mt-px shrink-0" aria-hidden />}
+                          <span>{t.motivo}</span>
+                        </span>
+                      )}
                     </span>
-                    <span className={`self-start whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${TEXTO_ACCION[t.accion].color}`}>{TEXTO_ACCION[t.accion].texto}</span>
+                    {porNombre(t) ? (
+                      <span className="self-start whitespace-nowrap rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">Se enlaza por nombre</span>
+                    ) : (
+                      <span className={`self-start whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${TEXTO_ACCION[t.accion].color}`}>{TEXTO_ACCION[t.accion].texto}</span>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -280,6 +300,20 @@ export function PlanAnterior({ onHecho }: { onHecho: (t: string) => void }) {
 
       <SubcuentasSinEnlazar vuelta={vuelta} />
     </div>
+  );
+}
+
+/** Recuadro sobre la lista: las que se enlazan solo por coincidir el nombre se comprueban antes de confirmar. */
+function AvisoPorNombre({ n }: { n: number }) {
+  if (!n) return null;
+  return (
+    <p className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+      <WarningCircle size={18} className="mt-0.5 shrink-0" aria-hidden />
+      <span>
+        {n === 1 ? 'Una subcuenta no trae NIF y se enlaza' : `${n} subcuentas no traen NIF y se enlazan`} con la ficha que tiene el mismo nombre (las marcadas «Se enlaza
+        por nombre»). Compruébalo antes de confirmar. Si alguna no es la buena, pon su NIF en el fichero, o cambia allí el nombre, y vuelve a subirlo.
+      </span>
+    </p>
   );
 }
 
