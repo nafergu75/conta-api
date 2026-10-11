@@ -118,7 +118,7 @@ export default function FacturasPage() {
       </header>
 
       <main className="max-w-6xl mx-auto px-4 md:px-8 py-8 flex flex-col gap-6">
-        <AvisoRedSeguridad estado={redSeguridad} />
+        <AvisoRedSeguridad estado={redSeguridad} donde="lista" />
 
         {/* Buscador */}
         <section className="rounded-lg border border-slate-200 bg-white p-4">
