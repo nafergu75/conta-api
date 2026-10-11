@@ -101,7 +101,7 @@ export default function RedSeguridadVerifactu() {
     if (
       !window.confirm(
         `Vas a desactivar el bloqueo para todas las empresas (${ref}).\n\n` +
-          'Desde el 1-1-2027 se podrán emitir facturas sin VERI*FACTU. Las empresas que ya lo tengan activo lo siguen teniendo. ¿Continuar?',
+          'Desde el 1 de enero de 2027 se podrán emitir facturas sin VERI*FACTU. Las empresas que ya lo tengan activo lo siguen teniendo. ¿Continuar?',
       )
     ) {
       return;
@@ -110,7 +110,7 @@ export default function RedSeguridadVerifactu() {
   };
 
   const reactivar = () => {
-    if (!window.confirm('¿Volver a activar el bloqueo? Desde el 1-1-2027 las empresas españolas sin VERI*FACTU activo no podrán emitir facturas.')) return;
+    if (!window.confirm('¿Volver a activar el bloqueo? Desde el 1 de enero de 2027 las empresas españolas sin VERI*FACTU activo no podrán emitir facturas.')) return;
     void enviar({ activa: true }, 'Bloqueo activado de nuevo.');
   };
 
@@ -124,12 +124,19 @@ export default function RedSeguridadVerifactu() {
             ) : (
               <ShieldCheck size={18} weight="duotone" className="text-emerald-600" aria-hidden />
             )}
-            Bloqueo de emisión sin VERI*FACTU desde el 1-1-2027
+            Bloqueo de emisión sin VERI*FACTU desde el 1 de enero de 2027
           </h2>
-          <p className="mt-1 max-w-3xl text-sm text-slate-600">
-            Desde el 1 de enero de 2027 (hora de España), las empresas españolas que no tengan VERI*FACTU activo no podrán emitir facturas
-            desde la app. Los borradores y las proformas se siguen guardando. No afecta a las empresas de EE. UU. ni de Hong Kong.
-          </p>
+          {estado && !estado.activa ? (
+            <p className="mt-1 max-w-3xl text-sm text-slate-600">
+              El bloqueo está desactivado: desde el 1 de enero de 2027 las empresas españolas podrán emitir facturas aunque no tengan
+              VERI*FACTU activo. Las que ya lo tengan activo lo siguen usando.
+            </p>
+          ) : (
+            <p className="mt-1 max-w-3xl text-sm text-slate-600">
+              Desde el 1 de enero de 2027 (hora de España), las empresas españolas que no tengan VERI*FACTU activo no podrán emitir facturas
+              desde la app. Los borradores y las proformas se siguen guardando. No afecta a las empresas de EE. UU. ni de Hong Kong.
+            </p>
+          )}
         </div>
         {estado && (
           <span
