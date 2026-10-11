@@ -9,7 +9,7 @@ interface FormPresentarProps {
   codigo: '111' | '115' | '190' | '200' | '303' | '347' | '390';
   ejercicio: number;
   trimestre?: number;
-  /** Periodo del 303 mensual ('01'..'12'); si va, sustituye al trimestre. */
+  /** Periodo mensual ('01'..'12') del 303, 111 y 115, o '1T'..'4T' en el 111 y 115; si va, manda sobre el trimestre. */
   periodo?: string;
   onSuccess?: () => void;
   isLoading?: boolean;
@@ -169,7 +169,7 @@ export function FormPresentar({
       <ConfirmationModal
         isOpen={showConfirmation}
         title={`Confirmar Presentación – Modelo ${codigo}`}
-        message={`¿Estás seguro de que deseas marcar el Modelo ${codigo} ${trimestre ? `(Q${trimestre})` : ''} como presentado?`}
+        message={`¿Estás seguro de que deseas marcar el Modelo ${codigo} ${periodo ? `(${periodo})` : trimestre ? `(Q${trimestre})` : ''} como presentado?`}
         details={
           <div className="space-y-2">
             <div>
