@@ -47,6 +47,15 @@ export default function ProveedoresPage() {
   const [aviso, setAviso] = useState<{ texto: string; desactivar?: Proveedor } | null>(null);
   // Texto del 403 si su acceso no incluye proveedores (null = si lo incluye).
   const [sinAcceso, setSinAcceso] = useState<string | null>(null);
+  // Desde el plan contable (+ bajo la 430, 400 o 410): ?nuevo=1 abre el alta.
+  useEffect(() => {
+    try {
+      if (puedeEscribir && new URLSearchParams(window.location.search).get('nuevo') === '1') setShowForm(true);
+    } catch {
+      // Sin acceso a la URL: se abre con el boton.
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const peticion = useRef(0);
 
   useEffect(() => {
