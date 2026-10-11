@@ -3,10 +3,10 @@
 import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
+import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { trimestreAPresentar, ejerciciosSeleccionables } from '@/lib/aeatCalendar';
-import { CaretLeft, Download } from '@phosphor-icons/react';
-import { CasillasViewer } from '../components/CasillasViewer';
+import { CaretLeft } from '@phosphor-icons/react';
+import { FormularioRetenciones, type FormularioRetencionesDatos } from '../components/FormularioRetenciones';
 import { FormPresentar } from '../components/FormPresentar';
 import { Tooltip } from '../components/Tooltip';
 import { AvisosModelo } from '../components/AvisosModelo';
@@ -21,6 +21,8 @@ interface Modelo111 {
   estado: 'vigente' | 'presentado';
   /** Nominas en borrador, meses solo con el resumen antiguo, casillas editadas o presentadas... */
   avisos?: string[];
+  /** Formulario oficial: la misma declaracion que el fichero de la AEAT. */
+  formulario: FormularioRetencionesDatos;
 }
 
 export default function Modelo111Page() {
@@ -36,7 +38,7 @@ function Modelo111Contenido() {
   const [modelo, setModelo] = useState<Modelo111 | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [avisoDescarga, setAvisoDescarga] = useState('');
+  const [recarga, setRecarga] = useState(0);
   // Se abre en el trimestre de la URL (desde Nominas) o en el que toca presentar (en octubre, el 3T).
   const [ejercicio, setEjercicio] = useState(() => Number(params.get('ejercicio')) || trimestreAPresentar().ejercicio);
   const [trimestre, setTrimestre] = useState(() => {
@@ -58,19 +60,12 @@ function Modelo111Contenido() {
     };
 
     fetchModelo();
-  }, [ejercicio, trimestre]);
+  }, [ejercicio, trimestre, recarga]);
 
   const eur = new Intl.NumberFormat('es-ES', {
     style: 'currency',
     currency: 'EUR',
   });
-
-  const descargarAEAT = () => {
-    // El backend aun no genera el fichero de este modelo (solo el del 303).
-    setAvisoDescarga(
-      'La descarga del fichero AEAT de este modelo aún no está disponible. Puedes copiar las casillas desde esta pantalla.',
-    );
-  };
 
   if (loading) {
     return (
@@ -133,44 +128,17 @@ function Modelo111Contenido() {
           >
             {[1, 2, 3, 4].map((t) => (
               <option key={t} value={t}>
-                Q{t}
+                {t}T
               </option>
             ))}
           </select>
         </div>
       </div>
 
-      {/* Resumen Rápido */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <div className="rounded-lg border border-slate-200 bg-white p-6">
-          <div className="flex items-center gap-2">
-            <p className="text-sm text-slate-600">Base Total de Retenciones</p>
-            <Tooltip text="Importe total de las operaciones sujetas a retención (honorarios, comisiones, etc.) en este trimestre." />
-          </div>
-          <p className="mt-2 text-2xl font-bold text-slate-900">{eur.format(modelo.totalBase)}</p>
-          <p className="mt-1 text-xs text-slate-500">Suma de todas las bases imponibles</p>
-        </div>
-
-        <div className="rounded-lg border border-blue-200 bg-blue-50 p-6">
-          <div className="flex items-center gap-2">
-            <p className="text-sm text-blue-600">Total Retenido</p>
-            <Tooltip text="Total de IRPF que has retenido en este trimestre (suma de todas las retenciones practicadas)." />
-          </div>
-          <p className="mt-2 text-2xl font-bold text-blue-900">{eur.format(modelo.totalRetenido)}</p>
-          <p className="mt-1 text-xs text-blue-600">Retenciones practicadas (IRPF)</p>
-        </div>
-      </div>
-
       <AvisosModelo avisos={modelo.avisos} ejercicio={modelo.ejercicio} mes={modelo.trimestre * 3} />
 
-      {/* Casillas Completas */}
-      <CasillasViewer
-        casillas={modelo.casillas}
-        titulo="Casillas del Modelo 111"
-        casillasConteo={['01', '04', '07']}
-        descripcion={`Trimestre ${modelo.trimestre} de ${modelo.ejercicio} – Retenciones por tipo`}
-        estado={modelo.estado}
-      />
+      {/* Formulario oficial (misma fuente que el fichero) */}
+      <FormularioRetenciones formulario={modelo.formulario} modeloId={modelo.id} estado={modelo.estado} onGuardado={() => setRecarga((n) => n + 1)} />
 
       {/* Desglose por Tipo de Retención */}
       {modelo.casillas.retenciones && Array.isArray(modelo.casillas.retenciones) && (
@@ -217,25 +185,9 @@ function Modelo111Contenido() {
 
       {/* Acciones Finales */}
       <div className="space-y-4">
-        {/* Botón de Descarga AEAT */}
-        {modelo.estado === 'vigente' && (
-          <>
-            <button
-              onClick={descargarAEAT}
-              className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-6 py-3 text-sm font-medium text-white hover:bg-emerald-700 transition"
-            >
-              <Download size={18} />
-              Descargar Fichero AEAT (TXT)
-            </button>
-            {avisoDescarga && (
-              <p role="status" className="mt-2 text-sm text-amber-700">{avisoDescarga}</p>
-            )}
-          </>
-        )}
-
         {/* Formulario de Presentación */}
         {modelo.estado === 'vigente' && (
-          <FormPresentar codigo="111" ejercicio={ejercicio} trimestre={trimestre} />
+          <FormPresentar codigo="111" ejercicio={ejercicio} trimestre={trimestre} onSuccess={() => setRecarga((n) => n + 1)} />
         )}
       </div>
     </div>

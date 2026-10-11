@@ -7,6 +7,7 @@ import { ejerciciosSeleccionables, trimestreAPresentar } from '@/lib/aeatCalenda
 import { formatoImporte } from '@/lib/moneda';
 import { CaretLeft } from '@phosphor-icons/react';
 import { FormPresentar } from '../components/FormPresentar';
+import { FormularioRetenciones, type FormularioRetencionesDatos } from '../components/FormularioRetenciones';
 
 /**
  * Modelo 115 (retenciones de alquileres): el trimestre, calculado con las
@@ -33,6 +34,8 @@ interface Modelo115Trimestre {
   casillas: Record<string, number>;
   perceptores: Arrendador[];
   avisos?: string[];
+  /** Formulario oficial: la misma declaracion que el fichero de la AEAT. */
+  formulario: FormularioRetencionesDatos;
 }
 
 interface Resumen115 {
@@ -117,8 +120,6 @@ export default function Modelo115Page() {
     };
   }, [ejercicio, trimestre, recarga]);
 
-  const casilla = (k: string) => Number(modelo?.casillas?.[k] ?? 0) || 0;
-
   return (
     <div className="space-y-6">
       <div>
@@ -174,21 +175,6 @@ export default function Modelo115Page() {
                 </h2>
                 <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-medium text-slate-700">{ESTADO[modelo.estado] ?? modelo.estado}</span>
               </div>
-              <dl className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                {[
-                  ['01', 'Nº de perceptores', String(casilla('01'))],
-                  ['02', 'Base de las retenciones', eur(casilla('02'))],
-                  ['03', 'Retenciones', eur(casilla('03'))],
-                  ['05', 'Resultado a ingresar', eur(casilla('05'))],
-                ].map(([k, t, v]) => (
-                  <div key={k} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                    <dt className="text-xs text-slate-600">
-                      [{k}] {t}
-                    </dt>
-                    <dd className="mt-1 font-mono text-lg font-semibold text-slate-900">{v}</dd>
-                  </div>
-                ))}
-              </dl>
               {modelo.avisos && modelo.avisos.length > 0 && (
                 <ul className="list-disc space-y-1 rounded-lg border border-amber-200 bg-amber-50 p-3 pl-8 text-sm text-amber-800">
                   {modelo.avisos.map((a, i) => (
@@ -204,6 +190,9 @@ export default function Modelo115Page() {
                 El pago del 115 se anota con un asiento manual contra la 4751 (la parte de alquileres). Las facturas pendientes de revisar o anuladas no cuentan.
               </p>
             </section>
+
+            {/* Formulario oficial (misma fuente que el fichero) */}
+            <FormularioRetenciones formulario={modelo.formulario} modeloId={modelo.id} estado={modelo.estado} onGuardado={() => setRecarga((n) => n + 1)} />
 
             {modelo.estado === 'vigente' && <FormPresentar codigo="115" ejercicio={ejercicio} trimestre={trimestre} onSuccess={() => setRecarga((n) => n + 1)} />}
 
