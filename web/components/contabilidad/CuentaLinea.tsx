@@ -116,10 +116,12 @@ export function CuentaLinea({ tipo, catalogo, valor, onCambiar, porDefecto, line
                   onChange={(e) => setQ(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === 'Escape') cerrar();
-                    // Intro dentro de la factura no la guarda: elige la primera que coincide.
+                    // Intro no envia la factura. Solo elige si lo escrito apunta a una cuenta
+                    // (el codigo exacto o la unica que coincide); con el buscador vacio no cambia nada.
                     if (e.key === 'Enter') {
                       e.preventDefault();
-                      if (cuentas[0]) elegir(cuentas[0].codigo);
+                      const unica = cuentaDeIntro(q, cuentas);
+                      if (unica) elegir(unica);
                     }
                   }}
                   placeholder={tipo === 'gasto' ? 'Código o nombre (628, luz…)' : 'Código o nombre (705, cursos…)'}
@@ -193,6 +195,18 @@ export function CuentaLinea({ tipo, catalogo, valor, onCambiar, porDefecto, line
       )}
     </div>
   );
+}
+
+/**
+ * Cuenta que elige Intro en el buscador: la de codigo igual a lo escrito o, si no,
+ * la unica que coincide. Con el buscador vacio o con varias coincidencias, ninguna.
+ */
+function cuentaDeIntro(q: string, cuentas: Array<{ codigo: string }>): string | null {
+  const t = q.trim();
+  if (!t) return null;
+  const exacta = cuentas.find((c) => c.codigo === t);
+  if (exacta) return exacta.codigo;
+  return cuentas.length === 1 ? cuentas[0].codigo : null;
 }
 
 /** Cuenta madre de la elegida (62800001 -> 628), si esta en el catalogo. */
