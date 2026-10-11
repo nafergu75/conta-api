@@ -123,7 +123,7 @@ export function BloqueContabilidadTercero({ tipo, id, subcuentas, subcuentasEnPl
       {veContabilidad ? (
         <div className="mt-4 flex flex-col gap-2 text-sm sm:flex-row sm:flex-wrap sm:gap-x-5">
           <Link href={enlaceLibroMayor(tipo, id)} className="inline-flex min-h-[44px] items-center gap-1 font-medium text-emerald-700 hover:underline sm:min-h-0">
-            Ver el mayor de su subcuenta <ArrowRight size={14} />
+            {conCodigo.length > 1 ? 'Ver el mayor de sus subcuentas' : 'Ver el mayor de su subcuenta'} <ArrowRight size={14} />
           </Link>
           <Link href={enlaceMayorTerceros(tipo, id)} className="inline-flex min-h-[44px] items-center gap-1 font-medium text-emerald-700 hover:underline sm:min-h-0">
             Ver en el mayor de {tipo === 'cliente' ? 'clientes' : 'proveedores'} <ArrowRight size={14} />
