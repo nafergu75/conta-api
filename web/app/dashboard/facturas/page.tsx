@@ -7,6 +7,8 @@ import { Plus, MagnifyingGlass, X } from '@phosphor-icons/react';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { formatoImporte } from '@/lib/moneda';
 import { ETIQUETA_CORTA, useContextoFiscal } from '@/lib/fiscal';
+import { useRedSeguridad } from '@/lib/verifactu';
+import AvisoRedSeguridad from '@/components/verifactu/AvisoRedSeguridad';
 
 interface Factura {
   id: string;
@@ -58,6 +60,8 @@ export default function FacturasPage() {
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
   const monedaCuenta = useContextoFiscal().contexto?.monedaCuenta ?? 'EUR';
+  // VERI*FACTU: aviso desde el 1-12-2026 y, desde el 1-1-2027, si ya no se puede emitir.
+  const redSeguridad = useRedSeguridad();
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -114,6 +118,8 @@ export default function FacturasPage() {
       </header>
 
       <main className="max-w-6xl mx-auto px-4 md:px-8 py-8 flex flex-col gap-6">
+        <AvisoRedSeguridad estado={redSeguridad} />
+
         {/* Buscador */}
         <section className="rounded-lg border border-slate-200 bg-white p-4">
           <label className="block text-sm font-medium text-slate-700 mb-2">
