@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Buildings, CheckCircle, WarningCircle } from '@phosphor-icons/react';
 import { apiFetch, campoDelError, companyPath, errorMessage } from '@/lib/api';
+import { guardarDatosEmpresa } from '@/lib/verifactu';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import {
   CamposEmpresa,
@@ -130,9 +131,9 @@ function DatosEmpresa() {
     setErrores({});
     try {
       // La moneda de la contabilidad solo se envia mientras se puede cambiar.
-      const cfg = await apiFetch<{ completo: boolean; pendientes: string[]; monedaCuenta?: string; monedaCuentaEditable?: boolean }>(
-        companyPath('/legal-config'),
-        { method: 'PUT', body: JSON.stringify(monedaEditable ? datos : { ...datos, monedaCuenta: undefined }) },
+      // Con facturas emitidas, cambiar el NIF pide confirmacion (guardarDatosEmpresa).
+      const cfg = await guardarDatosEmpresa<{ completo: boolean; pendientes: string[]; monedaCuenta?: string; monedaCuentaEditable?: boolean }>(
+        monedaEditable ? datos : { ...datos, monedaCuenta: undefined },
       );
       if (cfg.monedaCuenta) setDatos((d) => ({ ...d, monedaCuenta: cfg.monedaCuenta as string }));
       setMonedaEditable(cfg.monedaCuentaEditable !== false);

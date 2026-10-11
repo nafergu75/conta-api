@@ -25,6 +25,8 @@ import { useContextoFiscal, type AvisoFiscal } from '@/lib/fiscal';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { useCuentasLinea } from '@/lib/subcuentas';
 import { CuentaLinea } from '@/components/contabilidad/CuentaLinea';
+import { hoyEspana, LIMITE_SIMPLIFICADA, useRedSeguridad } from '@/lib/verifactu';
+import AvisoRedSeguridad from '@/components/verifactu/AvisoRedSeguridad';
 
 /**
  * Alta de factura de venta, o edicion de un borrador (?id=...).
@@ -158,7 +160,8 @@ const num = (s: string): number => {
   return Number.isFinite(n) ? n : 0;
 };
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
-const hoy = () => new Date().toISOString().slice(0, 10);
+// Hoy en España: entre las 00:00 y las 02:00 el dia UTC todavia seria ayer.
+const hoy = () => hoyEspana();
 const masDias = (fecha: string, dias: number) => {
   const d = new Date(`${fecha}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + dias);
@@ -184,6 +187,11 @@ const cuentaPorDefecto = (p: Producto | undefined) =>
 const campo =
   'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-500';
 const etiqueta = 'mb-1 block text-sm font-medium text-slate-700';
+
+const BOTON_PRINCIPAL =
+  'rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50';
+const BOTON_SECUNDARIO =
+  'rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50';
 
 export default function NuevaFacturaPage() {
   return (
@@ -559,6 +567,14 @@ function FormularioFactura() {
 
   const serieElegida = series.find((s) => s.codigo === serie);
 
+  // VERI*FACTU: desde el 1-1-2027, sin VERI*FACTU activo no se pasa a factura
+  // (el borrador y la proforma, si). El servidor lo vuelve a comprobar.
+  const redSeguridad = useRedSeguridad();
+  const emisionBloqueada = !esProforma && !!redSeguridad?.bloquea;
+  // Simplificada (F2): hasta 3.000 € de base mas IVA, en euros.
+  const totalSimplificada = calculo.cuenta ? r2(calculo.cuenta.base + calculo.cuenta.iva) : null;
+  const simplificadaExcedida = espanola && tipoFactura === 'F2' && totalSimplificada !== null && totalSimplificada > LIMITE_SIMPLIFICADA;
+
   const cuerpo = () => {
     const fiscal = espanola ? { tipoOperacion: tipoOperacion || null, ...causaYReferencia() } : {};
     return {
@@ -603,6 +619,11 @@ function FormularioFactura() {
     if (enDivisa && tipoManual.trim() && !(manual > 0)) return 'El tipo de cambio tiene que ser un número mayor que cero.';
     if (enDivisa && tipoManual.trim() && bce?.tipoCambio && pareceInvertido(manual, bce.tipoCambio)) return avisoTipo;
     if (emitir && !esProforma) {
+      if (emisionBloqueada) return redSeguridad?.motivo ?? 'Ahora mismo no se pueden emitir facturas de esta empresa.';
+      if (fechaEmision > hoy()) return 'La fecha de emisión no puede ser posterior a hoy. Guarda el borrador y pásalo a factura ese día.';
+      if (simplificadaExcedida) {
+        return 'Una factura simplificada no puede pasar de 3.000 € (base más IVA). Cámbiala a completa (F1) para emitirla.';
+      }
       if (espanola && !tipoOperacion) return 'Elige el tipo de operación de la factura.';
       if (enDivisa && !tipoAplicado) return `Sin tipo de cambio del BCE: indica el tipo a mano (1 ${monedaCuenta} = … ${monedaDoc}).`;
       // Al emitir nunca vale un tipo viejo: el que se ve es orientativo (de dias anteriores).
@@ -725,6 +746,8 @@ function FormularioFactura() {
           No se han podido cargar los datos fiscales de la empresa ({errorContexto}). Puedes guardar el borrador, pero no pasarlo a factura hasta que se carguen.
         </p>
       )}
+
+      {!esProforma && <AvisoRedSeguridad estado={redSeguridad} donde="formulario" />}
 
       {error && (
         <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
@@ -915,6 +938,13 @@ function FormularioFactura() {
                 Simplificada / ticket (F2)
               </option>
             </select>
+            {tipoFactura === 'F2' && (
+              <p className={`mt-1 text-xs ${simplificadaExcedida ? 'text-red-700' : 'text-slate-500'}`}>
+                {simplificadaExcedida
+                  ? `Esta factura suma ${fmtCuenta(totalSimplificada ?? 0)} con IVA: una simplificada solo llega a 3.000 €. Cámbiala a completa (F1).`
+                  : 'Hasta 3.000 € con IVA. En VERI*FACTU la simplificada no lleva los datos del cliente: si hay que identificarlo, usa la completa (F1).'}
+              </p>
+            )}
           </div>
         )}
         <div>
@@ -1240,6 +1270,11 @@ function FormularioFactura() {
         </div>
       </section>
 
+      {emisionBloqueada && (
+        <p id="motivo-sin-emitir" className="text-left text-sm text-rose-700 sm:text-right">
+          No se puede pasar a factura sin VERI*FACTU. Guarda el borrador y pásalo a factura cuando esté activo.
+        </p>
+      )}
       <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
         {esProforma ? (
           <button
@@ -1256,15 +1291,18 @@ function FormularioFactura() {
               type="button"
               disabled={guardando}
               onClick={() => guardar(false)}
-              className="rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              // Con el bloqueo, guardar el borrador es lo único que se puede hacer: pasa a ser el botón principal.
+              className={emisionBloqueada ? BOTON_PRINCIPAL : BOTON_SECUNDARIO}
             >
               Guardar borrador
             </button>
             <button
               type="button"
-              disabled={guardando || !contexto}
+              disabled={guardando || !contexto || emisionBloqueada}
               onClick={() => guardar(true)}
-              className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+              title={emisionBloqueada ? redSeguridad?.motivo ?? undefined : undefined}
+              aria-describedby={emisionBloqueada ? 'motivo-sin-emitir' : undefined}
+              className={emisionBloqueada ? BOTON_SECUNDARIO : BOTON_PRINCIPAL}
             >
               {guardando ? 'Guardando…' : 'Pasar a factura'}
             </button>

@@ -36,6 +36,7 @@ import {
 } from '@/lib/auth';
 import EditorPermisos from '@/components/admin/EditorPermisos';
 import ContrasenaProvisional from '@/components/admin/ContrasenaProvisional';
+import RedSeguridadVerifactu from '@/components/admin/RedSeguridadVerifactu';
 import {
   areasDelPerfil,
   areasParaEnviar,
@@ -639,6 +640,11 @@ export default function AdministracionPage() {
               : `${usuariosFiltrados.length} de ${usuarios.length} usuarios`}
           </p>
         )}
+
+        {/* VERI*FACTU: bloqueo de emision desde el 1-1-2027 (afecta a toda la plataforma). Va
+            despues de las listas: se usa como mucho una vez y no debe separar el boton
+            «Nueva empresa» de sus pestañas. */}
+        <RedSeguridadVerifactu />
       </main>
 
       {modal === 'empresa' && (

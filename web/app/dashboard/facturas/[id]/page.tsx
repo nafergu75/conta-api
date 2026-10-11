@@ -11,6 +11,8 @@ import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getCompanyId, getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { formatoImporte, NOMBRE_MONEDA, parseTipo, textoTipo, tipoParaEditar } from '@/lib/moneda';
 import { ETIQUETA_CORTA, ETIQUETA_LARGA, nombrePais } from '@/lib/fiscal';
+import { useRedSeguridad, type EstadoRedSeguridad } from '@/lib/verifactu';
+import AvisoRedSeguridad from '@/components/verifactu/AvisoRedSeguridad';
 
 interface Linea {
   id: string;
@@ -126,6 +128,8 @@ const TIPOS_RECTIFICATIVA = [
   ['R3', 'R3 — Crédito incobrable (art. 80.Cuatro)'],
   ['R4', 'R4 — Resto de causas'],
 ] as const;
+/** Solo para rectificar una simplificada (F2). */
+const TIPO_R5 = ['R5', 'R5 — Rectificativa de una factura simplificada'] as const;
 
 const boton =
   'inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50';
@@ -145,6 +149,8 @@ export default function FacturaDetallePage() {
   const [error, setError] = useState('');
   const [aviso, setAviso] = useState('');
   const [rectificando, setRectificando] = useState(false);
+  // VERI*FACTU: desde el 1-1-2027, sin VERI*FACTU activo no se emite (el borrador si se guarda).
+  const redSeguridad = useRedSeguridad();
   // Emitida pero sin asiento (p. ej. sin plan contable): lo dice la respuesta de emitir.
   const [sinAsiento, setSinAsiento] = useState('');
 
@@ -247,7 +253,9 @@ export default function FacturaDetallePage() {
   const titulo = esProforma
     ? `Proforma ${factura.numeroCompleto}`
     : esBorrador
-      ? 'Borrador de factura'
+      ? factura.esRectificativa
+        ? 'Borrador de rectificativa'
+        : 'Borrador de factura'
       : `${factura.esRectificativa ? 'Rectificativa' : 'Factura'} ${factura.numeroCompleto}`;
 
   const emitir = () => {
@@ -361,6 +369,8 @@ export default function FacturaDetallePage() {
         </p>
       )}
 
+      {esBorrador && puedeEditar && <AvisoRedSeguridad estado={redSeguridad} donde="borrador" />}
+
       <div className="flex flex-wrap gap-2">
         {proformaPendiente && puedeEditar && (
           <>
@@ -380,7 +390,13 @@ export default function FacturaDetallePage() {
         )}
         {esBorrador && puedeEditar && (
           <>
-            <button type="button" disabled={ocupado} onClick={emitir} className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
+            <button
+              type="button"
+              disabled={ocupado || !!redSeguridad?.bloquea}
+              onClick={emitir}
+              title={redSeguridad?.bloquea ? redSeguridad.motivo ?? undefined : undefined}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+            >
               <Receipt size={16} /> Pasar a factura
             </button>
             <Link href={`/dashboard/facturas/nueva?id=${id}`} className={boton}>
@@ -615,6 +631,7 @@ export default function FacturaDetallePage() {
       {rectificando && (
         <ModalRectificativa
           factura={factura}
+          redSeguridad={redSeguridad}
           onCerrar={() => setRectificando(false)}
           onCreada={(nuevaId) => router.push(`/dashboard/facturas/${nuevaId}`)}
         />
@@ -648,17 +665,24 @@ function Fila({ etiqueta, valor }: { etiqueta: string; valor: string }) {
  */
 function ModalRectificativa({
   factura,
+  redSeguridad,
   onCerrar,
   onCreada,
 }: {
   factura: Factura;
+  redSeguridad: EstadoRedSeguridad | null;
   onCerrar: () => void;
   onCreada: (id: string) => void;
 }) {
   const [motivo, setMotivo] = useState('');
-  const [tipo, setTipo] = useState('R1');
+  // R5 solo rectifica una simplificada (F2): es su causa por defecto.
+  const simplificada = factura.tipoFactura === 'F2';
+  const [tipo, setTipo] = useState(simplificada ? 'R5' : 'R1');
   const [error, setError] = useState('');
   const [enviando, setEnviando] = useState(false);
+  // Sin VERI*FACTU activo (desde el 1-1-2027) la rectificativa se guarda como borrador.
+  const bloqueada = !!redSeguridad?.bloquea;
+  const tipos: ReadonlyArray<readonly [string, string]> = simplificada ? [...TIPOS_RECTIFICATIVA, TIPO_R5] : TIPOS_RECTIFICATIVA;
 
   const crear = async () => {
     if (!motivo.trim()) return setError('Indica el motivo de la rectificación.');
@@ -667,7 +691,7 @@ function ModalRectificativa({
     try {
       const { invoice } = await apiFetch<{ invoice: { id: string } }>(companyPath(`/income-invoices/${factura.id}/credit-note`), {
         method: 'POST',
-        body: JSON.stringify({ motivo: motivo.trim(), tipoFactura: tipo, tipoRectificativa: 'I' }),
+        body: JSON.stringify({ motivo: motivo.trim(), tipoFactura: tipo, tipoRectificativa: 'I', ...(bloqueada ? { borrador: true } : {}) }),
       });
       onCreada(invoice.id);
     } catch (e) {
@@ -685,16 +709,26 @@ function ModalRectificativa({
             <X size={18} />
           </button>
         </div>
-        <p className="text-sm text-slate-600">
-          Se emitirá una factura rectificativa en la serie de rectificativas que anula esta por completo
-          ({formatoImporte(-(factura.totalFacturaDoc ?? factura.totalFactura), factura.moneda ?? 'EUR')}
-          {factura.moneda && factura.monedaCuenta && factura.moneda !== factura.monedaCuenta ? ', con el mismo tipo de cambio' : ''}). Si solo
-          había que corregir algo, después emite una factura nueva con los datos buenos.
-        </p>
+        {bloqueada ? (
+          // Sin VERI*FACTU no se emite: el texto dice lo que va a pasar de verdad.
+          <p className="text-sm text-slate-600">
+            Se guardará como borrador una rectificativa que anula esta factura por completo
+            ({formatoImporte(-(factura.totalFacturaDoc ?? factura.totalFactura), factura.moneda ?? 'EUR')}
+            {factura.moneda && factura.monedaCuenta && factura.moneda !== factura.monedaCuenta ? ', con el mismo tipo de cambio' : ''}). La
+            podrás pasar a factura cuando VERI*FACTU esté activo.
+          </p>
+        ) : (
+          <p className="text-sm text-slate-600">
+            Se emitirá una factura rectificativa en la serie de rectificativas que anula esta por completo
+            ({formatoImporte(-(factura.totalFacturaDoc ?? factura.totalFactura), factura.moneda ?? 'EUR')}
+            {factura.moneda && factura.monedaCuenta && factura.moneda !== factura.monedaCuenta ? ', con el mismo tipo de cambio' : ''}). Si solo
+            había que corregir algo, después emite una factura nueva con los datos buenos.
+          </p>
+        )}
         <div>
           <label htmlFor="tipo-rect" className="mb-1 block text-sm font-medium text-slate-700">Causa</label>
           <select id="tipo-rect" value={tipo} onChange={(e) => setTipo(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
-            {TIPOS_RECTIFICATIVA.map(([v, t]) => (
+            {tipos.map(([v, t]) => (
               <option key={v} value={v}>{t}</option>
             ))}
           </select>
@@ -710,11 +744,16 @@ function ModalRectificativa({
             className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
           />
         </div>
+        {bloqueada && (
+          <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            Esta empresa todavía no tiene VERI*FACTU activo, así que la rectificativa no se emite ahora.
+          </p>
+        )}
         {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
         <div className="flex justify-end gap-2">
           <button type="button" onClick={onCerrar} className={boton}>Cancelar</button>
           <button type="button" disabled={enviando} onClick={crear} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
-            {enviando ? 'Emitiendo…' : 'Emitir rectificativa'}
+            {bloqueada ? (enviando ? 'Guardando…' : 'Guardar como borrador') : enviando ? 'Emitiendo…' : 'Emitir rectificativa'}
           </button>
         </div>
       </div>

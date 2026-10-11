@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { CheckCircle, WarningCircle } from '@phosphor-icons/react';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
+import { guardarDatosEmpresa } from '@/lib/verifactu';
 import { LogoEmpresa } from './LogoEmpresa';
 
 /**
@@ -132,7 +133,7 @@ export function DatosMemoria({ fyId, ejercicio, puedeEditar }: { fyId: string; e
     setGuardando(true);
     setMensaje(null);
     try {
-      await apiFetch(companyPath('/legal-config'), { method: 'PUT', body: JSON.stringify(sociedad) });
+      await guardarDatosEmpresa(sociedad);
       const r = await apiFetch<{ pendientes: string[] }>(`/fiscal-years/${fyId}/memoria`, { method: 'PUT', body: JSON.stringify(notas) });
       setPendientes(r.pendientes);
       setMensaje({ ok: true, texto: 'Datos guardados. Se usarán la próxima vez que generes las cuentas anuales.' });
