@@ -175,10 +175,35 @@ export function esCancelada(e: unknown): boolean {
 }
 
 /**
+ * Senal que se corta si la corta el usuario (Cancelar) o si se pasa el plazo.
+ * Con AbortController y setTimeout (AbortSignal.any no esta en todos los navegadores).
+ */
+function conPlazo(signal: AbortSignal | undefined, ms: number): { signal: AbortSignal; vencido: () => boolean; limpiar: () => void } {
+  const c = new AbortController();
+  let vencido = false;
+  const alCancelar = () => c.abort();
+  if (signal?.aborted) c.abort();
+  else signal?.addEventListener('abort', alCancelar, { once: true });
+  const t = setTimeout(() => {
+    vencido = true;
+    c.abort();
+  }, Math.max(1000, ms));
+  return {
+    signal: c.signal,
+    vencido: () => vencido && !signal?.aborted,
+    limpiar: () => {
+      clearTimeout(t);
+      signal?.removeEventListener('abort', alCancelar);
+    },
+  };
+}
+
+/**
  * Sube la factura y espera a que este leida.
  *
  * - `alEmpezar(lecturaId)`: en cuanto el servidor la acepta (para poder descartarla).
- * - Consulta cada `reintentarEnMs` (entre 1,5 y 5 s) y se rinde a los 120 s.
+ * - Consulta cada `reintentarEnMs` (entre 1,5 y 5 s) y se rinde a los 120 s,
+ *   tambien si una peticion se queda colgada (cada una se corta al llegar al plazo).
  * - Un `signal` cancelado corta la espera (lanza un AbortError: ver esCancelada).
  */
 export async function leerFactura<T extends LectorPantalla>(
@@ -189,18 +214,38 @@ export async function leerFactura<T extends LectorPantalla>(
   const { signal, alEmpezar } = opciones;
   const datos = new FormData();
   datos.append('archivo', archivo, archivo.name);
+  const inicio = Date.now();
+  const tarda = () => new ErrorLectura(MENSAJE_TARDA, 'TARDA', ALTA_MANUAL[lector]);
+
+  /** Una peticion con el tope de lo que queda de plazo. */
+  const pedir = async (ruta: string, init: RequestInit = {}): Promise<Respuesta<ListaDe<T>>> => {
+    const plazo = conPlazo(signal, PLAZO_MAX_MS - (Date.now() - inicio));
+    try {
+      const r = await apiFetch<Respuesta<ListaDe<T>>>(companyPath(ruta), { ...init, signal: plazo.signal });
+      // Un corte mientras se leia el cuerpo deja la respuesta vacia: cuenta como corte.
+      if (signal?.aborted) throw new DOMException('Cancelada', 'AbortError');
+      if (plazo.vencido()) throw tarda();
+      if (!r) throw new ErrorLectura('El servidor no ha respondido bien. Prueba otra vez.', 'SIN_RESPUESTA', ALTA_MANUAL[lector]);
+      return r;
+    } catch (e) {
+      if (e instanceof ErrorLectura || esCancelada(e)) throw e;
+      if (signal?.aborted) throw new DOMException('Cancelada', 'AbortError');
+      if (plazo.vencido()) throw tarda();
+      throw e;
+    } finally {
+      plazo.limpiar();
+    }
+  };
 
   let r: Respuesta<ListaDe<T>>;
   try {
-    r = await apiFetch<Respuesta<ListaDe<T>>>(companyPath(RUTA[lector]), { method: 'POST', body: datos, signal });
+    r = await pedir(RUTA[lector], { method: 'POST', body: datos });
   } catch (e) {
-    if (signal?.aborted) throw new DOMException('Cancelada', 'AbortError');
     if (codigoDe(e) === 'LECTOR_SIN_IA') throw new ErrorLectura(MENSAJE_SIN_IA[lector], 'LECTOR_SIN_IA', ALTA_MANUAL[lector]);
     throw e;
   }
   alEmpezar?.(r.lecturaId);
 
-  const inicio = Date.now();
   for (;;) {
     if (r.estado === 'LISTA') return r as ListaDe<T>;
     if (r.estado === 'ERROR') {
@@ -212,14 +257,9 @@ export async function leerFactura<T extends LectorPantalla>(
 
     const pedida = Number((r as Leyendo).reintentarEnMs) || ESPERA_MIN_MS;
     const espera = Math.min(ESPERA_MAX_MS, Math.max(ESPERA_MIN_MS, pedida));
-    if (Date.now() - inicio + espera > PLAZO_MAX_MS) throw new ErrorLectura(MENSAJE_TARDA, 'TARDA', ALTA_MANUAL[lector]);
+    if (Date.now() - inicio + espera > PLAZO_MAX_MS) throw tarda();
     await esperar(espera, signal);
-    try {
-      r = await apiFetch<Respuesta<ListaDe<T>>>(companyPath(`${RUTA[lector]}/${encodeURIComponent(r.lecturaId)}`), { signal });
-    } catch (e) {
-      if (signal?.aborted) throw new DOMException('Cancelada', 'AbortError');
-      throw e;
-    }
+    r = await pedir(`${RUTA[lector]}/${encodeURIComponent(r.lecturaId)}`);
   }
 }
 
