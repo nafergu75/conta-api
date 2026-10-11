@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCircle, LinkSimple, UserPlus, WarningCircle, X } from '@phosphor-icons/react';
-import { apiFetch, campoDelError, companyPath, errorMessage } from '@/lib/api';
+import { ApiError, apiFetch, campoDelError, companyPath, errorMessage } from '@/lib/api';
+import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { BuscadorTercero } from '@/components/contabilidad/BuscadorTercero';
 import type { TerceroEncontrado } from '@/lib/subcuentas';
 import { boton, botonSecundario, campo, Dato, Mensajes, SubidaFichero, subirPorTrozos, TAM_DIRECTO, TAM_MAXIMO } from '../importacion';
@@ -62,6 +63,33 @@ const TEXTO_ACCION: Record<Accion, { texto: string; color: string }> = {
  * (si solo hay una) y lo dice en `motivo`: hay que comprobarlas antes de confirmar.
  */
 const porNombre = (t: VistaPlan['terceros'][number]) => t.accion === 'enlazar' && !!t.motivo;
+
+type TipoFicha = 'cliente' | 'proveedor';
+
+/** Permiso que hace falta para dar de alta una ficha nueva de ese tipo (el administrador siempre lo tiene). */
+const PERMISO_ALTA: Record<TipoFicha, string> = { cliente: 'ventas:write', proveedor: 'compras:write' };
+
+const NOMBRE_AREA: Record<string, string> = {
+  ventas: 'Ventas',
+  compras: 'Compras',
+  contabilidad: 'Contabilidad',
+  tesoreria: 'Tesorería',
+  impuestos: 'Impuestos',
+  nominas: 'Nóminas',
+};
+
+/** 'ventas:write' -> 'Ventas «Modificar»', como en la pantalla de permisos. */
+function textoPermiso(p: string): string {
+  const [area, nivel] = p.split(':');
+  return `${NOMBRE_AREA[area] ?? area} «${nivel === 'read' ? 'Ver' : 'Modificar'}»`;
+}
+
+/** Permisos que faltan segun un 403 del servidor (details.permisos), o null si no es eso. */
+function permisosQueFaltan(e: unknown): string[] | null {
+  if (!(e instanceof ApiError) || e.status !== 403) return null;
+  const p = e.detalles && typeof e.detalles === 'object' ? (e.detalles as { permisos?: unknown }).permisos : undefined;
+  return Array.isArray(p) && p.length && p.every((x) => typeof x === 'string') ? (p as string[]) : null;
+}
 
 /** El plan trae otra longitud y ya hay terceros con la de la app: convivirian las dos. */
 const longitudDistinta = (v: VistaPlan) => !!v.longitud.motivo && !!v.longitud.delPlan && v.longitud.delPlan !== v.longitud.actual && !v.longitud.seFija;
@@ -227,6 +255,7 @@ export function PlanAnterior({ onHecho }: { onHecho: (t: string) => void }) {
                 {vista.resumen.noSeEnlazan ? ` · ${vista.resumen.noSeEnlazan} no se enlazan (revísalas)` : ''}.
               </p>
               <AvisoPorNombre n={vista.terceros.filter(porNombre).length} />
+              <AvisoSinPermisoAlta terceros={vista.terceros} />
               <ul className="max-h-96 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-200 bg-white text-sm">
                 {vista.terceros.map((t) => (
                   <li key={t.codigo} className="flex flex-col gap-1 px-3 py-2 sm:flex-row sm:items-start sm:gap-3">
@@ -300,6 +329,30 @@ export function PlanAnterior({ onHecho }: { onHecho: (t: string) => void }) {
 
       <SubcuentasSinEnlazar vuelta={vuelta} />
     </div>
+  );
+}
+
+/**
+ * Sin permiso de Ventas o de Compras «Modificar», las subcuentas que crearian
+ * una ficha nueva quedan pendientes (cada una lo dice en su motivo). El recuadro
+ * explica que falta y a quien pedirlo.
+ */
+function AvisoSinPermisoAlta({ terceros }: { terceros: VistaPlan['terceros'] }) {
+  const usuario = getUser();
+  const tipos = (['cliente', 'proveedor'] as const).filter(
+    (tipo) => !tieneAlgunPermiso(usuario, [PERMISO_ALTA[tipo]]) && terceros.some((t) => t.tipo === tipo && t.accion === 'pendiente'),
+  );
+  if (!tipos.length) return null;
+  const quien = tipos.map((t) => (t === 'cliente' ? 'clientes' : 'proveedores')).join(' ni ');
+  const permisos = tipos.map((t) => textoPermiso(PERMISO_ALTA[t])).join(' y ');
+  return (
+    <p className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+      <WarningCircle size={18} className="mt-0.5 shrink-0" aria-hidden />
+      <span>
+        No puedes dar de alta {quien} nuevos: te falta el permiso {permisos}. Las subcuentas que necesitan una ficha nueva quedan pendientes. Pide ese permiso al
+        administrador de la empresa, o enlázalas después a fichas que ya existan en «Subcuentas sin enlazar».
+      </span>
+    </p>
   );
 }
 
@@ -419,7 +472,11 @@ function Enlazar({ subcuenta, onHecho }: { subcuenta: SinEnlazar; onHecho: (text
   const [error, setError] = useState('');
   const [campoMal, setCampoMal] = useState<string | undefined>();
   const [guardando, setGuardando] = useState(false);
+  // Permisos que el servidor dice que faltan (403 con details.permisos).
+  const [faltan, setFaltan] = useState<string[] | null>(null);
   const ids = `enl-${subcuenta.codigo}`;
+  const permisoAlta = PERMISO_ALTA[subcuenta.tipo];
+  const sinPermisoAlta = faltan !== null || !tieneAlgunPermiso(getUser(), [permisoAlta]);
 
   const enlazar = async () => {
     setError('');
@@ -441,6 +498,12 @@ function Enlazar({ subcuenta, onHecho }: { subcuenta: SinEnlazar; onHecho: (text
         `${subcuenta.codigo} enlazada con ${quien}${r.fichaCreada ? ' (ficha nueva)' : ''}.${r.sustituida ? ` Su subcuenta anterior ${r.sustituida} queda desactivada.` : ''}`,
       );
     } catch (e) {
+      const sinPermiso = permisosQueFaltan(e);
+      if (sinPermiso) {
+        // El recuadro de abajo dice que falta y a quien pedirlo.
+        setFaltan(sinPermiso);
+        return;
+      }
       setError(errorMessage(e));
       setCampoMal(campoDelError(e));
     } finally {
@@ -481,6 +544,14 @@ function Enlazar({ subcuenta, onHecho }: { subcuenta: SinEnlazar; onHecho: (text
             </p>
           )}
         </div>
+      ) : sinPermisoAlta ? (
+        <div role={faltan ? 'alert' : undefined} className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          <WarningCircle size={18} className="mt-0.5 shrink-0" aria-hidden />
+          <span>
+            Para crear un {subcuenta.tipo} nuevo hace falta el permiso {(faltan ?? [permisoAlta]).map(textoPermiso).join(' o ')}, y no lo tienes en esta empresa. Pídeselo
+            al administrador de la empresa, o enlaza la subcuenta a un {subcuenta.tipo} que ya exista con «Elegir {subcuenta.tipo}».
+          </span>
+        </div>
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="block text-xs font-medium text-slate-600">
@@ -500,7 +571,7 @@ function Enlazar({ subcuenta, onHecho }: { subcuenta: SinEnlazar; onHecho: (text
         </p>
       )}
       <div className="flex justify-end">
-        <button type="button" onClick={enlazar} disabled={guardando} className={boton}>
+        <button type="button" onClick={enlazar} disabled={guardando || (modo === 'nueva' && sinPermisoAlta)} className={boton}>
           {modo === 'nueva' ? <UserPlus size={16} /> : <LinkSimple size={16} />} {guardando ? 'Guardando…' : modo === 'nueva' ? 'Crear y enlazar' : 'Enlazar'}
         </button>
       </div>
