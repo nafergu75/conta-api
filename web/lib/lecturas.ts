@@ -105,6 +105,13 @@ export interface TramoGasto {
   tipoIva: number;
   base: number;
   cuota: number;
+  /** Las partidas de ese tipo ("Tóner", "Libros y revistas") o un texto neutro ("Base al 10 %"). */
+  descripcion?: string;
+}
+
+/** Texto neutro de una linea por tipo de IVA: "Base al 10 %"; al 0 %, "Base exenta". */
+export function descripcionNeutraTramo(tipoIva: number): string {
+  return tipoIva === 0 ? 'Base exenta' : `Base al ${porcentaje(tipoIva)}`;
 }
 
 export interface LecturaGastoLista {
@@ -262,7 +269,10 @@ export async function leerFactura<T extends LectorPantalla>(
   alEmpezar?.(r.lecturaId);
 
   for (;;) {
-    if (r.estado === 'LISTA') return r as ListaDe<T>;
+    if (r.estado === 'LISTA') {
+      const lista = r as ListaDe<T>;
+      return { ...lista, lectura: conDatosDelQr(lista.lectura) } as ListaDe<T>;
+    }
     if (r.estado === 'ERROR') {
       const e = r as ConError;
       const mensaje = e.codigo === 'LECTOR_SIN_IA' ? MENSAJE_SIN_IA[lector] : e.mensaje;
@@ -276,6 +286,37 @@ export async function leerFactura<T extends LectorPantalla>(
     await esperar(espera, signal);
     r = await pedir(`${RUTA[lector]}/${encodeURIComponent(r.lecturaId)}`);
   }
+}
+
+export const MOTIVO_DATO_DEL_QR = 'No se ha podido leer en la factura: se ha sacado del QR. Compruébalo con el documento.';
+
+/** Campo de la lectura de cada dato del QR (como CAMPO_QR del servidor). */
+export const CAMPO_QR: Record<DiferenciaQr['campo'], CampoId> = {
+  nif: 'emisor.nif',
+  numero: 'numero',
+  fecha: 'fechaEmision',
+  importe: 'totales.totalFactura',
+};
+
+/**
+ * Un dato sacado del QR no se ha comprobado con nada: nunca cuenta como
+ * "comprobado sin problemas" y pide "He revisado". El servidor ya lo manda
+ * en "revisar"; esto cubre una lectura guardada antes de ese cambio.
+ */
+export function conDatosDelQr(info: InfoLectura): InfoLectura {
+  const completados = info.qr?.completados ?? [];
+  if (!completados.length) return info;
+  const campos = { ...info.campos };
+  let cambiado = false;
+  for (const c of completados) {
+    const id = CAMPO_QR[c];
+    const e = campos[id];
+    if (!e || e.estado !== 'ok') continue;
+    campos[id] = { ...e, estado: 'revisar', motivos: e.motivos.length ? e.motivos : [MOTIVO_DATO_DEL_QR] };
+    cambiado = true;
+  }
+  if (!cambiado) return info;
+  return { ...info, campos, estado: info.estado === 'ok' ? 'revisar' : info.estado, requiereRevision: true };
 }
 
 /** Descarta una lectura sin registrar (borra el archivo). Sin errores: si falla, el servidor la purga a los 7 dias. */
@@ -314,7 +355,7 @@ export function porcentaje(n: number): string {
 }
 
 /**
- * "Base del 21 %", "IVA del 10 %" (si se sabe el tipo del tramo), "Base imponible
+ * "Base del 21 %", "IVA del 10 %", "Base exenta" (si se sabe el tipo del tramo), "Base imponible
  * (tramo 2)" si no se sabe y hay varios, o "Base imponible" si solo hay uno.
  */
 export function etiquetaCampo(id: string, lector: LectorPantalla, variosTramos: boolean, tipoIva?: number): string {
@@ -323,6 +364,8 @@ export function etiquetaCampo(id: string, lector: LectorPantalla, variosTramos: 
   const m = /^desglose\.(\d+)\.(base|cuota|recargo)$/.exec(id);
   if (m) {
     if (typeof tipoIva === 'number' && Number.isFinite(tipoIva)) {
+      // Al 0 %: exento, no "IVA del 0 %".
+      if (tipoIva === 0) return m[2] === 'base' ? 'Base exenta' : m[2] === 'cuota' ? 'IVA (exento)' : 'Recargo de equivalencia (exento)';
       const del = `del ${porcentaje(tipoIva)}`;
       if (m[2] === 'base') return `Base ${del}`;
       if (m[2] === 'cuota') return `IVA ${del}`;
@@ -417,14 +460,16 @@ const NOMBRE_COMPLETADO: Record<DiferenciaQr['campo'], { gastos: string; ventas:
  * Compruébalo con el documento. El NIF del proveedor, la fecha y el importe total
  * sí coinciden con el QR."
  */
-export function textoCompletadosQr(campos: DiferenciaQr['campo'][], lector: LectorPantalla): string {
+export function textoCompletadosQr(campos: DiferenciaQr['campo'][], lector: LectorPantalla, marcadosAbajo = false): string {
   const orden: DiferenciaQr['campo'][] = ['nif', 'numero', 'fecha', 'importe'];
   const nombres = orden.filter((c) => campos.includes(c)).map((c) => NOMBRE_COMPLETADO[c][lector]);
   const cotejados = orden.filter((c) => !campos.includes(c)).map((c) => NOMBRE_COMPLETADO[c][lector]);
   if (!nombres.length) return '';
   const unir = (l: string[], y: string) => (l.length === 1 ? l[0] : `${l.slice(0, -1).join(', ')} ${y} ${l[l.length - 1]}`);
   const uno = nombres.length === 1;
-  let t = `En la factura no se ha podido leer ${unir(nombres, 'ni')}: ${uno ? 'se ha sacado' : 'se han sacado'} del QR. ${uno ? 'Compruébalo' : 'Compruébalos'} con el documento.`;
+  // Si cada dato tiene su tarjeta abajo, alli va el "compruébalo": aqui no se repite.
+  const comprobar = marcadosAbajo ? (uno ? 'Lo tienes marcado abajo.' : 'Los tienes marcados abajo.') : `${uno ? 'Compruébalo' : 'Compruébalos'} con el documento.`;
+  let t = `En la factura no se ha podido leer ${unir(nombres, 'ni')}: ${uno ? 'se ha sacado' : 'se han sacado'} del QR. ${comprobar}`;
   if (cotejados.length) {
     const lista = unir(cotejados, 'y');
     t += ` ${lista.charAt(0).toUpperCase()}${lista.slice(1)} sí ${cotejados.length === 1 ? 'coincide' : 'coinciden'} con el QR.`;

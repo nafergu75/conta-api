@@ -2,6 +2,7 @@
 
 import { CheckCircle, Info, QrCode, ShieldCheck, Sparkle, Warning, WarningCircle } from '@phosphor-icons/react';
 import {
+  CAMPO_QR,
   claveTexto,
   etiquetaCampo,
   nivelConfianza,
@@ -9,7 +10,6 @@ import {
   textoCompletadosQr,
   textoDiferenciaQr,
   valorLegible,
-  type DiferenciaQr,
   type EstadoCampo,
   type InfoLectura,
   type LectorPantalla,
@@ -45,14 +45,6 @@ const ORDEN = [
   'iban',
   'concepto',
 ];
-
-/** Campo de la lectura de cada dato del QR (como CAMPO_QR del servidor). */
-const CAMPO_QR: Record<DiferenciaQr['campo'], string> = {
-  nif: 'emisor.nif',
-  numero: 'numero',
-  fecha: 'fechaEmision',
-  importe: 'totales.totalFactura',
-};
 
 function posicion(id: string): number {
   const i = ORDEN.indexOf(id.startsWith('desglose.') ? 'desglose' : id);
@@ -95,10 +87,13 @@ export default function PanelLectura({ info, lector, revisado, onRevisado, conCa
   const marcados = entradas
     .filter(([, c]) => c.estado !== 'ok')
     .sort((a, b) => (a[1].estado === b[1].estado ? posicion(a[0]) - posicion(b[0]) : a[1].estado === 'error' ? -1 : 1));
-  const comprobados = entradas.length - marcados.length;
   const qr = info.qr;
   const qrMal = qrConProblema(qr);
   const completados = qr.completados ?? [];
+  // Lo sacado del QR no se ha comprobado con nada: no cuenta como "sin problemas" aunque llegue en ok.
+  const delQr = new Set<string>(completados.map((c) => CAMPO_QR[c]));
+  const comprobados = entradas.filter(([id, c]) => c.estado === 'ok' && !delQr.has(id)).length;
+  const completadosConTarjeta = completados.every((c) => marcados.some(([id]) => id === CAMPO_QR[c]));
   // Lo marcado sin dato (archivo ya registrado...). Si habla del QR y el recuadro del QR ya sale, no se repite.
   const generales = (info.generales ?? []).filter((g) => g.nivel !== 'ok' && !(qrMal && hablaDelQr(g.mensaje)));
   const textosGenerales = new Set((info.generales ?? []).map((g) => claveTexto(g.mensaje)));
@@ -152,7 +147,7 @@ export default function PanelLectura({ info, lector, revisado, onRevisado, conCa
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-800">
           <p className="flex items-start gap-2">
             <QrCode size={18} className="mt-0.5 shrink-0" aria-hidden="true" />
-            <span>{textoCompletadosQr(completados, lector)}</span>
+            <span>{textoCompletadosQr(completados, lector, completadosConTarjeta)}</span>
           </p>
         </div>
       )}
@@ -211,7 +206,7 @@ export default function PanelLectura({ info, lector, revisado, onRevisado, conCa
                     <span className="text-xs font-semibold uppercase tracking-wide">{etiquetaEstado(lector, error, !sinArreglo.includes(id))}</span>
                   </div>
                   <p className="mt-1 break-words">
-                    Leído: <span className="font-medium">{valorLegible(id, c.valorLeido)}</span>
+                    {c.fuente === 'qr' && (c.confianza !== 1 || delQr.has(id)) ? 'Sacado del QR' : 'Leído'}: <span className="font-medium">{valorLegible(id, c.valorLeido)}</span>
                     {verConfianza && <span className="text-xs"> · confianza {confianza} %</span>}
                   </p>
                   {c.motivos.length > 0 && (
