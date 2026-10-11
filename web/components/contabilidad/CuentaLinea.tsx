@@ -34,13 +34,14 @@ interface Props {
 }
 
 const campo =
-  'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500';
+  'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 aria-[invalid=true]:border-red-500 aria-[invalid=true]:bg-red-50';
 
 export function CuentaLinea({ tipo, catalogo, valor, onCambiar, porDefecto, linea, id, puedeCrear, invalido, disabled }: Props) {
   const [abierto, setAbierto] = useState(false);
   const [creando, setCreando] = useState(false);
   const [q, setQ] = useState('');
   const buscador = useRef<HTMLInputElement>(null);
+  const boton = useRef<HTMLButtonElement>(null);
   const elegida = valor || null;
   const nombreElegida = catalogo.nombreDe(elegida ?? porDefecto.codigo);
 
@@ -54,10 +55,12 @@ export function CuentaLinea({ tipo, catalogo, valor, onCambiar, porDefecto, line
     return t ? todas.filter((c) => sinTildes(`${c.codigo} ${c.nombre}`).includes(t)) : todas;
   }, [catalogo.listado, q]);
 
+  // Al cerrar, el foco vuelve a «Cambiar cuenta» de esta linea (si no, se pierde en la pagina).
   const cerrar = () => {
     setAbierto(false);
     setCreando(false);
     setQ('');
+    requestAnimationFrame(() => boton.current?.focus());
   };
 
   const elegir = (codigo: string | null) => {
@@ -75,6 +78,7 @@ export function CuentaLinea({ tipo, catalogo, valor, onCambiar, porDefecto, line
           {!elegida && <span className="text-slate-500"> ({porDefecto.texto})</span>}
         </span>
         <button
+          ref={boton}
           id={id}
           type="button"
           disabled={disabled}
@@ -135,7 +139,7 @@ export function CuentaLinea({ tipo, catalogo, valor, onCambiar, porDefecto, line
               ) : catalogo.cargando && !catalogo.listado ? (
                 <p className="mt-2 text-slate-500">Cargando cuentas…</p>
               ) : (
-                <ul className="mt-2 max-h-60 overflow-y-auto rounded-lg border border-slate-200 bg-white" role="listbox" aria-label={`Cuentas para la línea ${linea}`}>
+                <ul className="mt-2 max-h-60 overflow-y-auto rounded-lg border border-slate-200 bg-white" aria-label={`Cuentas para la línea ${linea}`}>
                   {elegida && (
                     <li>
                       <button type="button" onClick={() => elegir(null)} className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-slate-50">
@@ -151,9 +155,10 @@ export function CuentaLinea({ tipo, catalogo, valor, onCambiar, porDefecto, line
                   {cuentas.map((c) => {
                     const actual = c.codigo === (elegida ?? '');
                     return (
-                      <li key={c.codigo} role="option" aria-selected={actual}>
+                      <li key={c.codigo}>
                         <button
                           type="button"
+                          aria-current={actual || undefined}
                           onClick={() => elegir(c.codigo)}
                           className={`flex w-full items-start gap-2 border-t border-slate-100 px-3 py-2 text-left hover:bg-slate-50 ${actual ? 'bg-emerald-50' : ''}`}
                         >
@@ -243,6 +248,8 @@ function NuevaSubcuenta({
   const [campoMal, setCampoMal] = useState<string | undefined>();
   const [guardando, setGuardando] = useState(false);
   const nombreRef = useRef<HTMLInputElement>(null);
+  const codigoRef = useRef<HTMLInputElement>(null);
+  const madreRef = useRef<HTMLSelectElement>(null);
 
   useEffect(() => {
     nombreRef.current?.focus();
@@ -286,7 +293,11 @@ function NuevaSubcuenta({
       onCreada(await apiFetch<SubcuentaCreada>(companyPath('/cuentas-linea'), { method: 'POST', body: JSON.stringify(cuerpo) }));
     } catch (e) {
       setError(errorMessage(e));
-      setCampoMal(campoDelError(e));
+      const mal = campoDelError(e);
+      setCampoMal(mal);
+      // El foco va al campo que hay que corregir (p. ej. el codigo repetido).
+      const destino = mal === 'codigo' ? codigoRef.current : mal === 'madre' ? madreRef.current : mal === 'nombre' ? nombreRef.current : null;
+      destino?.focus();
     } finally {
       setGuardando(false);
     }
@@ -301,7 +312,7 @@ function NuevaSubcuenta({
           <label htmlFor={`${ids}-madre`} className="mb-1 block text-xs font-medium text-slate-600">
             Cuelga de
           </label>
-          <select id={`${ids}-madre`} value={madre} onChange={(e) => setMadre(e.target.value)} aria-invalid={campoMal === 'madre'} className={campo}>
+          <select ref={madreRef} id={`${ids}-madre`} value={madre} onChange={(e) => setMadre(e.target.value)} aria-invalid={campoMal === 'madre'} className={campo}>
             {madres.map((m) => (
               <option key={m.codigo} value={m.codigo}>
                 {m.codigo} {m.nombre}
@@ -315,6 +326,7 @@ function NuevaSubcuenta({
           </label>
           <input
             id={`${ids}-codigo`}
+            ref={codigoRef}
             inputMode="numeric"
             value={codigo}
             onChange={(e) => setCodigo(e.target.value.replace(/\D/g, ''))}
