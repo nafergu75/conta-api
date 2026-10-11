@@ -7,6 +7,7 @@ import { Tooltip } from '@/app/dashboard/components/Tooltip';
 import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { TablaInforme, type Tabla } from './TablaInforme';
 import { BuscadorTercero } from '@/components/contabilidad/BuscadorTercero';
+import { BuscadorCuenta } from '@/components/contabilidad/BuscadorCuenta';
 
 /**
  * Informes contables de cualquier ejercicio (tambien los ya cerrados), en
@@ -322,13 +323,13 @@ function InformesContables() {
                 <option value="3">Cuentas de 3 dígitos</option>
               </select>
             </div>
-            <div className="sm:w-32">
+            <div className="sm:w-36">
               <label htmlFor="inf-scta" className="block text-xs font-medium text-slate-600">Cuenta</label>
-              <input id="inf-scta" inputMode="numeric" value={form.cuentaDesde} onChange={(e) => setForm({ ...form, cuentaDesde: e.target.value.replace(/\D/g, '') })} placeholder="430" className={`${campo} font-mono`} />
+              <BuscadorCuenta id="inf-scta" valor={form.cuentaDesde} onCambiar={(v) => setForm((f) => ({ ...f, cuentaDesde: v }))} placeholder="430 o nombre" />
             </div>
-            <div className="sm:w-32">
+            <div className="sm:w-36">
               <label htmlFor="inf-scta2" className="block text-xs font-medium text-slate-600">Hasta cuenta (opcional)</label>
-              <input id="inf-scta2" inputMode="numeric" value={form.cuentaHasta} onChange={(e) => setForm({ ...form, cuentaHasta: e.target.value.replace(/\D/g, '') })} placeholder="430" className={`${campo} font-mono`} />
+              <BuscadorCuenta id="inf-scta2" derecha valor={form.cuentaHasta} onCambiar={(v) => setForm((f) => ({ ...f, cuentaHasta: v }))} placeholder="430 o nombre" />
             </div>
             {form.nivel === 'subcuenta' && (
               <label className="col-span-2 flex items-center gap-2 pb-2 text-sm text-slate-600 sm:col-span-1">
@@ -371,11 +372,11 @@ function InformesContables() {
               <>
                 <div className="sm:w-36">
                   <label htmlFor="inf-cta" className="block text-xs font-medium text-slate-600">Cuenta</label>
-                  <input id="inf-cta" inputMode="numeric" value={form.cuentaDesde} onChange={(e) => setForm({ ...form, cuentaDesde: e.target.value })} placeholder="572" className={`${campo} font-mono`} />
+                  <BuscadorCuenta id="inf-cta" valor={form.cuentaDesde} onCambiar={(v) => setForm((f) => ({ ...f, cuentaDesde: v }))} placeholder="572 o banco" />
                 </div>
                 <div className="sm:w-36">
                   <label htmlFor="inf-cta2" className="block text-xs font-medium text-slate-600">Hasta cuenta (opcional)</label>
-                  <input id="inf-cta2" inputMode="numeric" value={form.cuentaHasta} onChange={(e) => setForm({ ...form, cuentaHasta: e.target.value })} placeholder="579" className={`${campo} font-mono`} />
+                  <BuscadorCuenta id="inf-cta2" derecha valor={form.cuentaHasta} onCambiar={(v) => setForm((f) => ({ ...f, cuentaHasta: v }))} placeholder="579 o nombre" />
                 </div>
               </>
             )}
@@ -416,8 +417,8 @@ function InformesContables() {
         {form.tipo === 'mayor' &&
           (form.mayorPor === 'tercero'
             ? ' Busca al cliente o proveedor por su nombre, su NIF o su subcuenta: salen los movimientos de sus subcuentas.'
-            : ' Escribe una cuenta (572 trae todas las 572…) o un rango con «Hasta cuenta» (430 a 430: todos los clientes, cada uno con su subcuenta).')}
-        {form.tipo === 'sumas' && ' Con «Cuenta» sacas solo esa cuenta y sus subcuentas (430: los clientes); con «Hasta cuenta», un rango (400 a 410: proveedores y acreedores).'}
+            : ' Escribe el código de una cuenta (572 trae todas las 572…) o búscala por su nombre («banco», «luz») y elígela. Con «Hasta cuenta» sacas un rango (430 a 430: todos los clientes, cada uno con su subcuenta).')}
+        {form.tipo === 'sumas' && ' Con «Cuenta» sacas solo esa cuenta y sus subcuentas (430: los clientes); con «Hasta cuenta», un rango (400 a 410: proveedores y acreedores). Las cuentas se pueden buscar por su nombre.'}
       </p>
 
       {error && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
