@@ -107,6 +107,11 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
 
 /** Descarga binaria (PDF, fichero AEAT...) con el token de la sesion. */
 export async function apiDownload(path: string, nombreFichero: string, init: RequestInit = {}): Promise<void> {
+  await apiDownloadConCabeceras(path, nombreFichero, init);
+}
+
+/** Como apiDownload, y devuelve las cabeceras de la respuesta (p. ej. X-Numero-Declaracion del 190). */
+export async function apiDownloadConCabeceras(path: string, nombreFichero: string, init: RequestInit = {}): Promise<Headers> {
   // init: p. ej. un POST con cuerpo JSON (datos que no deben ir en la URL).
   const headers = new Headers(init.headers);
   const token = getToken();
@@ -134,6 +139,7 @@ export async function apiDownload(path: string, nombreFichero: string, init: Req
   a.download = nombreFichero;
   a.click();
   URL.revokeObjectURL(url);
+  return res.headers;
 }
 
 /**
