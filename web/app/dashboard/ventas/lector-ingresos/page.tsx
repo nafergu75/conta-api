@@ -324,7 +324,7 @@ export default function LectorIngresosPage() {
 
             {/* Lo leido y la confirmacion */}
             <section className="flex min-w-0 flex-col gap-4">
-              <PanelLectura info={info} lector="ventas" revisado={revisado} onRevisado={setRevisado} />
+              <PanelLectura info={info} lector="ventas" revisado={revisado} onRevisado={setRevisado} conCasilla={!bloqueada} />
 
               <div className="rounded-lg border border-slate-200 bg-white p-4">
                 <h2 className="mb-3 font-semibold text-slate-900">Datos leídos</h2>
