@@ -26,6 +26,8 @@ export interface DatosEmpresa {
   telefono: string;
   email: string;
   web: string;
+  /** Persona de contacto de los modelos de la AEAT (apellidos y nombre). */
+  personaContacto: string;
   registroMercantilProvincia: string;
   registroTomo: string;
   registroFolio: string;
@@ -49,6 +51,7 @@ export const DATOS_EMPRESA_VACIOS: DatosEmpresa = {
   telefono: '',
   email: '',
   web: '',
+  personaContacto: '',
   registroMercantilProvincia: '',
   registroTomo: '',
   registroFolio: '',
@@ -71,6 +74,7 @@ export const CAMPOS_EMPRESA: CampoEmpresa[] = [
   'telefono',
   'email',
   'web',
+  'personaContacto',
   'registroMercantilProvincia',
   'registroTomo',
   'registroFolio',
@@ -460,6 +464,14 @@ export function CamposEmpresa({
           <Campo {...c('telefono')} label="Teléfono" tipo="tel" inputMode="tel" maxLength={30} />
           <Campo {...c('email')} label="Email" tipo="email" />
           <Campo {...c('web')} label="Web" inputMode="url" placeholder="www.empresa.es" />
+          <Campo
+            {...c('personaContacto')}
+            label="Persona de contacto con Hacienda"
+            maxLength={80}
+            className="md:col-span-3"
+            placeholder="Apellidos y nombre"
+            ayuda="Primer apellido, segundo apellido y nombre. Va con el teléfono en los modelos 349 y 180."
+          />
         </div>
       </Seccion>
 

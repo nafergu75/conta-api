@@ -6,10 +6,10 @@ import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { ConfirmationModal } from '@/components/dashboard/ConfirmationModal';
 
 interface FormPresentarProps {
-  codigo: '111' | '115' | '190' | '200' | '303' | '347' | '390';
+  codigo: '111' | '115' | '180' | '190' | '200' | '202' | '303' | '347' | '349' | '390';
   ejercicio: number;
   trimestre?: number;
-  /** Periodo mensual ('01'..'12') del 303, 111 y 115, o '1T'..'4T' en el 111 y 115; si va, manda sobre el trimestre. */
+  /** Periodo con su codigo: mes '01'..'12' (303, 111, 115, 349), trimestre '1T'..'4T' (111, 115, 349) o pago '1P'..'3P' (202). Si va, manda sobre el trimestre. */
   periodo?: string;
   onSuccess?: () => void;
   isLoading?: boolean;

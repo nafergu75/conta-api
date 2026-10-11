@@ -6,7 +6,7 @@ import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { FileText, ArrowRight } from '@phosphor-icons/react';
 
 interface ModeloResumen {
-  codigo: '303' | '111' | '200' | '347' | '115' | '390' | '190';
+  codigo: '303' | '111' | '200' | '347' | '115' | '390' | '190' | '180' | '349' | '202';
   nombre: string;
   descripcion: string;
   estado: 'vigente' | 'presentado';
@@ -246,9 +246,9 @@ export default function FiscalPage() {
             </div>
           </Link>
 
-          {/* Modelo 347 */}
+          {/* Modelo 349 */}
           <Link
-            href={`/dashboard/fiscal/modelo-347`}
+            href={`/dashboard/fiscal/modelo-349`}
             className="group relative overflow-hidden rounded-lg border border-slate-200 bg-white p-6 transition hover:shadow-lg"
           >
             <div className="absolute right-0 top-0 h-32 w-32 bg-gradient-to-br from-violet-50 to-transparent" />
@@ -258,11 +258,11 @@ export default function FiscalPage() {
                 <FileText size={24} className="text-violet-600" />
               </div>
 
-              <h3 className="mt-4 text-lg font-semibold text-slate-900">Modelo 347</h3>
-              <p className="mt-1 text-sm text-slate-600">Operaciones con Terceros</p>
+              <h3 className="mt-4 text-lg font-semibold text-slate-900">Modelo 349</h3>
+              <p className="mt-1 text-sm text-slate-600">Operaciones Intracomunitarias</p>
 
               <p className="mt-3 text-xs text-slate-500">
-                Declaración anual de operaciones con terceros superiores a 3.005,06 €
+                Ventas y compras con empresas de otros países de la UE, por operador y clave
               </p>
 
               <div className="mt-4 flex items-center gap-2 text-sm font-medium text-violet-600 group-hover:gap-3 transition-all">
@@ -272,9 +272,9 @@ export default function FiscalPage() {
             </div>
           </Link>
 
-          {/* Modelo 115 */}
+          {/* Modelo 180 */}
           <Link
-            href={`/dashboard/fiscal/modelo-115`}
+            href={`/dashboard/fiscal/modelo-180`}
             className="group relative overflow-hidden rounded-lg border border-slate-200 bg-white p-6 transition hover:shadow-lg"
           >
             <div className="absolute right-0 top-0 h-32 w-32 bg-gradient-to-br from-fuchsia-50 to-transparent" />
@@ -284,14 +284,40 @@ export default function FiscalPage() {
                 <FileText size={24} className="text-fuchsia-600" />
               </div>
 
-              <h3 className="mt-4 text-lg font-semibold text-slate-900">Modelo 115</h3>
-              <p className="mt-1 text-sm text-slate-600">Retenciones Arrendamientos</p>
+              <h3 className="mt-4 text-lg font-semibold text-slate-900">Modelo 180</h3>
+              <p className="mt-1 text-sm text-slate-600">Resumen Anual de Alquileres</p>
 
               <p className="mt-3 text-xs text-slate-500">
-                Consolidación anual de retenciones IRPF sobre arrendamientos de locales
+                Retenciones de los alquileres del año por arrendador y local; cuadra con los 115
               </p>
 
               <div className="mt-4 flex items-center gap-2 text-sm font-medium text-fuchsia-600 group-hover:gap-3 transition-all">
+                Abrir modelo
+                <ArrowRight size={16} />
+              </div>
+            </div>
+          </Link>
+
+          {/* Modelo 202 */}
+          <Link
+            href={`/dashboard/fiscal/modelo-202`}
+            className="group relative overflow-hidden rounded-lg border border-slate-200 bg-white p-6 transition hover:shadow-lg"
+          >
+            <div className="absolute right-0 top-0 h-32 w-32 bg-gradient-to-br from-emerald-50 to-transparent" />
+
+            <div className="relative">
+              <div className="inline-flex items-center justify-center rounded-lg bg-emerald-50 p-3">
+                <FileText size={24} className="text-emerald-600" />
+              </div>
+
+              <h3 className="mt-4 text-lg font-semibold text-slate-900">Modelo 202</h3>
+              <p className="mt-1 text-sm text-slate-600">Pagos Fraccionados de Sociedades</p>
+
+              <p className="mt-3 text-xs text-slate-500">
+                El 18 % de la cuota del último Impuesto sobre Sociedades, en abril, octubre y diciembre
+              </p>
+
+              <div className="mt-4 flex items-center gap-2 text-sm font-medium text-emerald-600 group-hover:gap-3 transition-all">
                 Abrir modelo
                 <ArrowRight size={16} />
               </div>
