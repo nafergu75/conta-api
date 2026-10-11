@@ -91,6 +91,14 @@ function permisosQueFaltan(e: unknown): string[] | null {
   return Array.isArray(p) && p.length && p.every((x) => typeof x === 'string') ? (p as string[]) : null;
 }
 
+/** Texto en singular o en plural segun el numero: segun(1, 'se enlaza', 'se enlazan'). */
+const segun = (n: number, uno: string, varios: string) => (n === 1 ? uno : varios);
+/** «1 cuenta nueva» / «3 cuentas nuevas». */
+const cuantas = (n: number, uno: string, varios: string) => `${n} ${segun(n, uno, varios)}`;
+
+/** Coletilla de los avisos de permiso que se basan en la sesion guardada al entrar. */
+const SAL_Y_ENTRA = 'Si ya te lo han dado, sal y vuelve a entrar.';
+
 /** El plan trae otra longitud y ya hay terceros con la de la app: convivirian las dos. */
 const longitudDistinta = (v: VistaPlan) => !!v.longitud.motivo && !!v.longitud.delPlan && v.longitud.delPlan !== v.longitud.actual && !v.longitud.seFija;
 
@@ -163,16 +171,18 @@ export function PlanAnterior({ onHecho }: { onHecho: (t: string) => void }) {
     if (!fuente || !vista) return;
     const r = vista.resumen;
     const partes = [
-      `${vista.cuentasNuevas.length} cuentas nuevas en el plan`,
-      r.enlazar && `${r.enlazar} subcuentas enlazadas a fichas que ya tienes`,
-      r.crear && `${r.crear} fichas nuevas de clientes o proveedores`,
+      `${cuantas(vista.cuentasNuevas.length, 'cuenta nueva', 'cuentas nuevas')} en el plan`,
+      r.enlazar && cuantas(r.enlazar, 'subcuenta enlazada a una ficha que ya tienes', 'subcuentas enlazadas a fichas que ya tienes'),
+      r.crear && cuantas(r.crear, 'ficha nueva de cliente o proveedor', 'fichas nuevas de clientes o proveedores'),
     ].filter(Boolean);
+    // «Se va a crear 1 cuenta nueva» solo si no hay nada mas; si no, «Se van a crear».
+    const verbo = vista.cuentasNuevas.length === 1 && partes.length === 1 ? 'Se va a crear' : 'Se van a crear';
     const dosLongitudes = longitudDistinta(vista) ? `\n\nOjo: ${vista.longitud.motivo}` : '';
     const nPorNombre = vista.terceros.filter(porNombre).length;
     const comprobar = nPorNombre
-      ? `\n\nOjo: ${nPorNombre === 1 ? 'una subcuenta se enlaza' : `${nPorNombre} subcuentas se enlazan`} solo porque el nombre coincide con el de una ficha. ¿Las has comprobado en la lista?`
+      ? `\n\nOjo: ${nPorNombre === 1 ? 'una subcuenta se enlaza' : `${nPorNombre} subcuentas se enlazan`} solo porque el nombre coincide con el de una ficha. ${segun(nPorNombre, '¿La has comprobado', '¿Las has comprobado')} en la lista?`
       : '';
-    if (!window.confirm(`Se van a crear ${partes.join(', ')}.${dosLongitudes}${comprobar}\n\n¿Continuar?`)) return;
+    if (!window.confirm(`${verbo} ${partes.join(', ')}.${dosLongitudes}${comprobar}\n\n¿Continuar?`)) return;
     setOcupado(true);
     setError('');
     try {
@@ -181,11 +191,11 @@ export function PlanAnterior({ onHecho }: { onHecho: (t: string) => void }) {
       setVuelta((n) => n + 1);
       onHecho(
         [
-          `Plan contable traído: ${res.cuentasCreadas} cuentas creadas`,
-          res.fichasEnlazadas ? `${res.fichasEnlazadas} subcuentas enlazadas a sus fichas` : '',
-          res.fichasCreadas ? `${res.fichasCreadas} fichas nuevas` : '',
+          `Plan contable traído: ${cuantas(res.cuentasCreadas, 'cuenta creada', 'cuentas creadas')}`,
+          res.fichasEnlazadas ? cuantas(res.fichasEnlazadas, 'subcuenta enlazada a su ficha', 'subcuentas enlazadas a sus fichas') : '',
+          res.fichasCreadas ? cuantas(res.fichasCreadas, 'ficha nueva', 'fichas nuevas') : '',
           res.longitudFijada ? `las subcuentas de clientes y proveedores tendrán ${res.longitudFijada} dígitos` : '',
-          res.pendientes ? `${res.pendientes} subcuentas quedan por enlazar (abajo, en «Subcuentas sin enlazar»)` : '',
+          res.pendientes ? `${cuantas(res.pendientes, 'subcuenta queda', 'subcuentas quedan')} por enlazar (abajo, en «Subcuentas sin enlazar»)` : '',
         ]
           .filter(Boolean)
           .join('; ') + '.',
@@ -250,12 +260,10 @@ export function PlanAnterior({ onHecho }: { onHecho: (t: string) => void }) {
                 Subcuentas de clientes y proveedores ({vista.terceros.length})
               </h3>
               <p className="text-xs text-slate-500">
-                {vista.resumen.enlazar} se enlazan con una ficha que ya tienes · {vista.resumen.crear} crean una ficha nueva con su NIF · {vista.resumen.pendientes} quedan
-                pendientes (cada una dice por qué) · {vista.resumen.yaEnlazadas} ya estaban enlazadas
-                {vista.resumen.noSeEnlazan ? ` · ${vista.resumen.noSeEnlazan} no se enlazan (revísalas)` : ''}.
+                {textoResumen(vista.resumen)}
               </p>
+              {/* Las que quedan pendientes por falta de permiso ya las cuenta el aviso del servidor, que lee los permisos de verdad. */}
               <AvisoPorNombre n={vista.terceros.filter(porNombre).length} />
-              <AvisoSinPermisoAlta terceros={vista.terceros} />
               <ul className="max-h-96 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-200 bg-white text-sm">
                 {vista.terceros.map((t) => (
                   <li key={t.codigo} className="flex flex-col gap-1 px-3 py-2 sm:flex-row sm:items-start sm:gap-3">
@@ -289,7 +297,9 @@ export function PlanAnterior({ onHecho }: { onHecho: (t: string) => void }) {
 
           {vista.cuentasNuevas.length > 0 && (
             <details className="rounded-lg border border-slate-200 bg-white p-3 text-sm">
-              <summary className="cursor-pointer font-medium text-slate-900">Ver las {vista.cuentasNuevas.length} cuentas nuevas</summary>
+              <summary className="cursor-pointer font-medium text-slate-900">
+                {vista.cuentasNuevas.length === 1 ? 'Ver la cuenta nueva' : `Ver las ${vista.cuentasNuevas.length} cuentas nuevas`}
+              </summary>
               <ul className="mt-2 max-h-72 overflow-y-auto">
                 {vista.cuentasNuevas.slice(0, 1000).map((c) => (
                   <li key={c.codigo} className="flex gap-3 py-0.5">
@@ -304,7 +314,9 @@ export function PlanAnterior({ onHecho }: { onHecho: (t: string) => void }) {
 
           {vista.omitidas.length > 0 && (
             <details className="rounded-lg border border-slate-200 bg-white p-3 text-sm">
-              <summary className="cursor-pointer font-medium text-slate-900">Ver las {vista.omitidas.length} cuentas que no se importan</summary>
+              <summary className="cursor-pointer font-medium text-slate-900">
+                {vista.omitidas.length === 1 ? 'Ver la cuenta que no se importa' : `Ver las ${vista.omitidas.length} cuentas que no se importan`}
+              </summary>
               <ul className="mt-2 max-h-60 overflow-y-auto">
                 {vista.omitidas.map((c) => (
                   <li key={c.codigo} className="flex gap-3 py-0.5">
@@ -332,28 +344,16 @@ export function PlanAnterior({ onHecho }: { onHecho: (t: string) => void }) {
   );
 }
 
-/**
- * Sin permiso de Ventas o de Compras «Modificar», las subcuentas que crearian
- * una ficha nueva quedan pendientes (cada una lo dice en su motivo). El recuadro
- * explica que falta y a quien pedirlo.
- */
-function AvisoSinPermisoAlta({ terceros }: { terceros: VistaPlan['terceros'] }) {
-  const usuario = getUser();
-  const tipos = (['cliente', 'proveedor'] as const).filter(
-    (tipo) => !tieneAlgunPermiso(usuario, [PERMISO_ALTA[tipo]]) && terceros.some((t) => t.tipo === tipo && t.accion === 'pendiente'),
-  );
-  if (!tipos.length) return null;
-  const quien = tipos.map((t) => (t === 'cliente' ? 'clientes' : 'proveedores')).join(' ni ');
-  const permisos = tipos.map((t) => textoPermiso(PERMISO_ALTA[t])).join(' y ');
-  return (
-    <p className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-      <WarningCircle size={18} className="mt-0.5 shrink-0" aria-hidden />
-      <span>
-        No puedes dar de alta {quien} nuevos: te falta el permiso {permisos}. Las subcuentas que necesitan una ficha nueva quedan pendientes. Pide ese permiso al
-        administrador de la empresa, o enlázalas después a fichas que ya existan en «Subcuentas sin enlazar».
-      </span>
-    </p>
-  );
+/** Linea bajo el titulo de la lista: cuantas hay de cada clase, concordando con el numero. */
+function textoResumen(r: VistaPlan['resumen']): string {
+  const partes = [
+    `${r.enlazar} ${segun(r.enlazar, 'se enlaza', 'se enlazan')} con una ficha que ya tienes`,
+    `${r.crear} ${segun(r.crear, 'crea', 'crean')} una ficha nueva con su NIF`,
+    `${r.pendientes} ${segun(r.pendientes, 'queda pendiente (dice por qué)', 'quedan pendientes (cada una dice por qué)')}`,
+    `${r.yaEnlazadas} ${segun(r.yaEnlazadas, 'ya estaba enlazada', 'ya estaban enlazadas')}`,
+  ];
+  if (r.noSeEnlazan) partes.push(`${r.noSeEnlazan} ${segun(r.noSeEnlazan, 'no se enlaza (revísala)', 'no se enlazan (revísalas)')}`);
+  return `${partes.join(' · ')}.`;
 }
 
 /** Recuadro sobre la lista: las que se enlazan solo por coincidir el nombre se comprueban antes de confirmar. */
@@ -363,8 +363,10 @@ function AvisoPorNombre({ n }: { n: number }) {
     <p className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
       <WarningCircle size={18} className="mt-0.5 shrink-0" aria-hidden />
       <span>
-        {n === 1 ? 'Una subcuenta no trae NIF y se enlaza' : `${n} subcuentas no traen NIF y se enlazan`} con la ficha que tiene el mismo nombre (las marcadas «Se enlaza
-        por nombre»). Compruébalo antes de confirmar. Si alguna no es la buena, pon su NIF en el fichero, o cambia allí el nombre, y vuelve a subirlo.
+        {n === 1
+          ? 'Una subcuenta no trae NIF y se enlaza con la ficha que tiene el mismo nombre (la marcada «Se enlaza por nombre»). Compruébalo antes de confirmar. Si no es la buena'
+          : `${n} subcuentas no traen NIF y se enlazan con la ficha que tiene el mismo nombre (las marcadas «Se enlaza por nombre»). Compruébalo antes de confirmar. Si alguna no es la buena`}
+        , pon su NIF en el fichero, o cambia allí el nombre, y vuelve a subirlo.
       </span>
     </p>
   );
@@ -432,7 +434,7 @@ function SubcuentasSinEnlazar({ vuelta }: { vuelta: number }) {
                     <span className="text-slate-500">
                       {' '}
                       · {s.tipo}
-                      {s.apuntes ? ` · ${s.apuntes} apuntes` : ' · sin movimientos'}
+                      {s.apuntes ? ` · ${cuantas(s.apuntes, 'apunte', 'apuntes')}` : ' · sin movimientos'}
                       {!s.activa && ' · desactivada'}
                     </span>
                   </span>
@@ -464,19 +466,66 @@ function SubcuentasSinEnlazar({ vuelta }: { vuelta: number }) {
   );
 }
 
+type ModoEnlace = 'existente' | 'nueva';
+
+/**
+ * Recuadro de permiso del enlace a mano, o null si no hace falta. Enlazar pide
+ * Contabilidad «Modificar» en los dos modos; crear la ficha pide ademas Ventas o
+ * Compras «Modificar». Solo se propone la otra opcion cuando esa si funcionaria.
+ * - faltan: lo que el servidor ha dicho que falta (403) y en que modo.
+ * - altaSegunSesion: si la sesion guardada al entrar tiene el permiso de alta.
+ */
+function avisoPermisoEnlace({
+  modo,
+  tipo,
+  faltan,
+  altaSegunSesion,
+}: {
+  modo: ModoEnlace;
+  tipo: TipoFicha;
+  faltan: { modo: ModoEnlace; permisos: string[] } | null;
+  altaSegunSesion: boolean;
+}): { texto: string; alerta: boolean } | null {
+  const elegir = `«Elegir ${tipo}»`;
+  // Sin Contabilidad «Modificar» no se enlaza de ninguna forma: el mismo aviso en los dos modos.
+  if (faltan?.permisos.includes('contabilidad:write')) {
+    return {
+      alerta: true,
+      texto: `Para enlazar subcuentas, eligiendo un ${tipo} o creando uno nuevo, hace falta el permiso ${textoPermiso('contabilidad:write')}, y no lo tienes en esta empresa. Pídeselo al administrador de la empresa.`,
+    };
+  }
+  if (faltan && faltan.modo === modo) {
+    const permisos = faltan.permisos.map(textoPermiso).join(' o ');
+    return {
+      alerta: true,
+      texto:
+        modo === 'nueva'
+          ? `Para crear un ${tipo} nuevo hace falta el permiso ${permisos}, y no lo tienes en esta empresa. Pídeselo al administrador de la empresa, o enlaza la subcuenta a un ${tipo} que ya exista con ${elegir}.`
+          : `Para enlazar la subcuenta hace falta el permiso ${permisos}, y no lo tienes en esta empresa. Pídeselo al administrador de la empresa.`,
+    };
+  }
+  // Antes de intentarlo: la sesion dice que no puede dar de alta fichas de ese tipo.
+  if (modo === 'nueva' && !altaSegunSesion) {
+    return {
+      alerta: false,
+      texto: `Para crear un ${tipo} nuevo hace falta el permiso ${textoPermiso(PERMISO_ALTA[tipo])}, y no lo tienes en esta empresa. Pídeselo al administrador de la empresa, o enlaza la subcuenta a un ${tipo} que ya exista con ${elegir}. ${SAL_Y_ENTRA}`,
+    };
+  }
+  return null;
+}
+
 function Enlazar({ subcuenta, onHecho }: { subcuenta: SinEnlazar; onHecho: (texto: string) => void }) {
-  const [modo, setModo] = useState<'existente' | 'nueva'>('existente');
+  const [modo, setModo] = useState<ModoEnlace>('existente');
   const [ficha, setFicha] = useState<TerceroEncontrado | null>(null);
   const [nombre, setNombre] = useState(subcuenta.nombre);
   const [nif, setNif] = useState('');
   const [error, setError] = useState('');
   const [campoMal, setCampoMal] = useState<string | undefined>();
   const [guardando, setGuardando] = useState(false);
-  // Permisos que el servidor dice que faltan (403 con details.permisos).
-  const [faltan, setFaltan] = useState<string[] | null>(null);
+  // Permisos que el servidor dice que faltan (403 con details.permisos) y en que modo paso.
+  const [faltan, setFaltan] = useState<{ modo: ModoEnlace; permisos: string[] } | null>(null);
   const ids = `enl-${subcuenta.codigo}`;
-  const permisoAlta = PERMISO_ALTA[subcuenta.tipo];
-  const sinPermisoAlta = faltan !== null || !tieneAlgunPermiso(getUser(), [permisoAlta]);
+  const aviso = avisoPermisoEnlace({ modo, tipo: subcuenta.tipo, faltan, altaSegunSesion: tieneAlgunPermiso(getUser(), [PERMISO_ALTA[subcuenta.tipo]]) });
 
   const enlazar = async () => {
     setError('');
@@ -500,8 +549,8 @@ function Enlazar({ subcuenta, onHecho }: { subcuenta: SinEnlazar; onHecho: (text
     } catch (e) {
       const sinPermiso = permisosQueFaltan(e);
       if (sinPermiso) {
-        // El recuadro de abajo dice que falta y a quien pedirlo.
-        setFaltan(sinPermiso);
+        // El recuadro de arriba dice que falta y a quien pedirlo, en el modo que toque.
+        setFaltan({ modo, permisos: sinPermiso });
         return;
       }
       setError(errorMessage(e));
@@ -523,7 +572,12 @@ function Enlazar({ subcuenta, onHecho }: { subcuenta: SinEnlazar; onHecho: (text
           <button
             key={valor}
             type="button"
-            onClick={() => setModo(valor)}
+            onClick={() => {
+              // El error del otro modo ya no vale.
+              setModo(valor);
+              setError('');
+              setCampoMal(undefined);
+            }}
             aria-pressed={modo === valor}
             className={`flex-1 rounded-md px-3 py-1.5 text-center sm:whitespace-nowrap ${modo === valor ? 'bg-emerald-600 font-medium text-white' : 'text-slate-600 hover:bg-slate-50'}`}
           >
@@ -532,25 +586,31 @@ function Enlazar({ subcuenta, onHecho }: { subcuenta: SinEnlazar; onHecho: (text
         ))}
       </div>
 
-      {modo === 'existente' ? (
+      {aviso ? (
+        <div role={aviso.alerta ? 'alert' : undefined} className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          <WarningCircle size={18} className="mt-0.5 shrink-0" aria-hidden />
+          <span>{aviso.texto}</span>
+        </div>
+      ) : modo === 'existente' ? (
         <div>
           <label htmlFor={`${ids}-buscar`} className="block text-xs font-medium text-slate-600">
             {subcuenta.tipo === 'cliente' ? 'Cliente' : 'Proveedor'}
           </label>
-          <BuscadorTercero id={`${ids}-buscar`} tipo={subcuenta.tipo} elegido={ficha} onElegir={setFicha} textoInicial={subcuenta.nombre} />
+          <BuscadorTercero
+            id={`${ids}-buscar`}
+            tipo={subcuenta.tipo}
+            elegido={ficha}
+            onElegir={(f) => {
+              setFicha(f);
+              setError('');
+            }}
+            textoInicial={subcuenta.nombre}
+          />
           {ficha && ficha.subcuentas.length > 0 && (
             <p className="mt-1 text-xs text-slate-500">
               Ya tiene {ficha.subcuentas.join(' y ')}: si no tiene movimientos, se cambia por la {subcuenta.codigo}.
             </p>
           )}
-        </div>
-      ) : sinPermisoAlta ? (
-        <div role={faltan ? 'alert' : undefined} className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-          <WarningCircle size={18} className="mt-0.5 shrink-0" aria-hidden />
-          <span>
-            Para crear un {subcuenta.tipo} nuevo hace falta el permiso {(faltan ?? [permisoAlta]).map(textoPermiso).join(' o ')}, y no lo tienes en esta empresa. Pídeselo
-            al administrador de la empresa, o enlaza la subcuenta a un {subcuenta.tipo} que ya exista con «Elegir {subcuenta.tipo}».
-          </span>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -571,7 +631,7 @@ function Enlazar({ subcuenta, onHecho }: { subcuenta: SinEnlazar; onHecho: (text
         </p>
       )}
       <div className="flex justify-end">
-        <button type="button" onClick={enlazar} disabled={guardando || (modo === 'nueva' && sinPermisoAlta)} className={boton}>
+        <button type="button" onClick={enlazar} disabled={guardando || !!aviso} className={boton}>
           {modo === 'nueva' ? <UserPlus size={16} /> : <LinkSimple size={16} />} {guardando ? 'Guardando…' : modo === 'nueva' ? 'Crear y enlazar' : 'Enlazar'}
         </button>
       </div>
