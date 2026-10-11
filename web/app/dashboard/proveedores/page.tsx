@@ -21,6 +21,9 @@ interface Proveedor {
   cp?: string | null;
   pais?: string | null;
   activo?: boolean;
+  /** Subcuentas contables propias: 400 (compras) y 410 (servicios), con el mismo numero. */
+  subcuenta400?: string | null;
+  subcuenta410?: string | null;
 }
 
 interface Pagina {
@@ -135,7 +138,7 @@ export default function ProveedoresPage() {
             <input
               id="pr-buscar"
               type="text"
-              placeholder="Nombre, NIF o email"
+              placeholder="Nombre, NIF, email o subcuenta"
               value={busqueda}
               onChange={(e) => setBusqueda(e.target.value)}
               className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-9 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
@@ -193,6 +196,11 @@ export default function ProveedoresPage() {
                       </Link>
                     </h3>
                     <p className="text-sm font-mono text-slate-500 break-all">{proveedor.nifCif}</p>
+                    {(proveedor.subcuenta400 || proveedor.subcuenta410) && (
+                      <p className="text-xs text-slate-500">
+                        Subcuentas <span className="font-mono">{[proveedor.subcuenta400, proveedor.subcuenta410].filter(Boolean).join(' · ')}</span>
+                      </p>
+                    )}
                     <div className="mt-1 flex flex-wrap gap-1.5">
                       {proveedor.activo === false && <span className="rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">Inactivo</span>}
                       {proveedor.pais && proveedor.pais !== 'ES' && (
