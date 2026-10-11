@@ -53,7 +53,7 @@ const ICONS: Record<string, Icon> = {
   productos: Package,
   facturas: FileText,
   proformas: FileDashed,
-  lector: ScanSmiley,
+  'ventas/lector-ingresos': ScanSmiley,
   proveedores: Truck,
   compras: ShoppingCart,
   'compras/lector-gastos': ScanSmiley,
