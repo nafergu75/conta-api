@@ -65,6 +65,8 @@ interface Perceptor190 {
   presentado?: boolean;
   /** Va en la declaración que se prepara (en una complementaria, solo los elegidos). */
   incluido?: boolean;
+  /** NIF con la letra o el control mal (y dónde se corrige); null si vale. */
+  errorNif?: string | null;
 }
 
 /** Declaración en curso o presentada, según el historial. */
@@ -327,7 +329,7 @@ export default function Modelo190Page() {
             <p className="text-xs text-slate-500">
               Diseño de registro: {modelo.formulario.fuente}.
               {modelo.cuadre111 &&
-                ` Suma de los cuatro 111: ${eur.format(modelo.cuadre111.total)} (${modelo.cuadre111.coincide ? 'coincide' : 'no coincide'} con las retenciones del 190).`}
+                ` Suma de los 111 del año: ${eur.format(modelo.cuadre111.total)} (${modelo.cuadre111.coincide ? 'coincide' : 'no coincide'} con las retenciones del 190).`}
             </p>
           </div>
         </section>
@@ -409,6 +411,12 @@ export default function Modelo190Page() {
       {conNominas && perceptores && perceptores.length > 0 && (
         <section className="rounded-lg border border-slate-200 bg-white p-4 md:p-6">
           <h3 className="mb-3 font-semibold text-slate-900">Relación de perceptores</h3>
+          {perceptores.some((p) => p.errorNif) && (
+            <p role="alert" className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+              {perceptores.filter((p) => p.errorNif).length === 1 ? 'Hay un NIF que no es válido' : `Hay ${perceptores.filter((p) => p.errorNif).length} NIF que no son válidos`}{' '}
+              (marcados en rojo en la tabla). El fichero no se puede descargar hasta corregirlos.
+            </p>
+          )}
           {complementaria && (
             <p className="mb-3 rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-900">
               Complementaria: solo van los perceptores marcados en «Declaraciones presentadas», más abajo ({perceptores.filter((p) => p.incluido).length} de {perceptores.length}).
@@ -435,9 +443,10 @@ export default function Modelo190Page() {
                 {perceptores.map((p, i) => (
                   <tr key={p.id ?? `${p.nif}-${p.clave}-${p.subclave ?? ''}-${p.ejercicioDevengo ?? ''}-${i}`} className={`border-b border-slate-100 ${complementaria && p.incluido ? 'bg-indigo-50' : ''}`}>
                     {complementaria && <td className="py-2 pr-2">{p.incluido ? 'Sí' : 'No'}</td>}
-                    <td className="py-2 font-mono">{p.nif}</td>
+                    <td className={`py-2 font-mono ${p.errorNif ? 'text-red-700' : ''}`}>{p.nif}</td>
                     <td className="py-2">
                       {p.nombre}
+                      {p.errorNif && <span className="block text-xs text-red-700">{p.errorNif.charAt(0).toUpperCase() + p.errorNif.slice(1)}</span>}
                       {p.presentado && <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">ya presentado</span>}
                       {p.faltan.length > 0 && <span className="block text-xs text-amber-700">Falta: {p.faltan.join(', ')}</span>}
                     </td>
