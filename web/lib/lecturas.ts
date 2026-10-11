@@ -48,6 +48,8 @@ export interface EstadoCampo {
   valorLeido: string | number | null;
   motivos: string[];
   sugerencia?: string;
+  /** Solo en desglose.N.*: el tipo de IVA del tramo ("Base del 21 %"). */
+  tipoIva?: number;
 }
 
 export type EstadoQr = 'SIN_QR' | 'COINCIDE' | 'NO_COINCIDE' | 'ILEGIBLE' | 'AJENO';
@@ -69,7 +71,13 @@ export interface InfoLectura {
   estado: NivelValidacion;
   requiereRevision: boolean;
   campos: Partial<Record<CampoId, EstadoCampo>>;
-  qr: { estado: EstadoQr; verifactu: boolean | null; texto: string; diferencias: DiferenciaQr[] };
+  /**
+   * completados: datos que no se leyeron en la factura y se tomaron del QR (no se han cotejado).
+   * pruebas: QR del entorno de pruebas de la AEAT (llega como NO_COINCIDE sin diferencias).
+   */
+  qr: { estado: EstadoQr; verifactu: boolean | null; texto: string; diferencias: DiferenciaQr[]; completados: DiferenciaQr['campo'][]; pruebas: boolean };
+  /** Lo que hay que revisar y no va ligado a un dato (archivo ya registrado, QR ilegible o de pruebas). El servidor tambien lo pone en avisos. */
+  generales: Array<{ nivel: NivelValidacion; mensaje: string }>;
   avisos: string[];
   paginas: { archivo: number | null; leidas: number | null };
 }
@@ -92,10 +100,17 @@ export interface IngresoExtraido {
   errores: string[];
 }
 
+/** Base y cuota de cada tipo de IVA de una factura de gasto (una linea del formulario por tramo). */
+export interface TramoGasto {
+  tipoIva: number;
+  base: number;
+  cuota: number;
+}
+
 export interface LecturaGastoLista {
   lecturaId: string;
   estado: 'LISTA';
-  gasto: GastoExtraido;
+  gasto: GastoExtraido & { tramos?: TramoGasto[] };
   lectura: InfoLectura;
 }
 
@@ -293,12 +308,26 @@ const ETIQUETA_CAMPO: Record<string, { gastos: string; ventas: string }> = {
   concepto: { gastos: 'Concepto', ventas: 'Concepto' },
 };
 
-/** "Base del tramo 2 de IVA" / "Base imponible" (si solo hay un tramo). */
-export function etiquetaCampo(id: string, lector: LectorPantalla, variosTramos: boolean): string {
+/** 21 -> "21 %", 5.2 -> "5,2 %". */
+export function porcentaje(n: number): string {
+  return `${String(Math.round(n * 100) / 100).replace('.', ',')} %`;
+}
+
+/**
+ * "Base del 21 %", "IVA del 10 %" (si se sabe el tipo del tramo), "Base imponible
+ * (tramo 2)" si no se sabe y hay varios, o "Base imponible" si solo hay uno.
+ */
+export function etiquetaCampo(id: string, lector: LectorPantalla, variosTramos: boolean, tipoIva?: number): string {
   const fija = ETIQUETA_CAMPO[id];
   if (fija) return fija[lector];
   const m = /^desglose\.(\d+)\.(base|cuota|recargo)$/.exec(id);
   if (m) {
+    if (typeof tipoIva === 'number' && Number.isFinite(tipoIva)) {
+      const del = `del ${porcentaje(tipoIva)}`;
+      if (m[2] === 'base') return `Base ${del}`;
+      if (m[2] === 'cuota') return `IVA ${del}`;
+      return `Recargo de equivalencia (IVA ${del})`;
+    }
     const tramo = variosTramos ? ` (tramo ${Number(m[1]) + 1})` : '';
     if (m[2] === 'base') return `Base imponible${tramo}`;
     if (m[2] === 'cuota') return `Cuota de IVA${tramo}`;
@@ -350,8 +379,17 @@ export function valorLegible(id: string, v: string | number | null): string {
 /** Lo que se anuncia al lector de pantalla cuando termina la lectura. */
 export function anuncioLecturaTerminada(info: InfoLectura): string {
   const n = Object.values(info.campos).filter((c) => c && c.estado !== 'ok').length;
-  if (n === 0) return 'Lectura terminada. No se ha encontrado nada raro: revisa los datos antes de registrarla.';
-  return `Lectura terminada: ${n === 1 ? 'hay 1 dato' : `hay ${n} datos`} para comprobar.`;
+  const g = (info.generales ?? []).length;
+  const delQr = (info.qr.completados ?? []).length;
+  if (n === 0 && g === 0 && delQr === 0 && !qrConProblema(info.qr)) return 'Lectura terminada. No se ha encontrado nada raro: revisa los datos antes de registrarla.';
+  const partes = [n > 0 ? (n === 1 ? '1 dato' : `${n} datos`) : '', g > 0 ? (g === 1 ? '1 aviso' : `${g} avisos`) : ''].filter(Boolean);
+  if (!partes.length) return delQr > 0 ? 'Lectura terminada: hay datos sacados del QR que conviene comprobar.' : 'Lectura terminada: revisa el aviso del QR antes de registrarla.';
+  return `Lectura terminada: hay ${partes.join(' y ')} para comprobar.`;
+}
+
+/** El QR no se ha podido usar o no cuadra (de pruebas, ilegible, no coincide). */
+export function qrConProblema(qr: InfoLectura['qr']): boolean {
+  return qr.estado === 'NO_COINCIDE' || qr.estado === 'ILEGIBLE';
 }
 
 /** "Alta" (80 % o mas), "Media" (60 % o mas) o "Baja". */
@@ -365,6 +403,34 @@ const NOMBRE_DIFERENCIA: Record<DiferenciaQr['campo'], string> = {
   fecha: 'fecha',
   importe: 'importe',
 };
+
+/** Como se llama cada dato del QR cuando se dice que se ha tomado de el. */
+const NOMBRE_COMPLETADO: Record<DiferenciaQr['campo'], { gastos: string; ventas: string }> = {
+  nif: { gastos: 'el NIF del proveedor', ventas: 'el NIF de la empresa emisora' },
+  numero: { gastos: 'el número de factura', ventas: 'el número de factura' },
+  fecha: { gastos: 'la fecha', ventas: 'la fecha' },
+  importe: { gastos: 'el importe total', ventas: 'el importe total' },
+};
+
+/**
+ * "En la factura no se ha podido leer el número de factura: se ha sacado del QR.
+ * Compruébalo con el documento. El NIF del proveedor, la fecha y el importe total
+ * sí coinciden con el QR."
+ */
+export function textoCompletadosQr(campos: DiferenciaQr['campo'][], lector: LectorPantalla): string {
+  const orden: DiferenciaQr['campo'][] = ['nif', 'numero', 'fecha', 'importe'];
+  const nombres = orden.filter((c) => campos.includes(c)).map((c) => NOMBRE_COMPLETADO[c][lector]);
+  const cotejados = orden.filter((c) => !campos.includes(c)).map((c) => NOMBRE_COMPLETADO[c][lector]);
+  if (!nombres.length) return '';
+  const unir = (l: string[], y: string) => (l.length === 1 ? l[0] : `${l.slice(0, -1).join(', ')} ${y} ${l[l.length - 1]}`);
+  const uno = nombres.length === 1;
+  let t = `En la factura no se ha podido leer ${unir(nombres, 'ni')}: ${uno ? 'se ha sacado' : 'se han sacado'} del QR. ${uno ? 'Compruébalo' : 'Compruébalos'} con el documento.`;
+  if (cotejados.length) {
+    const lista = unir(cotejados, 'y');
+    t += ` ${lista.charAt(0).toUpperCase()}${lista.slice(1)} sí ${cotejados.length === 1 ? 'coincide' : 'coinciden'} con el QR.`;
+  }
+  return t;
+}
 
 /** "Importe: en el QR 241,40 €; leído 214,40 €". */
 export function textoDiferenciaQr(d: DiferenciaQr): string {
