@@ -158,7 +158,7 @@ export default function FiscalPage() {
               <p className="mt-1 text-sm text-slate-600">Operaciones con Terceros</p>
 
               <p className="mt-3 text-xs text-slate-500">
-                Declare operaciones con clientes y proveedores superiores a 3.000€
+                Declare operaciones con clientes y proveedores superiores a 3.005,06 €
               </p>
 
               <div className="mt-4 flex items-center gap-2 text-sm font-medium text-violet-600 group-hover:gap-3 transition-all">
@@ -262,7 +262,7 @@ export default function FiscalPage() {
               <p className="mt-1 text-sm text-slate-600">Operaciones con Terceros</p>
 
               <p className="mt-3 text-xs text-slate-500">
-                Declaración anual de operaciones con terceros superiores a 3.005€
+                Declaración anual de operaciones con terceros superiores a 3.005,06 €
               </p>
 
               <div className="mt-4 flex items-center gap-2 text-sm font-medium text-violet-600 group-hover:gap-3 transition-all">
