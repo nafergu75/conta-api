@@ -408,8 +408,8 @@ function Enlazar({ subcuenta, onHecho }: { subcuenta: SinEnlazar; onHecho: (text
       <div className="inline-flex w-full rounded-lg border border-slate-300 bg-white p-0.5 sm:w-auto">
         {(
           [
-            ['existente', `Un ${subcuenta.tipo} que ya tengo`],
-            ['nueva', `Crear el ${subcuenta.tipo}`],
+            ['existente', `Elegir ${subcuenta.tipo}`],
+            ['nueva', `Crear ${subcuenta.tipo} nuevo`],
           ] as const
         ).map(([valor, texto]) => (
           <button
@@ -417,7 +417,7 @@ function Enlazar({ subcuenta, onHecho }: { subcuenta: SinEnlazar; onHecho: (text
             type="button"
             onClick={() => setModo(valor)}
             aria-pressed={modo === valor}
-            className={`flex-1 whitespace-nowrap rounded-md px-3 py-1.5 ${modo === valor ? 'bg-emerald-600 font-medium text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+            className={`flex-1 rounded-md px-3 py-1.5 text-center ${modo === valor ? 'bg-emerald-600 font-medium text-white' : 'text-slate-600 hover:bg-slate-50'}`}
           >
             {texto}
           </button>
