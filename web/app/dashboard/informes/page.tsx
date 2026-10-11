@@ -323,11 +323,11 @@ function InformesContables() {
               </select>
             </div>
             <div className="sm:w-32">
-              <label htmlFor="inf-scta" className="block text-xs font-medium text-slate-600">Desde cuenta</label>
+              <label htmlFor="inf-scta" className="block text-xs font-medium text-slate-600">Cuenta</label>
               <input id="inf-scta" inputMode="numeric" value={form.cuentaDesde} onChange={(e) => setForm({ ...form, cuentaDesde: e.target.value.replace(/\D/g, '') })} placeholder="430" className={`${campo} font-mono`} />
             </div>
             <div className="sm:w-32">
-              <label htmlFor="inf-scta2" className="block text-xs font-medium text-slate-600">Hasta cuenta</label>
+              <label htmlFor="inf-scta2" className="block text-xs font-medium text-slate-600">Hasta cuenta (opcional)</label>
               <input id="inf-scta2" inputMode="numeric" value={form.cuentaHasta} onChange={(e) => setForm({ ...form, cuentaHasta: e.target.value.replace(/\D/g, '') })} placeholder="430" className={`${campo} font-mono`} />
             </div>
             {form.nivel === 'subcuenta' && (
@@ -417,7 +417,7 @@ function InformesContables() {
           (form.mayorPor === 'tercero'
             ? ' Busca al cliente o proveedor por su nombre, su NIF o su subcuenta: salen los movimientos de sus subcuentas.'
             : ' Escribe una cuenta (572 trae todas las 572…) o un rango con «Hasta cuenta» (430 a 430: todos los clientes, cada uno con su subcuenta).')}
-        {form.tipo === 'sumas' && ' Con «Desde» y «Hasta» sacas solo unas cuentas (430 a 430: los clientes; 410 a 410: los acreedores).'}
+        {form.tipo === 'sumas' && ' Con «Cuenta» sacas solo esa cuenta y sus subcuentas (430: los clientes); con «Hasta cuenta», un rango (400 a 410: proveedores y acreedores).'}
       </p>
 
       {error && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
