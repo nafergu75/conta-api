@@ -22,6 +22,10 @@ import {
   type IngresoExtraido,
   type InfoLectura,
 } from '@/lib/lecturas';
+import SoltarFactura from '@/components/lector/SoltarFactura';
+import AvisoTerceroNuevo, { quienEs, type TerceroEnlazado } from '@/components/lector/AvisoTerceroNuevo';
+import { paisDelPrefijo } from '@/lib/compras';
+import { pareceNifIvaUe } from '@/lib/fiscal';
 
 /**
  * Lector de facturas de venta: se sube el PDF o la foto de una factura
@@ -56,6 +60,39 @@ function Dato({ etiqueta, children, mono }: { etiqueta: string; children: React.
 /** Cuenta de ingresos de una linea sin cuenta propia: la que pone el servidor (700). */
 const POR_DEFECTO = { codigo: '700', texto: 'la de ventas' };
 
+/** Sin NIF del cliente leido (el servidor lo deja de exigir si se elige un cliente dado de alta). */
+const FALTA_NIF_CLIENTE = 'Falta el NIF del cliente: es obligatorio en una factura de ingreso.';
+
+/**
+ * Errores de la lectura que dependen del NIF leido del cliente (que falte o
+ * este mal). Ya no impiden registrar desde el lector: la factura se registra
+ * con el cliente dado de alta o elegido (y el servidor deja de exigirlos).
+ */
+function erroresDelNifCliente(info: InfoLectura | null): Set<string> {
+  const c = info?.campos['receptor.nif'];
+  const delCampo = c && (!c.codigos || c.codigos.includes('NIF_RECEPTOR')) ? c.motivos : [];
+  return new Set([FALTA_NIF_CLIENTE, ...delCampo].map(claveTexto));
+}
+
+/**
+ * Con un cliente dado de alta o elegido, el NIF leido del cliente ya no impide
+ * registrarla: en el panel pasa de «impide registrarla» a «comprobar», con el
+ * cliente con que se registra. Sigue pidiendo la casilla de revision.
+ */
+function conClienteElegido(info: InfoLectura, c: TerceroEnlazado): InfoLectura {
+  const campo = info.campos['receptor.nif'];
+  if (!campo || campo.estado !== 'error') return info;
+  const campos = {
+    ...info.campos,
+    'receptor.nif': { ...campo, estado: 'revisar' as const, motivos: [...campo.motivos, `Se registra con el cliente elegido: ${quienEs(c.nombre, c.nif)}.`] },
+  };
+  const otroError = Object.values(campos).some((x) => x?.estado === 'error') || (info.generales ?? []).some((g) => g.nivel === 'error');
+  return { ...info, campos, estado: otroError ? 'error' : 'revisar' };
+}
+
+/** NIF sin espacios, puntos ni guiones, para comparar. */
+const nifComparable = (n: string) => n.replace(/[\s.\-]/g, '').toUpperCase();
+
 const importe = (n: number | null) => (n === null || n === undefined || !Number.isFinite(Number(n)) ? 'sin leer' : euros(Number(n)));
 
 export default function LectorIngresosPage() {
@@ -79,6 +116,9 @@ export default function LectorIngresosPage() {
   const [cuentaMal, setCuentaMal] = useState<number | null>(null);
   const catalogo = useCuentasLinea('venta', !!ingreso);
   const puedeCrearCuenta = tieneAlgunPermiso(getUser(), ['ventas:write', 'contabilidad:write']);
+  // Cliente dado de alta o elegido en esta lectura (sin el no se registra; el aviso pasa a verde).
+  const [clienteResuelto, setClienteResuelto] = useState<TerceroEnlazado | null>(null);
+  const puedeAltaCliente = tieneAlgunPermiso(getUser(), ['ventas:write']);
   const lecturaIdRef = useRef<string | null>(null);
   const cortarRef = useRef<AbortController | null>(null);
   const panelRef = useRef<HTMLElement>(null);
@@ -122,6 +162,7 @@ export default function LectorIngresosPage() {
     setInfo(null);
     setRevisado(false);
     setRegistrada(null);
+    setClienteResuelto(null);
     setCuentas([]);
     setCuentaMal(null);
     setError('');
@@ -151,6 +192,7 @@ export default function LectorIngresosPage() {
     setIngreso(null);
     setInfo(null);
     setRevisado(false);
+    setClienteResuelto(null);
     setLeyendo(true);
     try {
       const r = await leerFactura('ventas', f, {
@@ -176,6 +218,13 @@ export default function LectorIngresosPage() {
     }
   };
 
+  // El cliente con que se registra: el que encontro el lector por su NIF, o el dado de alta o elegido aqui.
+  const existente = ingreso?.clienteExistente ?? null;
+  const cliente: TerceroEnlazado | null =
+    clienteResuelto ?? (existente ? { id: existente.id, nombre: existente.nombreFiscal, nif: existente.nifCif, pais: 'ES', como: 'elegido' } : null);
+  const faltaCliente = !!ingreso && !cliente;
+  const nifLeido = (ingreso?.nifCliente ?? '').trim();
+
   const confirmar = async () => {
     if (!ingreso) return;
     setGuardando(true);
@@ -185,7 +234,7 @@ export default function LectorIngresosPage() {
       // El id y la cuenta de cada linea: el servidor registra la factura con los datos que leyo.
       const r = await apiFetch<Registrada>(companyPath('/ingresos-extractor/confirmar'), {
         method: 'POST',
-        body: JSON.stringify({ documentId: ingreso.documentId, revisado, lineas: cuentas.map((cuenta) => ({ cuenta })) }),
+        body: JSON.stringify({ documentId: ingreso.documentId, ...(cliente ? { clienteId: cliente.id } : {}), revisado, lineas: cuentas.map((cuenta) => ({ cuenta })) }),
       });
       setRegistrada(r);
     } catch (err) {
@@ -207,20 +256,16 @@ export default function LectorIngresosPage() {
     if (f) leer(f);
   };
 
-  const alSoltar = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const f = e.dataTransfer.files?.[0];
-    if (f) leer(f);
-  };
-
   const esImagen = archivo?.type.startsWith('image/');
   // Los errores que ya explica el panel no se repiten.
   const yaExplicados = new Set(
     info ? [...Object.values(info.campos).flatMap((c) => (c ? c.motivos.map(claveTexto) : [])), ...(info.generales ?? []).map((g) => claveTexto(g.mensaje)), claveTexto(info.qr.texto)] : [],
   );
-  const erroresSueltos = ingreso ? ingreso.errores.filter((e) => !yaExplicados.has(claveTexto(e))) : [];
-  const bloqueada = !!ingreso && ingreso.errores.length > 0;
+  // Que falte o este mal el NIF leido del cliente ya no bloquea: lo resuelve el cliente dado de alta o elegido.
+  const delNif = erroresDelNifCliente(info);
+  const errores = ingreso ? ingreso.errores.filter((e) => !delNif.has(claveTexto(e))) : [];
+  const erroresSueltos = errores.filter((e) => !yaExplicados.has(claveTexto(e)));
+  const bloqueada = errores.length > 0;
   const faltaRevision = !!info?.requiereRevision && !revisado;
   const anuncio = leyendo
     ? segundos < 10
@@ -253,6 +298,15 @@ export default function LectorIngresosPage() {
           {anuncio}
         </p>
         <input ref={inputRef} type="file" accept="application/pdf,image/jpeg,image/png,image/webp" onChange={alElegir} className="hidden" tabIndex={-1} aria-hidden="true" />
+        {/* El archivo se puede soltar en cualquier parte de la pagina, no solo en la zona de subida. */}
+        <SoltarFactura
+          activo={puedeEscribir}
+          hayLectura={leyendo || (!!ingreso && !registrada)}
+          onArchivo={(f) => {
+            if (registrada) reiniciar();
+            leer(f);
+          }}
+        />
 
         {!puedeEscribir ? (
           <p className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">Para registrar facturas de venta hace falta el permiso de escritura en Ventas.</p>
@@ -292,14 +346,9 @@ export default function LectorIngresosPage() {
           </div>
         ) : !ingreso || !info ? (
           <div className="mx-auto max-w-2xl">
-            {/* Zona para soltar el archivo; con el teclado se usa el boton "Seleccionar archivo". */}
+            {/* Zona de subida (el archivo se puede soltar en toda la pagina: SoltarFactura); con el teclado, el boton "Seleccionar archivo". */}
             <div
               onClick={abrirSelector}
-              onDragOver={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-              }}
-              onDrop={alSoltar}
               className={`rounded-xl border-2 border-dashed border-emerald-200 bg-white p-8 text-center transition-colors md:p-12 ${leyendo ? '' : 'cursor-pointer hover:border-emerald-400'}`}
             >
               <FileArrowUp size={48} weight="duotone" className="mx-auto mb-4 text-accent-600" />
@@ -309,7 +358,7 @@ export default function LectorIngresosPage() {
                   ? segundos < 10
                     ? 'Tarda unos segundos.'
                     : 'Sigue leyendo; las facturas largas tardan un poco más.'
-                  : 'Arrástrala aquí o pulsa para elegirla. PDF, JPG, PNG o WEBP de hasta 4 MB.'}
+                  : 'Arrástrala a cualquier parte de la página o pulsa para elegirla. PDF, JPG, PNG o WEBP de hasta 4 MB.'}
               </p>
               <button
                 type="button"
@@ -381,14 +430,35 @@ export default function LectorIngresosPage() {
 
             {/* Lo leido y la confirmacion */}
             <section ref={panelRef} tabIndex={-1} aria-label="Datos leídos" className="flex min-w-0 flex-col gap-4 focus:outline-none">
-              <PanelLectura info={info} lector="ventas" revisado={revisado} onRevisado={setRevisado} conCasilla={!bloqueada} />
+              <PanelLectura info={clienteResuelto ? conClienteElegido(info, clienteResuelto) : info} lector="ventas" revisado={revisado} onRevisado={setRevisado} conCasilla={!bloqueada} />
+
+              {/* Cliente sin dar de alta: «Dar de alta este cliente» o «Es uno que ya tengo». */}
+              {(!existente || clienteResuelto) && (
+                <AvisoTerceroNuevo
+                  id="lv-aviso-cliente"
+                  tipo="cliente"
+                  datos={{ nombreFiscal: ingreso.cliente ?? '', nifCif: nifLeido, pais: pareceNifIvaUe(nifLeido) ? (paisDelPrefijo(nifLeido) ?? 'ES') : 'ES' }}
+                  nifLeido={nifLeido}
+                  enlazado={clienteResuelto}
+                  puedeDarDeAlta={puedeAltaCliente}
+                  onEnlazar={(t) => {
+                    setClienteResuelto(t);
+                    setErrorGuardar('');
+                  }}
+                  onCambiar={() => setClienteResuelto(null)}
+                />
+              )}
 
               <div className="rounded-lg border border-slate-200 bg-white p-4">
                 <h2 className="mb-3 font-semibold text-slate-900">Datos leídos</h2>
                 <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <Dato etiqueta="Cliente">{ingreso.cliente || 'sin leer'}</Dato>
+                  <Dato etiqueta="Cliente">{cliente?.nombre || ingreso.cliente || 'sin leer'}</Dato>
                   <Dato etiqueta="NIF del cliente" mono>
-                    {ingreso.nifCliente || 'sin leer'}
+                    {cliente?.nif || ingreso.nifCliente || 'sin leer'}
+                    {/* «Es uno que ya tengo» corrige el NIF mal leido: se ve tambien el que se leyo. */}
+                    {cliente && nifLeido && nifComparable(cliente.nif) !== nifComparable(nifLeido) && (
+                      <span className="mt-0.5 block font-sans text-xs font-normal text-slate-500">En la factura se leyó {nifLeido}.</span>
+                    )}
                   </Dato>
                   <Dato etiqueta="Número de factura">{ingreso.numeroFactura || 'sin leer'}</Dato>
                   <Dato etiqueta="Fecha">{ingreso.fecha ? fechaLegible(ingreso.fecha) : 'sin leer'}</Dato>
@@ -478,6 +548,12 @@ export default function LectorIngresosPage() {
                 </p>
               )}
 
+              {faltaCliente && !bloqueada && (
+                <p id="lv-motivo-cliente" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                  Antes, da de alta el cliente o elige uno que ya tengas (aviso de arriba).
+                </p>
+              )}
+
               <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-end">
                 <button type="button" onClick={reiniciar} className="rounded-lg border border-slate-300 px-4 py-2.5 font-semibold text-slate-700 transition-colors hover:bg-slate-50">
                   Cancelar
@@ -485,7 +561,8 @@ export default function LectorIngresosPage() {
                 <button
                   type="button"
                   onClick={confirmar}
-                  disabled={guardando || bloqueada || faltaRevision}
+                  disabled={guardando || bloqueada || faltaRevision || faltaCliente}
+                  aria-describedby={faltaCliente && !bloqueada ? 'lv-motivo-cliente' : undefined}
                   className="rounded-lg bg-accent-600 px-5 py-2.5 font-semibold text-white transition-all hover:bg-accent-700 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-60"
                 >
                   {guardando ? 'Registrando…' : 'Registrar la factura de venta'}
