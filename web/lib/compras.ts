@@ -54,8 +54,8 @@ export interface Rectificar303 {
   ejercicio: number | null;
   /** '1T'..'4T' o '01'..'12'. */
   periodo: string | null;
-  /** Pantalla del 303 ('/dashboard/fiscal/modelo-303'). */
-  enlace: string;
+  /** Pantalla del 303 ('/dashboard/fiscal/modelo-303'); null si ese 303 se presentó fuera de la app (no hay pantalla que ver). */
+  enlace: string | null;
 }
 
 /** Lo que pide hacer un 409 del servidor con una factura de gasto (segun sus details). */
@@ -82,7 +82,12 @@ export function conflictoGasto(err: unknown): ConflictoGasto | null {
           campo: typeof d.campo === 'string' ? d.campo : null,
           ejercicio: typeof d.ejercicio === 'number' ? d.ejercicio : Number(d.ejercicio) || null,
           periodo: typeof d.periodo === 'string' ? d.periodo : null,
-          enlace: typeof d.enlace === 'string' && d.enlace.startsWith('/dashboard/') ? d.enlace : '/dashboard/fiscal/modelo-303',
+          enlace:
+            d.fueraDeLaApp === true || d.enlace === null
+              ? null
+              : typeof d.enlace === 'string' && d.enlace.startsWith('/dashboard/')
+                ? d.enlace
+                : '/dashboard/fiscal/modelo-303',
         }
       : null;
   return {
@@ -204,6 +209,12 @@ export interface RectificativaDeFicha {
   periodo: { desde: string; hasta: string } | null;
   /** Donde cuenta su IVA: '40-41' (rectificacion de deducciones) o '28-29' (periodo de la original). */
   imputacionIva: { fecha: string; casillas: '40-41' | '28-29' };
+  /**
+   * Con la original de fuera de la app: true si se descuenta de lo que se le debe
+   * («No, se descuenta…»), false si ya estaba pagada; null si no se preguntó.
+   * Se aplica al contabilizarlo (en un borrador del lector, al aprobarlo).
+   */
+  compensarFuera?: boolean | null;
 }
 
 /** Una rectificativa vigente de la factura (en la ficha de la original). */
