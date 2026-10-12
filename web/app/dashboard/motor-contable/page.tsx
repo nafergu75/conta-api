@@ -259,9 +259,11 @@ export default function MotorContablePage() {
                 Me llegó más tarde: poner la fecha de recepción
               </Link>
             )}
-            <Link href={rectificar303.datos.enlace} className="inline-flex items-center gap-1 font-semibold text-amber-900 underline">
-              Ver el 303{rectificar303.datos.periodo ? ` del ${textoPeriodoModelo(rectificar303.datos.ejercicio, rectificar303.datos.periodo)}` : ''} <ArrowRight size={14} />
-            </Link>
+            {rectificar303.datos.enlace && (
+              <Link href={rectificar303.datos.enlace} className="inline-flex items-center gap-1 font-semibold text-amber-900 underline">
+                Ver el 303{rectificar303.datos.periodo ? ` del ${textoPeriodoModelo(rectificar303.datos.ejercicio, rectificar303.datos.periodo)}` : ''} <ArrowRight size={14} />
+              </Link>
+            )}
             <button type="button" onClick={() => setRectificar303(null)} className="font-medium text-amber-800 hover:underline">
               Cerrar
             </button>
