@@ -255,10 +255,25 @@ export interface CandidataOriginal {
   exacta: boolean;
 }
 
+/** Factura de 2026 que trajo la gestoría y sigue pendiente de pago (no está en la app como factura). */
+export interface PartidaFueraCandidata {
+  partidaId: string;
+  numero: string;
+  fecha: string | null;
+  /** Lo que queda por pagar hoy. */
+  pendiente: number;
+  exacta: boolean;
+}
+
 export interface OriginalesBuscadas {
   coincidencia: 'EXACTA' | 'PARECIDA' | 'NINGUNA';
   candidatas: CandidataOriginal[];
+  /** Servidores anteriores no lo mandan. */
+  partidasFuera?: PartidaFueraCandidata[];
 }
+
+/** Número de factura para compararlo con el de una partida de 2026: sin espacios y en mayúsculas (como el servidor). */
+export const numeroComparable = (n: string | null | undefined): string => (n ?? '').replace(/\s+/g, '').toUpperCase();
 
 /** GET /expense-invoices/:id/rectificar: datos para prellenar un abono de esa factura. */
 export interface DatosParaRectificar {

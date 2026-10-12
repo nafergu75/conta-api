@@ -11,7 +11,9 @@ import {
   type CausaRectificacion,
   type DatosParaRectificar,
   fechaCorta,
+  numeroComparable,
   type OriginalesBuscadas,
+  type PartidaFueraCandidata,
   TIPOS_IVA_GASTO,
   textoTipoIva,
 } from '@/lib/compras';
@@ -146,6 +148,32 @@ export default function BloqueRectificacion({ valor: e, onCambio, proveedorId, e
       ...(quitada?.origen === 'app' && e.lineasOriginalDeApp ? { lineasOriginal: [], lineasOriginalDeApp: false } : {}),
     });
   };
+
+  // Facturas de 2026 que trajo la gestoría y siguen pendientes de pago (todas las del proveedor):
+  // para avisar si se dice «ya la he pagado» de una que la app tiene pendiente, o si el número no coincide.
+  const [partidasVivas, setPartidasVivas] = useState<PartidaFueraCandidata[]>([]);
+  useEffect(() => {
+    if (!proveedorId || !esAbono) {
+      setPartidasVivas([]);
+      return;
+    }
+    let vivo = true;
+    apiFetch<OriginalesBuscadas>(companyPath(`/expense-invoices/originales?supplierId=${encodeURIComponent(proveedorId)}`))
+      .then((r) => vivo && setPartidasVivas(r.partidasFuera ?? []))
+      .catch(() => vivo && setPartidasVivas([]));
+    return () => {
+      vivo = false;
+    };
+  }, [proveedorId, esAbono]);
+  const deFuera = e.originales.filter((o) => o.origen === 'fuera' && o.numero.trim());
+  const partidaDe = (numero: string) => partidasVivas.find((p) => numeroComparable(p.numero) === numeroComparable(numero));
+  const conPartida = deFuera.map((o) => ({ o, p: partidaDe(o.numero) })).filter((x): x is { o: typeof x.o; p: PartidaFueraCandidata } => !!x.p);
+  const sinPartida = deFuera.filter((o) => !partidaDe(o.numero));
+
+  // Elegida de la lista de 2026: va «de fuera de la app» con su número y su fecha, y como sigue
+  // pendiente de pago, el abono se descuenta de ella (se puede cambiar abajo).
+  const elegirPartida = (p: PartidaFueraCandidata) =>
+    cambiar({ originales: [...e.originales, originalDeFuera(p.numero, p.fecha ?? '')], ...(esAbono ? { yaPagada: false } : {}) });
 
   const sustitucion = e.tipo === 'S';
   const caben = !sustitucion || e.originales.length === 0;
@@ -396,7 +424,17 @@ export default function BloqueRectificacion({ valor: e, onCambio, proveedorId, e
               </p>
             )}
 
-            {caben && <BuscadorOriginales proveedorId={proveedorId} yaElegidas={deApp.map((o) => o.id ?? '')} numeroLeido={numeroLeido} onElegir={(c) => cambiar({ originales: [...e.originales, originalDeCandidata(c)] })} />}
+            {caben && (
+              <BuscadorOriginales
+                proveedorId={proveedorId}
+                yaElegidas={deApp.map((o) => o.id ?? '')}
+                yaElegidasFuera={e.originales.filter((o) => o.origen === 'fuera').map((o) => numeroComparable(o.numero))}
+                numeroLeido={numeroLeido}
+                onElegir={(c) => cambiar({ originales: [...e.originales, originalDeCandidata(c)] })}
+                onElegirFuera={elegirPartida}
+                monedaCuenta={monedaCuenta}
+              />
+            )}
             {caben && (
               <button
                 type="button"
@@ -441,6 +479,25 @@ export default function BloqueRectificacion({ valor: e, onCambio, proveedorId, e
               </span>
             </label>
           </div>
+          {conPartida.map(({ o, p }) =>
+            e.yaPagada === true ? (
+              <p key={o.clave} role="alert" className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                La app tiene la {p.numero} pendiente de pago ({fmt(p.pendiente)}). Si ya se la has pagado fuera de la app, registra antes ese pago en Traer la contabilidad &gt;
+                Facturas de 2026 pendientes. Si no, elige «No, se descuenta de lo que le debo»: con «Sí», el abono no se descuenta y la {p.numero} seguiría pendiente entera.
+              </p>
+            ) : e.yaPagada === false ? (
+              <p key={o.clave} className="mt-2 text-sm text-emerald-800">
+                La {p.numero} está pendiente de pago ({fmt(p.pendiente)}): el abono se descontará de ella.
+              </p>
+            ) : null,
+          )}
+          {e.yaPagada === false && partidasVivas.length > 0 && sinPartida.length > 0 && (
+            <p role="alert" className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              {sinPartida.length === 1 ? `La ${sinPartida[0].numero.trim()} no coincide` : 'Hay números que no coinciden'} con ninguna factura de 2026 pendiente de este
+              proveedor ({partidasVivas.map((p) => p.numero).join(', ')}). Si es una de ellas, corrige el número o elígela en la lista de arriba: si no coincide, el abono no se
+              descuenta de ella.
+            </p>
+          )}
         </fieldset>
       )}
     </section>
@@ -459,13 +516,20 @@ function BotonQuitar({ onClick, texto }: { onClick: () => void; texto: string })
 function BuscadorOriginales({
   proveedorId,
   yaElegidas,
+  yaElegidasFuera,
   numeroLeido,
   onElegir,
+  onElegirFuera,
+  monedaCuenta,
 }: {
   proveedorId: string | null;
   yaElegidas: string[];
+  /** Números (comparables) de las de fuera ya puestas: no se ofrecen otra vez. */
+  yaElegidasFuera: string[];
   numeroLeido?: string | null;
   onElegir: (c: OriginalesBuscadas['candidatas'][number]) => void;
+  onElegirFuera: (p: PartidaFueraCandidata) => void;
+  monedaCuenta: string;
 }) {
   const [q, setQ] = useState(numeroLeido ?? '');
   const [r, setR] = useState<OriginalesBuscadas | null>(null);
@@ -500,6 +564,11 @@ function BuscadorOriginales({
     return <p className="text-sm text-slate-600">Elige antes el proveedor (arriba) para buscar sus facturas. Si es nuevo o la factura no está en la app, escribe su número y su fecha.</p>;
   }
   const lista = (r?.candidatas ?? []).filter((c) => !yaElegidas.includes(c.id));
+  // De 2026 (de la gestoría): con número buscado, la que coincide o la que lo contiene; sin él, todas.
+  const buscado = numeroComparable(q);
+  const deGestoria = (r?.partidasFuera ?? []).filter(
+    (p) => !yaElegidasFuera.includes(numeroComparable(p.numero)) && (!buscado || p.exacta || numeroComparable(p.numero).includes(buscado) || buscado.includes(numeroComparable(p.numero))),
+  );
   return (
     <div className="flex flex-col gap-2">
       <label htmlFor="fr-buscar" className="text-sm font-medium text-slate-700">
@@ -517,9 +586,22 @@ function BuscadorOriginales({
       {error && <p className="text-sm text-rose-700">{error}</p>}
       <ul className="flex flex-col divide-y divide-slate-100 rounded-lg border border-slate-200">
         {buscando && !r && <li className="px-3 py-2 text-sm text-slate-500">Buscando...</li>}
-        {r && lista.length === 0 && (
+        {r && lista.length === 0 && deGestoria.length === 0 && (
           <li className="px-3 py-2 text-sm text-slate-500">{q.trim() ? 'No hay ninguna factura de este proveedor con ese número.' : 'Este proveedor no tiene más facturas en la app.'}</li>
         )}
+        {deGestoria.map((p) => (
+          <li key={p.partidaId}>
+            <button type="button" onClick={() => onElegirFuera(p)} className="flex w-full flex-wrap items-baseline justify-between gap-x-3 px-3 py-2 text-left text-sm hover:bg-slate-50">
+              <span className="font-medium text-slate-900">
+                {p.numero}
+                {p.exacta && <span className="ml-2 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">Coincide</span>}
+              </span>
+              <span className="text-xs text-slate-500">
+                {p.fecha ? `${fechaCorta(p.fecha)} · ` : ''}de 2026, de la gestoría · pendiente {formatoImporte(p.pendiente, monedaCuenta)}
+              </span>
+            </button>
+          </li>
+        ))}
         {lista.map((c) => (
           <li key={c.id}>
             <button type="button" onClick={() => onElegir(c)} className="flex w-full flex-wrap items-baseline justify-between gap-x-3 px-3 py-2 text-left text-sm hover:bg-slate-50">
