@@ -473,7 +473,7 @@ export default function ImpuestosPage() {
                     <li key={`${m.codigo}-${m.periodo}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 text-sm md:px-5">
                       <span className="w-12 font-mono font-semibold text-slate-900">{m.codigo}</span>
                       <span className="w-28 text-slate-700">{nombrePeriodo(m)}</span>
-                      <span className="min-w-0 flex-1 text-slate-600">{m.descripcion}</span>
+                      <span className="min-w-0 basis-full text-slate-600 sm:basis-0 sm:flex-1">{m.descripcion}</span>
                       {m.rellenoManual && <Etiqueta tono="ambar">Se rellena a mano</Etiqueta>}
                       {estado && <Etiqueta tono={estado.tono}>{estado.texto}</Etiqueta>}
                       <span className="text-xs text-slate-500">
