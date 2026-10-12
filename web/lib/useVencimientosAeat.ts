@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { apiFetch, companyPath } from './api';
 import { hoyIso } from './anios';
 import { diasEntre, enlaceModelo, proximosVencimientos, textoPeriodoModelo, type VencimientoAeat } from './aeatCalendar';
-import { useAniosEmpresa } from './useAniosEmpresa';
+import { useAniosEmpresa, useHoyIso } from './useAniosEmpresa';
 
 /** Fila del calendario de modelos del servidor (GET /impuestos/modelos). */
 export interface ModeloImpuestoResumen {
@@ -61,14 +61,22 @@ export interface Vencimientos {
 }
 
 export function useVencimientosAeat(n = 4, activo = true): Vencimientos {
-  const { listo, primero, actual } = useAniosEmpresa();
+  const { listo, primeroReal, actual } = useAniosEmpresa();
+  // Al cambiar el día (medianoche de Madrid) se recalculan los días que faltan.
+  const hoy = useHoyIso();
   const [estado, setEstado] = useState<Vencimientos>({ vencimientos: null, vencidos: 0, delServidor: false });
 
   useEffect(() => {
     if (!activo || !listo) return;
     let vivo = true;
-    const hoy = hoyIso();
-    const anios = [actual - 1, actual].filter((a) => a >= primero);
+    // Nunca antes del primer año de la empresa (sin recortarlo al actual): a
+    // una empresa que empieza el año que viene no se le pide nada todavía y
+    // se le enseñan sus primeros plazos del calendario general.
+    const anios = [actual - 1, actual].filter((a) => a >= primeroReal);
+    if (!anios.length) {
+      setEstado({ vencimientos: proximosVencimientos(hoy, n, primeroReal), vencidos: 0, delServidor: false });
+      return;
+    }
     Promise.all(anios.map((a) => leerModelosImpuesto(a, 'activos')))
       .then((listas) => {
         if (!vivo) return;
@@ -80,11 +88,11 @@ export function useVencimientosAeat(n = 4, activo = true): Vencimientos {
           .map((m) => aVencimiento(m, hoy));
         setEstado({ vencimientos: proximos, vencidos: todos.filter((m) => m.estado === 'expirado').length, delServidor: true });
       })
-      .catch(() => vivo && setEstado({ vencimientos: proximosVencimientos(hoy, n), vencidos: 0, delServidor: false }));
+      .catch(() => vivo && setEstado({ vencimientos: proximosVencimientos(hoy, n, primeroReal), vencidos: 0, delServidor: false }));
     return () => {
       vivo = false;
     };
-  }, [activo, listo, primero, actual, n]);
+  }, [activo, listo, primeroReal, actual, n, hoy]);
 
   return estado;
 }

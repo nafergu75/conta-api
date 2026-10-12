@@ -39,9 +39,9 @@ export default function EstadoFiscalPage() {
 function EstadoFiscal() {
   const sp = useSearchParams();
   const aniosEmpresa = useAniosEmpresa();
-  const { listo, actual, primero } = aniosEmpresa;
+  const { listo, actual, primeroReal } = aniosEmpresa;
   // El ejercicio del último trimestre terminado (en enero, el anterior), nunca antes del primero de la empresa.
-  const [ejercicio, setEjercicio] = useElegido(anioDeTexto(sp?.get('ejercicio')), trimestreAPresentar(hoyIso(), primero).ejercicio);
+  const [ejercicio, setEjercicio] = useElegido(anioDeTexto(sp?.get('ejercicio')), trimestreAPresentar(hoyIso(), primeroReal).ejercicio);
   const [pendientes, setPendientes] = useState<ModeloImpuestoResumen[]>([]);
   const [presentados, setPresentados] = useState<ModeloImpuestoResumen[]>([]);
   const [omitidos, setOmitidos] = useState<ModeloImpuestoResumen[]>([]);

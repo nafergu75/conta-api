@@ -31,7 +31,7 @@ export interface EjercicioModelo {
 export function useEjercicioAnual(): EjercicioModelo {
   const sp = useSearchParams();
   const a = useAniosEmpresa();
-  const [ejercicio, setEjercicio] = useElegido(anioDeTexto(sp?.get('ejercicio')), ejercicioAnualAPresentar(hoyIso(), a.primero));
+  const [ejercicio, setEjercicio] = useElegido(anioDeTexto(sp?.get('ejercicio')), ejercicioAnualAPresentar(hoyIso(), a.primeroReal));
   return { ejercicio, setEjercicio, anios: a.aniosModelos([ejercicio]), listo: a.listo };
 }
 
@@ -44,7 +44,7 @@ export interface PeriodoModelo extends EjercicioModelo {
 export function usePeriodoTrimestral(): PeriodoModelo {
   const sp = useSearchParams();
   const a = useAniosEmpresa();
-  const porDefecto = trimestreAPresentar(hoyIso(), a.primero);
+  const porDefecto = trimestreAPresentar(hoyIso(), a.primeroReal);
   const t = Number(sp?.get('trimestre'));
   const periodoUrl = normalizarPeriodo(sp?.get('periodo')) ?? (t >= 1 && t <= 4 ? `${t}T` : null);
   const ejercicioUrl = anioDeTexto(sp?.get('ejercicio'));

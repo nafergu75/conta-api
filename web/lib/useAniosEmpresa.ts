@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { apiFetch, companyPath } from './api';
 import { getCompanyId } from './auth';
-import { anioEspana, PRIMERO_RESPALDO, rangoAnios } from './anios';
+import { hoyIso, PRIMERO_RESPALDO, rangoAnios } from './anios';
 
 /**
  * Años de la empresa activa para los desplegables (GET /anios). Se piden una
@@ -59,12 +59,44 @@ function empresaActiva(): string {
   }
 }
 
+/**
+ * Hoy en España (AAAA-MM-DD) que cambia solo al pasar la medianoche de Madrid,
+ * aunque la página siga abierta: se comprueba cada minuto y al volver a la
+ * pestaña. Así el 1 de enero los años y los plazos pasan al año nuevo sin
+ * recargar.
+ */
+export function useHoyIso(): string {
+  const [hoy, setHoy] = useState(() => hoyIso());
+  useEffect(() => {
+    const comprobar = () => setHoy((antes) => {
+      const ahora = hoyIso();
+      return ahora === antes ? antes : ahora;
+    });
+    const reloj = window.setInterval(comprobar, 60_000);
+    document.addEventListener('visibilitychange', comprobar);
+    window.addEventListener('focus', comprobar);
+    return () => {
+      window.clearInterval(reloj);
+      document.removeEventListener('visibilitychange', comprobar);
+      window.removeEventListener('focus', comprobar);
+    };
+  }, []);
+  return hoy;
+}
+
 export interface UsoAniosEmpresa {
   /** Ya se sabe el primer año (de la empresa o, si falló, el de respaldo). */
   listo: boolean;
   /** No se han podido leer los años de la empresa: se usa el rango de respaldo. */
   respaldo: boolean;
+  /** Primer año para los rangos: el de la empresa, como mucho el actual. */
   primero: number;
+  /**
+   * Primer año de la empresa tal como lo da el servidor, aunque sea posterior
+   * al actual (una empresa que empieza en 2027 y hoy es 2026). Es el que vale
+   * para decidir qué plazos y periodos le tocan.
+   */
+  primeroReal: number;
   actual: number;
   conDatos: number[];
   ejercicios: AniosEmpresa['ejercicios'];
@@ -83,9 +115,16 @@ export function useAniosEmpresa(): UsoAniosEmpresa {
   });
 
   const [version, setVersion] = useState(0);
+  const anioHoy = Number(useHoyIso().slice(0, 4));
 
   useEffect(() => {
     const id = empresaActiva();
+    // Lo guardado de antes de medianoche del 31-12 ya no vale: el servidor
+    // tiene que volver a decir los años (el actual cambia y quizá el primero).
+    if ((leidos.get(id)?.actual ?? anioHoy) < anioHoy) {
+      pedidos.delete(id);
+      leidos.delete(id);
+    }
     if (leidos.has(id)) {
       setEstado({ companyId: id, datos: leidos.get(id) ?? null, listo: true });
       return;
@@ -95,32 +134,42 @@ export function useAniosEmpresa(): UsoAniosEmpresa {
     return () => {
       vivo = false;
     };
-  }, [version]);
+  }, [version, anioHoy]);
 
   const recargar = useCallback(() => {
     refrescarAniosEmpresa();
     setVersion((v) => v + 1);
   }, []);
 
-  const actual = estado.datos?.actual ?? anioEspana();
+  // El año de hoy en Madrid manda aunque la respuesta guardada sea de ayer.
+  const actual = Math.max(estado.datos?.actual ?? 0, anioHoy);
   const primero = estado.datos ? Math.min(estado.datos.primero, actual) : PRIMERO_RESPALDO(actual);
+  const primeroReal = estado.datos ? estado.datos.primero : primero;
   const conDatos = estado.datos?.conDatos ?? [];
 
   const anios = useCallback(
     (incluir: Array<number | null | undefined> = [], extra = 1) => rangoAnios({ primero, actual, extra, incluir: [...conDatos, ...incluir] }),
     [primero, actual, conDatos],
   );
-  // En los modelos no se ofrecen años futuros aunque tengan datos (no se pueden presentar).
+  // En los modelos no se ofrecen años futuros aunque tengan datos (no se pueden
+  // presentar), salvo el primero de una empresa que aún no ha empezado: es el
+  // que abren sus modelos.
   const aniosModelos = useCallback(
     (incluir: Array<number | null | undefined> = []) =>
-      rangoAnios({ primero, actual, extra: 0, incluir: [...conDatos.filter((a) => a <= actual), ...incluir] }),
-    [primero, actual, conDatos],
+      rangoAnios({
+        primero,
+        actual,
+        extra: 0,
+        incluir: [...conDatos.filter((a) => a <= actual), ...(primeroReal > actual ? [primeroReal] : []), ...incluir],
+      }),
+    [primero, primeroReal, actual, conDatos],
   );
 
   return {
     listo: estado.listo,
     respaldo: estado.listo && !estado.datos,
     primero,
+    primeroReal,
     actual,
     conDatos,
     ejercicios: estado.datos?.ejercicios ?? [],
