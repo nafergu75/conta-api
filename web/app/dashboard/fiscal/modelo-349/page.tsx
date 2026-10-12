@@ -1,11 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { CaretLeft } from '@phosphor-icons/react';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { formatoImporte } from '@/lib/moneda';
-import { trimestreAPresentar } from '@/lib/aeatCalendar';
+import SelectorAnio from '@/components/SelectorAnio';
+import { usePeriodoTrimestral } from '../components/periodoModelo';
+import { CargandoModelo, ErrorModelo } from '../components/BorradorAeat';
 import {
   AvisosBorrador,
   CamposRegistro,
@@ -13,7 +15,6 @@ import {
   ESTADO_MODELO,
   Seccion,
   TablaRegistros,
-  ejerciciosBorrador,
   type CampoLeido,
   type Columna,
 } from '../components/RegistroAeat';
@@ -82,8 +83,16 @@ const CLAVES: Record<string, string> = {
 };
 
 export default function Modelo349Page() {
-  const [ejercicio, setEjercicio] = useState(() => trimestreAPresentar().ejercicio);
-  const [periodo, setPeriodo] = useState(() => `${trimestreAPresentar().trimestre}T`);
+  return (
+    <Suspense fallback={<CargandoModelo />}>
+      <Modelo349 />
+    </Suspense>
+  );
+}
+
+function Modelo349() {
+  // Periodo de la URL o el trimestre que toca presentar, nunca antes del primer año de la empresa.
+  const { ejercicio, setEjercicio, periodo, setPeriodo, anios, listo } = usePeriodoTrimestral();
   const [b, setB] = useState<Borrador349 | null>(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
@@ -93,6 +102,7 @@ export default function Modelo349Page() {
   const [mensaje, setMensaje] = useState('');
 
   useEffect(() => {
+    if (!listo) return;
     let vivo = true;
     setCargando(true);
     setError('');
@@ -107,7 +117,7 @@ export default function Modelo349Page() {
     return () => {
       vivo = false;
     };
-  }, [ejercicio, periodo, recarga]);
+  }, [listo, ejercicio, periodo, recarga]);
 
   const guardarOpciones = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -154,18 +164,7 @@ export default function Modelo349Page() {
       </div>
 
       <div className="flex flex-wrap gap-4 rounded-lg border border-slate-200 bg-white p-4">
-        <div>
-          <label htmlFor="m349-ej" className="block text-sm font-medium text-slate-700">
-            Ejercicio
-          </label>
-          <select id="m349-ej" value={ejercicio} onChange={(e) => setEjercicio(parseInt(e.target.value))} className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm">
-            {ejerciciosBorrador().map((y) => (
-              <option key={y} value={y}>
-                {y}
-              </option>
-            ))}
-          </select>
-        </div>
+        <SelectorAnio id="m349-ej" valor={ejercicio} anios={anios} onChange={(a) => a !== null && setEjercicio(a)} />
         <div>
           <label htmlFor="m349-pe" className="block text-sm font-medium text-slate-700">
             Periodo
@@ -182,11 +181,9 @@ export default function Modelo349Page() {
       </div>
 
       {cargando && !b ? (
-        <div className="h-96 animate-pulse rounded-lg bg-slate-200" />
+        <CargandoModelo />
       ) : error ? (
-        <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-6 text-center text-red-800">
-          {error}
-        </div>
+        <ErrorModelo mensaje={error} />
       ) : (
         b && (
           <div className={`space-y-6 ${cargando ? 'opacity-60' : ''}`}>
