@@ -61,6 +61,8 @@ export default function FilaUsuario({ usuario: u, catalogo, esYo, soyAdminGlobal
   const permisos = catalogo ? (u.personalizado && u.areas ? resumenAreas(catalogo, u.areas) : resumenPerfil(catalogo, u.rol)) : '';
   const detalle = detalleEstado(u);
   const ultimoAdmin = u.puedes.editarAcceso && !u.puedes.quitarAcceso;
+  // Puede tocar su acceso pero no su contraseña: la cuenta entra en empresas que no administra.
+  const cuentaAjena = u.puedes.editarAcceso && !u.puedes.nuevaContrasena && !esYo;
   const titulo = u.nombre || u.email;
   const hayAcciones = u.puedes.editarAcceso || u.puedes.nuevaContrasena || u.puedes.quitarAcceso || (soyAdminGlobal && !esYo);
 
@@ -138,6 +140,11 @@ export default function FilaUsuario({ usuario: u, catalogo, esYo, soyAdminGlobal
       {ultimoAdmin && (
         <p className="text-xs text-slate-500">
           Es el único administrador de esta empresa: no se le puede quitar el acceso ni el perfil Administrador hasta que haya otro.
+        </p>
+      )}
+      {cuentaAjena && (
+        <p className="text-xs text-slate-500">
+          También entra en empresas que tú no administras: su contraseña solo se la puede cambiar el administrador global.
         </p>
       )}
       {esYo && (
