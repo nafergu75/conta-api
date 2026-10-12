@@ -362,8 +362,8 @@ export default function LectorIngresosPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-            {/* Vista previa */}
-            <section className="flex flex-col gap-3">
+            {/* Vista previa: a partir de lg se queda fija al bajar por el formulario, como en el lector de gastos. */}
+            <section className="flex flex-col gap-3 lg:sticky lg:top-4 lg:self-start">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="min-w-0 break-all text-sm text-slate-600">{archivo?.name}</p>
                 <button type="button" onClick={reiniciar} className="text-sm font-semibold text-blue-600 hover:underline">
@@ -373,9 +373,9 @@ export default function LectorIngresosPage() {
               {vista &&
                 (esImagen ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={vista} alt="Factura subida" className="max-h-[70vh] w-full rounded-lg border border-slate-200 bg-white object-contain" />
+                  <img src={vista} alt="Factura subida" className="max-h-[70vh] w-full rounded-lg border border-slate-200 bg-white object-contain lg:max-h-[calc(100dvh-6rem)]" />
                 ) : (
-                  <iframe src={vista} title="Factura subida" className="h-[50vh] w-full rounded-lg border border-slate-200 bg-white lg:h-[75vh]" />
+                  <iframe src={vista} title="Factura subida" className="h-[50vh] w-full rounded-lg border border-slate-200 bg-white lg:h-[calc(100dvh-6rem)]" />
                 ))}
             </section>
 
