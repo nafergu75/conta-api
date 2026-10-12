@@ -63,7 +63,7 @@ export function rangoAnios({ primero, actual, extra = 1, incluir = [] }: Opcione
   const desde = Math.min(esAnio(primero) ? primero : actual, actual);
   for (let a = desde; a <= actual + extra; a++) set.add(a);
   for (const a of incluir) if (esAnio(a)) set.add(a);
-  return [...set].sort((a, b) => b - a);
+  return Array.from(set).sort((a, b) => b - a);
 }
 
 /** Si no se pueden leer los años de la empresa: de actual − 4 a actual + 1 (el selector nunca se queda vacío). */
