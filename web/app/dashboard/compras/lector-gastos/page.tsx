@@ -9,7 +9,7 @@ import { anuncioLecturaTerminada, descartarLectura, ErrorLectura, esCancelada, e
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import FormFacturaGasto, { type FormInicial } from '@/components/compras/FormFacturaGasto';
 import { type GastoRegistrado } from '@/lib/compras';
-import { centimos, cuotasDescuadradas, inicialDe, retencionSinTipo } from '@/lib/lectorGastos';
+import { centimos, cuotasDescuadradas, inicialDe, marcasDelFormulario, retencionSinTipo } from '@/lib/lectorGastos';
 
 /**
  * Lector de gastos: se sube el PDF o la foto de una factura de proveedor, el
@@ -433,6 +433,7 @@ export default function LectorGastosPage() {
                 key={lectura}
                 modo="lector"
                 inicial={inicial}
+                marcas={marcasDelFormulario(infoPanel.campos, inicial)}
                 extra={{ tipoDocumento, confianza: leido.confianza, lecturaId: info.lecturaId, revisado: revisadoEnviado }}
                 bloqueado={
                   rectificativa

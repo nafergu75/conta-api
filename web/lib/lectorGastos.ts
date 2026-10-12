@@ -3,7 +3,7 @@
  * formulario (inicialDe) y los avisos que la acompanan. Sin React: se usa en
  * app/dashboard/compras/lector-gastos y se puede probar por separado.
  */
-import type { FormInicial, LineaInicial } from '@/components/compras/FormFacturaGasto';
+import type { FormInicial, LineaInicial, MarcasLector, NivelMarca } from '@/components/compras/FormFacturaGasto';
 import { pareceNifIvaUe } from './fiscal';
 import { calcularLinea, hoyIso, paisDelPrefijo, TIPO_GASTO_INFO, tipoGastoDeCuenta, tipoGastoParaRetencion, TIPOS_GASTO, tipoIvaMasCercano, type TipoGasto } from './compras';
 import { descripcionNeutraTramo, type EstadoCampo, type GastoLeido, type InfoLectura, type TramoGasto } from './lecturas';
@@ -148,4 +148,45 @@ export function inicialDe(g: GastoLeido, paisExistente: string | null): FormInic
     lineas,
     totalDocumento: Number.isFinite(Number(g.total)) && Number(g.total) !== 0 ? Number(g.total) : undefined,
   };
+}
+
+/**
+ * P6: los datos que el lector dejo en «revisar» o en «error», con el nombre del
+ * campo del formulario, para marcarlos dentro de FormFacturaGasto (ademas de
+ * listarlos en «Comprueba estos datos»):
+ *  - NIF y nombre del emisor: el proveedor (nuevo: su NIF o su nombre).
+ *  - Numero, fecha y total: sus campos.
+ *  - Base e IVA de cada tramo: el precio y el IVA de la linea de ese tipo.
+ *  - Retencion: el IRPF de todas las lineas.
+ *  - Base, IVA total y concepto: los de la linea, si solo hay una.
+ * Si dos datos van al mismo campo, manda el peor.
+ */
+export function marcasDelFormulario(campos: InfoLectura['campos'], inicial: FormInicial): MarcasLector {
+  const m: MarcasLector = {};
+  const poner = (campo: string, nivel: NivelMarca) => {
+    if (m[campo] !== 'error') m[campo] = nivel;
+  };
+  const lineas = inicial.lineas ?? [];
+  const todas = lineas.map((_, i) => i);
+  const unica = lineas.length === 1 ? [0] : [];
+  /** Lineas con ese tipo de IVA (la propuesta hace una por tipo). */
+  const deTipo = (tipoIva: number | undefined) =>
+    typeof tipoIva === 'number' ? todas.filter((i) => lineas[i].tipoIva === tipoIvaMasCercano(tipoIva)) : unica;
+  for (const [id, c] of Object.entries(campos)) {
+    if (!c || c.estado === 'ok') continue;
+    const n: NivelMarca = c.estado;
+    const parte = /^desglose\.\d+\.(base|cuota)$/.exec(id)?.[1];
+    if (id === 'emisor.nif' || id === 'emisor.nombre') {
+      poner('proveedor', n);
+      poner(id === 'emisor.nif' ? 'proveedor.nifCif' : 'proveedor.nombreFiscal', n);
+    } else if (id === 'numero') poner('numeroFacturaProveedor', n);
+    else if (id === 'fechaEmision') poner('fechaEmision', n);
+    else if (parte) for (const i of deTipo(c.tipoIva)) poner(`lineas.${i}.${parte === 'base' ? 'precioUnitario' : 'tipoIva'}`, n);
+    else if (id === 'retencion.tipo' || id === 'retencion.importe') for (const i of todas) poner(`lineas.${i}.tipoRetencion`, n);
+    else if (id === 'totales.base') for (const i of unica) poner(`lineas.${i}.precioUnitario`, n);
+    else if (id === 'totales.cuotaIva') for (const i of unica) poner(`lineas.${i}.tipoIva`, n);
+    else if (id === 'concepto') for (const i of unica) poner(`lineas.${i}.descripcion`, n);
+    else if (id === 'totales.totalFactura' || id === 'totales.totalAPagar') poner('totalDocumento', n);
+  }
+  return m;
 }
