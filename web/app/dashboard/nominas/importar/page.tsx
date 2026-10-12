@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { CheckCircle, DownloadSimple, FileXls } from '@phosphor-icons/react';
 import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
+import { anioDeTexto, anioEspana, mesEspana } from '@/lib/anios';
+import { useAniosEmpresa } from '@/lib/useAniosEmpresa';
 import {
   AJUSTES_INICIALES,
   esNecesitaMapeo,
@@ -150,12 +152,12 @@ export default function ImportarNominasPage() {
 function Importar() {
   const params = useSearchParams();
   const { escribir } = permisosNominas();
-  const hoy = new Date();
-  const [mesFijo, setMesFijo] = useState(() => ({
-    activo: false,
-    ejercicio: Number(params.get('ejercicio')) || hoy.getFullYear(),
-    mes: Number(params.get('mes')) || hoy.getMonth() + 1,
-  }));
+  // Mes de la URL o el de hoy en España.
+  const [mesFijo, setMesFijo] = useState(() => {
+    const m = Number(params.get('mes'));
+    return { activo: false, ejercicio: anioDeTexto(params.get('ejercicio')) ?? anioEspana(), mes: m >= 1 && m <= 12 ? m : mesEspana() };
+  });
+  const aniosEmpresa = useAniosEmpresa();
   const [especie, setEspecie] = useState<'auto' | 'si' | 'no'>('auto');
   const [archivo, setArchivo] = useState<File | null>(null);
   // Lo que se manda: el fichero si es pequeno, o el id de su subida por trozos.
@@ -169,8 +171,6 @@ function Importar() {
   const [soloErrores, setSoloErrores] = useState(false);
   const [resultado, setResultado] = useState<Resultado | null>(null);
   const [noImportadas, setNoImportadas] = useState<FilaNoImportada[]>([]);
-  // El año se escribe aqui y solo pasa a la vista previa cuando es un año completo (2000-2100).
-  const [anioTexto, setAnioTexto] = useState(() => String(mesFijo.ejercicio));
   const eleccion = useRef(0);
 
   const opciones = useMemo(
@@ -370,22 +370,18 @@ function Importar() {
                     </option>
                   ))}
                 </select>
-                <input
+                <select
                   aria-label="Ejercicio"
-                  inputMode="numeric"
-                  maxLength={4}
-                  value={anioTexto}
-                  onChange={(e) => {
-                    const t = e.target.value.replace(/\D/g, '').slice(0, 4);
-                    setAnioTexto(t);
-                    const n = Number(t);
-                    // Solo un año completo cambia la vista previa (con "202" a medias no se pide nada).
-                    if (t.length === 4 && n >= 2000 && n <= 2100) setMesFijo({ ...mesFijo, activo: true, ejercicio: n });
-                  }}
-                  onBlur={() => setAnioTexto(String(mesFijo.ejercicio))}
-                  aria-invalid={!(anioTexto.length === 4 && Number(anioTexto) >= 2000 && Number(anioTexto) <= 2100)}
-                  className="w-20 rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm"
-                />
+                  value={mesFijo.ejercicio}
+                  onChange={(e) => setMesFijo({ ...mesFijo, activo: true, ejercicio: Number(e.target.value) })}
+                  className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm"
+                >
+                  {aniosEmpresa.anios([mesFijo.ejercicio]).map((a) => (
+                    <option key={a} value={a}>
+                      {a}
+                    </option>
+                  ))}
+                </select>
               </label>
             </fieldset>
             <div>
