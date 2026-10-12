@@ -201,9 +201,11 @@ export default function GastoDetailPage() {
           {bloqueadaPorPagos ? (
             // Los dos motivos dicen casi lo mismo («...antes de modificarla» / «...antes de anularla»): uno solo, y dónde están los pagos.
             <p className="text-sm text-slate-600">
-              Tiene pagos registrados: para modificarla o anularla, anula antes sus pagos (más abajo, en{' '}
+              {esAbono
+                ? 'Tiene devoluciones registradas: para modificarlo o anularlo, anula antes sus devoluciones (más abajo, en '
+                : 'Tiene pagos registrados: para modificarla o anularla, anula antes sus pagos (más abajo, en '}
               <a href="#pagos" className="font-semibold text-blue-600 hover:underline">
-                Pagos
+                {esAbono ? 'Devoluciones recibidas' : 'Pagos'}
               </a>
               ).
             </p>
