@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { apiFetch, companyPath, errorMessage } from './api';
+import { ApiError, apiFetch, companyPath, errorMessage } from './api';
 
 /**
  * Tipo de operacion de IVA de las facturas de venta (lo que devuelve
@@ -209,4 +209,26 @@ export function useEmpresaEspanola(): boolean | null {
     };
   }, []);
   return espanola;
+}
+
+/** Código del 409 de una venta cuya operación es de un periodo cuyo 303 presenta la gestoría. */
+export const CODIGO_DEVENGO_FUERA = 'DEVENGO_FUERA_APP';
+
+/**
+ * Pasa a factura una venta y, si el servidor avisa de que la operación es de un
+ * periodo cuyo 303 presenta la gestoría (por ejemplo, una entrega de diciembre
+ * de 2026 facturada en enero), enseña el aviso y repite con la confirmación.
+ * Devuelve null si la persona no la confirma, y el aviso si se confirmó.
+ */
+export async function conDevengoFuera<T>(hacer: (extra: { confirmaDevengoFuera?: true }) => Promise<T>): Promise<{ r: T; aviso: string | null } | null> {
+  try {
+    return { r: await hacer({}), aviso: null };
+  } catch (e) {
+    const d = e instanceof ApiError && e.detalles && typeof e.detalles === 'object' ? (e.detalles as { codigo?: unknown }) : null;
+    if (!(e instanceof ApiError) || d?.codigo !== CODIGO_DEVENGO_FUERA) throw e;
+    if (!window.confirm(`${e.message}
+
+¿La pasas a factura igualmente?`)) return null;
+    return { r: await hacer({ confirmaDevengoFuera: true }), aviso: e.message };
+  }
 }
