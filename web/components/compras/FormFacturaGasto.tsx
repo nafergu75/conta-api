@@ -200,7 +200,8 @@ export default function FormFacturaGasto({
   const [vencTocado, setVencTocado] = useState(modo === 'editar' || !!inicial?.fechaVencimiento);
   const [mostrarRegistro, setMostrarRegistro] = useState(!!inicial?.fechaRegistro || campoInicial === 'fechaRegistro');
   const [fechaRegistro, setFechaRegistro] = useState(inicial?.fechaRegistro ?? '');
-  const [tipoGasto, setTipoGasto] = useState<TipoGasto>(inicial?.tipoGasto ?? 'SUMINISTROS');
+  // Un abono sin factura de la app suele ser de compras de mercaderías (devolución, descuento, rappel).
+  const [tipoGasto, setTipoGasto] = useState<TipoGasto>(inicial?.tipoGasto ?? (inicial?.rectificativa ? 'COMPRA' : 'SUMINISTROS'));
   const [cuenta, setCuenta] = useState(inicial?.cuentaGasto ?? '');
   const [mostrarCuenta, setMostrarCuenta] = useState(!!inicial?.cuentaGasto && inicial.cuentaGasto !== TIPO_GASTO_INFO[inicial?.tipoGasto ?? 'SUMINISTROS'].cuenta);
   const [lineas, setLineas] = useState<LineaForm[]>(() =>
