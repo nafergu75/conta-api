@@ -206,17 +206,23 @@ export default function FormFacturaGasto({
   /** Sin IVA español ni retención: proveedor de fuera de España o empresa no establecida en España. */
   const extranjero = proveedorExtranjero || empresaExtranjera;
   const retenciones = TIPO_GASTO_INFO[tipoGasto].retenciones;
-  const conRetencion = retenciones.length > 1 && !extranjero;
+  // Una retencion que el tipo no admite solo llega del lector (1 o 2 %): se ve, para que se cambie.
+  const retencionNoAdmitida = lineas.some((l) => l.tipoRetencion !== 0 && !retenciones.includes(l.tipoRetencion));
+  const conRetencion = (retenciones.length > 1 || retencionNoAdmitida) && !extranjero;
 
   // Sin IVA español ni retención (proveedor o empresa de fuera de España): se ponen a 0.
   useEffect(() => {
     if (extranjero) setLineas((ls) => (ls.some((l) => l.tipoIva !== 0 || l.tipoRetencion !== 0) ? ls.map((l) => ({ ...l, tipoIva: 0, tipoRetencion: 0 })) : ls));
   }, [extranjero]);
 
-  // Al cambiar el tipo de gasto, las retenciones que ese tipo no admite vuelven a 0.
+  // Al cambiar el tipo de gasto, las retenciones que ese tipo no admite vuelven a 0. Al abrir no:
+  // la que trae el lector se conserva (si no, se perderia sin avisar y el total no cuadraria).
+  const tipoAnterior = useRef(tipoGasto);
   useEffect(() => {
+    if (tipoAnterior.current === tipoGasto) return;
+    tipoAnterior.current = tipoGasto;
     setLineas((ls) => (ls.some((l) => !retenciones.includes(l.tipoRetencion)) ? ls.map((l) => (retenciones.includes(l.tipoRetencion) ? l : { ...l, tipoRetencion: 0 })) : ls));
-  }, [retenciones]);
+  }, [tipoGasto, retenciones]);
 
   const valores = useMemo(
     () =>
@@ -618,6 +624,9 @@ export default function FormFacturaGasto({
                           {t} %
                         </option>
                       ))}
+                      {!retenciones.includes(l.tipoRetencion) && (
+                        <option value={l.tipoRetencion}>{String(l.tipoRetencion).replace('.', ',')} % (la de la factura; no se puede registrar)</option>
+                      )}
                     </select>
                   </div>
                 ) : (
