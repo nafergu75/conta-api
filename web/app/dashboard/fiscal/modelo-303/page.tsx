@@ -1,10 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
-import { trimestreAPresentar, ejerciciosSeleccionables } from '@/lib/aeatCalendar';
 import { CaretLeft, Download, WarningCircle } from '@phosphor-icons/react';
+import SelectorAnio from '@/components/SelectorAnio';
+import { usePeriodoTrimestral } from '../components/periodoModelo';
+import { CargandoModelo, ErrorModelo } from '../components/BorradorAeat';
 import { Casillas303, type Casilla303 } from '../components/Casillas303';
 import { AvisosModelo } from '../components/AvisosModelo';
 import { Declaraciones } from '../components/Declaraciones';
@@ -88,18 +90,27 @@ const TITULO_RESULTADO: Record<TipoDeclaracion, string> = {
 };
 
 export default function Modelo303Page() {
+  return (
+    <Suspense fallback={<CargandoModelo />}>
+      <Modelo303 />
+    </Suspense>
+  );
+}
+
+function Modelo303() {
   const [modelo, setModelo] = useState<Modelo303 | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [avisoDescarga, setAvisoDescarga] = useState('');
-  // Se abre en el trimestre que toca presentar (en octubre, el 3T).
-  const [ejercicio, setEjercicio] = useState(() => trimestreAPresentar().ejercicio);
-  const [periodo, setPeriodo] = useState(() => `${trimestreAPresentar().trimestre}T`);
+  // Se abre en el periodo de la URL o en el trimestre que toca presentar (en octubre, el 3T),
+  // nunca antes del primer año de la empresa en la app.
+  const { ejercicio, setEjercicio, periodo, setPeriodo, anios, listo } = usePeriodoTrimestral();
   const [opciones, setOpciones] = useState<Opciones>(SIN_OPCIONES);
   const [compensarEscrito, setCompensarEscrito] = useState('');
   const [recarga, setRecarga] = useState(0);
 
   useEffect(() => {
+    if (!listo) return;
     const fetchModelo = async () => {
       try {
         setLoading(true);
@@ -115,7 +126,7 @@ export default function Modelo303Page() {
     };
 
     fetchModelo();
-  }, [ejercicio, periodo, opciones, recarga]);
+  }, [listo, ejercicio, periodo, opciones, recarga]);
 
   // Al cambiar de periodo se vuelve a lo que propone el servidor.
   const cambiarPeriodo = (cambio: () => void) => {
@@ -143,25 +154,61 @@ export default function Modelo303Page() {
     setOpciones((o) => ({ ...o, aCompensar: compensarEscrito, tipoDeclaracion: '' }));
   };
 
-  if (loading && !modelo) {
-    return (
-      <div className="space-y-4">
-        <div className="h-10 w-32 animate-pulse rounded-lg bg-slate-200" />
-        <div className="h-96 animate-pulse rounded-lg bg-slate-200" />
-      </div>
-    );
-  }
+  const cabecera = (
+    <div>
+      <Link href="/dashboard/fiscal" className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700 mb-4">
+        <CaretLeft size={20} />
+        Volver a Fiscal
+      </Link>
+      <h1 className="text-3xl font-bold text-slate-900">Modelo 303 – IVA</h1>
+      <p className="mt-2 text-slate-600">
+        Borrador con el diseño de registro 2026 de la AEAT. El fichero se importa en el formulario del 303 de la sede.
+      </p>
+    </div>
+  );
 
-  if (!modelo) {
+  // Ejercicio y periodo: siempre a la vista, aunque el modelo dé error (así se puede elegir otro).
+  const verMesesPeriodo = (modelo?.mensual ?? false) || !esTrimestre(periodo);
+  const camposPeriodo = (
+    <>
+      <SelectorAnio id="ejercicio-303" valor={ejercicio} anios={anios} onChange={(a) => a !== null && cambiarPeriodo(() => setEjercicio(a))} />
+
+      <div>
+        <label htmlFor="periodo-303" className="block text-sm font-medium text-slate-700">Periodo</label>
+        <select
+          id="periodo-303"
+          value={periodo}
+          onChange={(e) => cambiarPeriodo(() => setPeriodo(e.target.value))}
+          className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+        >
+          <optgroup label="Trimestres">
+            {TRIMESTRES.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </optgroup>
+          {verMesesPeriodo && (
+            <optgroup label="Meses">
+              {MESES.map((m) => (
+                <option key={m.codigo} value={m.codigo}>
+                  {m.codigo} · {m.nombre}
+                </option>
+              ))}
+            </optgroup>
+          )}
+        </select>
+      </div>
+    </>
+  );
+
+  // Sin modelo de este periodo (cargando o con error): el selector y el aviso.
+  if (!modelo || (error && (modelo.ejercicio !== ejercicio || modelo.periodo !== periodo))) {
     return (
-      <div className="space-y-4">
-        <Link href="/dashboard/fiscal" className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700">
-          <CaretLeft size={20} />
-          Volver a Fiscal
-        </Link>
-        <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center">
-          <p className="text-red-800">{error || 'Modelo no encontrado'}</p>
-        </div>
+      <div className="space-y-6">
+        {cabecera}
+        <div className="flex flex-wrap gap-4 rounded-lg border border-slate-200 bg-white p-4">{camposPeriodo}</div>
+        {error ? <ErrorModelo mensaje={error} /> : <CargandoModelo />}
       </div>
     );
   }
@@ -173,7 +220,6 @@ export default function Modelo303Page() {
   const importe111 = modelo.rectificativa ? modelo.casillas303.find((c) => c.numero === '111')?.valor ?? 0 : 0;
   const conCuenta = tipo === 'U' || tipo === 'D' || importe111 > 0;
   const presentado = modelo.estado === 'presentado';
-  const verMeses = modelo.mensual || !esTrimestre(periodo);
   const origenCompensar =
     modelo.aCompensar.origen === 'presentado'
       ? 'Es el importe que se presentó.'
@@ -185,62 +231,11 @@ export default function Modelo303Page() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <Link href="/dashboard/fiscal" className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700 mb-4">
-          <CaretLeft size={20} />
-          Volver a Fiscal
-        </Link>
-        <h1 className="text-3xl font-bold text-slate-900">Modelo 303 – IVA</h1>
-        <p className="mt-2 text-slate-600">
-          Borrador con el diseño de registro 2026 de la AEAT. El fichero se importa en el formulario del 303 de la sede.
-        </p>
-      </div>
+      {cabecera}
 
       {/* Período y datos de la declaración */}
       <div className="flex flex-wrap gap-4 rounded-lg border border-slate-200 bg-white p-4">
-        <div>
-          <label htmlFor="ejercicio-303" className="block text-sm font-medium text-slate-700">Ejercicio</label>
-          <select
-            id="ejercicio-303"
-            value={ejercicio}
-            onChange={(e) => cambiarPeriodo(() => setEjercicio(parseInt(e.target.value)))}
-            className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          >
-            {ejerciciosSeleccionables().map((year) => (
-              <option key={year} value={year}>
-                {year}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label htmlFor="periodo-303" className="block text-sm font-medium text-slate-700">Periodo</label>
-          <select
-            id="periodo-303"
-            value={periodo}
-            onChange={(e) => cambiarPeriodo(() => setPeriodo(e.target.value))}
-            className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          >
-            <optgroup label="Trimestres">
-              {TRIMESTRES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </optgroup>
-            {verMeses && (
-              <optgroup label="Meses">
-                {MESES.map((m) => (
-                  <option key={m.codigo} value={m.codigo}>
-                    {m.codigo} · {m.nombre}
-                  </option>
-                ))}
-              </optgroup>
-            )}
-          </select>
-        </div>
+        {camposPeriodo}
 
         <div>
           <label htmlFor="tipo-303" className="block text-sm font-medium text-slate-700">Tipo de declaración</label>
