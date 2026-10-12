@@ -108,7 +108,7 @@ export default function DashboardPage() {
   // Lo que deja ver su acceso en la empresa activa (se lee al montar: la sesion vive en el navegador).
   const [acceso, setAcceso] = useState<{ cobros: boolean; aeat: boolean; nuevoMovimiento: boolean } | null>(null);
   // Plazos de la AEAT del servidor (día hábil, ajustes fiscales); sin permiso de impuestos, el calendario general.
-  const { vencimientos: vencimientosAeat } = useVencimientosAeat(4, !!acceso?.aeat);
+  const { vencimientos: vencimientosAeat, vencidos: vencidosAeat } = useVencimientosAeat(4, !!acceso?.aeat);
 
   const loadData = useCallback(async () => {
     try {
@@ -421,10 +421,19 @@ export default function DashboardPage() {
               Si el último día cae en fin de semana o festivo nacional, ya sale el siguiente día hábil.
             </p>
           </div>
+          {vencidosAeat > 0 && (
+            <p role="status" className="mb-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
+              {vencidosAeat === 1 ? 'Hay 1 modelo' : `Hay ${vencidosAeat} modelos`} con el plazo vencido y sin presentar.{' '}
+              <Link href="/dashboard/fiscal/estado" className="font-medium underline">
+                Revísalos en Estado fiscal
+              </Link>
+              : si los presentó tu gestoría, márcalos como presentados fuera de la app.
+            </p>
+          )}
           {vencimientosAeat === null ? (
             <div className="h-24 animate-pulse rounded-lg bg-white border border-slate-200" />
           ) : vencimientosAeat.length === 0 ? (
-            <p className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600">No tienes modelos pendientes de presentar.</p>
+            <p className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600">No tienes modelos en plazo pendientes de presentar.</p>
           ) : (
             <div className="grid gap-3 md:grid-cols-2">
               {vencimientosAeat.map((alerta) => (
