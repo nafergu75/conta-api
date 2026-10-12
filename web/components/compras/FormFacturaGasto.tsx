@@ -674,7 +674,8 @@ export default function FormFacturaGasto({
           </div>
           {totales.ivaPorTipo.map((t) => (
             <div key={t.tipo} className="flex justify-between">
-              <dt className="text-slate-600">IVA {t.tipo} %</dt>
+              {/* La parte al 0 % es exenta (o, con un proveedor o una empresa de fuera, va sin IVA español). */}
+              <dt className="text-slate-600">{t.tipo !== 0 ? `IVA ${t.tipo} %` : extranjero ? 'Sin IVA español' : 'Exento'}</dt>
               <dd className="font-mono text-slate-900">{fmt(t.cuota)}</dd>
             </div>
           ))}
