@@ -65,7 +65,7 @@ function entradasVisibles(ctx: ReturnType<typeof useConfiguracion>): EntradaIndi
     },
     // Alta de usuarios, permisos y contraseñas: el administrador global y el de cada empresa.
     { etiqueta: 'Usuarios', href: `${BASE}/usuarios`, icono: UsersThree, visible: puedeGestionarUsuarios(user) },
-    { etiqueta: 'Tu acceso y usuarios', href: `${BASE}/acceso`, icono: UserCircle, visible: true },
+    { etiqueta: 'Tu acceso', href: `${BASE}/acceso`, icono: UserCircle, visible: true },
   ];
   return lista.filter((e) => e.visible);
 }

@@ -10,7 +10,7 @@ import { CabeceraBloque, Etiqueta, Mensaje } from '../componentes';
 import { useConfiguracion } from '../contexto';
 
 /**
- * Tu acceso y usuarios: el perfil del usuario en la empresa activa (rol y lo
+ * Tu acceso: el perfil del usuario en la empresa activa (rol y lo
  * que puede hacer) y, para el administrador de la empresa, la lista de quien
  * tiene acceso (solo lectura). Las altas y los cambios se hacen en
  * Configuracion > Usuarios.
@@ -58,7 +58,7 @@ export default function AccesoPage() {
 
   return (
     <>
-      <CabeceraBloque icono={UserCircle} titulo="Tu acceso y usuarios" descripcion="Con qué usuario entras, qué puedes hacer en esta empresa y quién más tiene acceso." />
+      <CabeceraBloque icono={UserCircle} titulo="Tu acceso" descripcion="Con qué usuario entras, qué puedes hacer en esta empresa y quién más tiene acceso." />
 
       <section aria-labelledby="perfil" className="rounded-xl border border-slate-200 bg-white p-4 md:p-5">
         <h2 id="perfil" className="font-semibold text-slate-900">
