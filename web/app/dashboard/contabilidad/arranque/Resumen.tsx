@@ -117,6 +117,16 @@ export function Resumen({
     }
   };
   const analizarSinLanzar = (a: AjustesCarga) => analizar(a).catch(() => undefined);
+  /** Desde los formularios de datos a mano: el error lo enseña el propio formulario. */
+  const analizarDesdeForm = async (a: AjustesCarga) => {
+    setOcupado(true);
+    setAviso('');
+    try {
+      onAnalizado(await arranqueApi.analizar(carga.id, a));
+    } finally {
+      setOcupado(false);
+    }
+  };
 
   const quitar = async (sha: string, nombre: string) => {
     if (!window.confirm(`¿Quitar «${nombre}» de la carga?`)) return;
@@ -545,9 +555,7 @@ export function Resumen({
           bancos={vista.bancos}
           puedeEditar={puedeEditar}
           ocupado={ocupado}
-          onGuardar={async (bancos) => {
-            await analizar({ bancos });
-          }}
+          onGuardar={(bancos) => analizarDesdeForm({ bancos })}
         />
       )}
       <DatosFiscalesForm
@@ -557,7 +565,7 @@ export function Resumen({
         puedeEditar={puedeEditar}
         ocupado={ocupado}
         onGuardar={async ({ datosFiscales, resultadoDeclarado: r }) => {
-          await analizar({ datosFiscales, ...(r !== undefined ? { resultadoDeclarado: r } : {}) });
+          await analizarDesdeForm({ datosFiscales, ...(r !== undefined ? { resultadoDeclarado: r } : {}) });
         }}
       />
 
