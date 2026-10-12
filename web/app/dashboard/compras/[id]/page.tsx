@@ -17,6 +17,7 @@ import {
   hoyIso,
   textoEstadoAbono,
   textoEstadoAsiento,
+  textoPeriodoModelo,
   TIPO_GASTO_INFO,
   type ConflictoGasto,
   type GastoDetalle,
@@ -103,6 +104,11 @@ export default function GastoDetailPage() {
   const porPagos = (m?: string | null) => !!m && m.startsWith('La factura tiene pagos');
   const bloqueadaPorPagos =
     !gasto.acciones.editar.permitido && !gasto.acciones.anular.permitido && porPagos(gasto.acciones.editar.motivo) && porPagos(gasto.acciones.anular.motivo);
+  // Un abono con devoluciones y además aplicado a mano a otras facturas: los dos pasos de una vez.
+  const conAplicacionesManuales = esAbono && gasto.compensaciones.some((c) => c.abonoId === gasto.id && c.origen === 'MANUAL' && c.estado === 'ACTIVO');
+  // El recordatorio fijo del 303 ya lo dice: no se repite el aviso del guardado.
+  const avisosVisibles = gasto.rectificar303 ? avisosGuardado.filter((a) => !/^Registrada en .*ya está presentado/.test(a)) : avisosGuardado;
+  const unaDeFuera = !!rect && !rect.periodo && rect.originales.length === 1 && !rect.originales[0].id;
   // Sin cuenta en las lineas, el asiento usa la del tipo de gasto.
   const cuenta =
     gasto.cuentaGasto ?? (gasto.lineas.some((l) => l.accountCode) ? 'Varias (ver líneas)' : esTipoGasto(gasto.tipoGasto) ? TIPO_GASTO_INFO[gasto.tipoGasto].cuenta : null);
@@ -130,7 +136,7 @@ export default function GastoDetailPage() {
           <div className="mt-2 flex flex-wrap gap-1.5">
             {gasto.esRectificativa && <span className={claseInsigniaAbono}>{esAbono ? 'Abono' : 'Rectificativa'}</span>}
             <span className={claseEstadoGasto(gasto.estado)}>{gasto.estadoTexto}</span>
-            {!anulada && <span className={claseEstadoPago(gasto.estadoPago, gasto.vencida)}>{esAbono ? textoEstadoAbono(gasto.estadoPago) : gasto.estadoPagoTexto}</span>}
+            {!anulada && <span className={claseEstadoPago(gasto.estadoPago, gasto.vencida)}>{esAbono ? textoEstadoAbono(gasto.estadoPago, gasto.estado) : gasto.estadoPagoTexto}</span>}
           </div>
         </div>
       </div>
@@ -151,10 +157,20 @@ export default function GastoDetailPage() {
           </button>
         </div>
       )}
-      {avisosGuardado.length > 0 && (
+      {gasto.rectificar303 && !anulada && (
+        <div role="note" className="mb-4 flex flex-col gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          <p>{gasto.rectificar303.aviso}</p>
+          {gasto.rectificar303.enlace && (
+            <Link href={gasto.rectificar303.enlace} className="self-start font-semibold underline">
+              Ver el 303 del {textoPeriodoModelo(gasto.rectificar303.ejercicio, gasto.rectificar303.periodo)}
+            </Link>
+          )}
+        </div>
+      )}
+      {avisosVisibles.length > 0 && (
         <div role="note" className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
           <ul className="flex flex-col gap-1">
-            {avisosGuardado.map((a) => (
+            {avisosVisibles.map((a) => (
               <li key={a}>{a}</li>
             ))}
           </ul>
@@ -189,7 +205,7 @@ export default function GastoDetailPage() {
             >
               <Prohibit size={16} /> Anular
             </button>
-            {gasto.estado !== 'DRAFT' && (
+            {gasto.estado !== 'DRAFT' && !gasto.esRectificativa && (
               <Link
                 href={`/dashboard/compras/nueva?tipo=rectificativa&original=${encodeURIComponent(gasto.id)}`}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
@@ -198,7 +214,19 @@ export default function GastoDetailPage() {
               </Link>
             )}
           </div>
-          {bloqueadaPorPagos ? (
+          {bloqueadaPorPagos && conAplicacionesManuales ? (
+            <p className="text-sm text-slate-600">
+              Tiene devoluciones y está aplicado a otras facturas: para modificarlo o anularlo, anula antes unas y otras (más abajo, en{' '}
+              <a href="#pagos" className="font-semibold text-blue-600 hover:underline">
+                Devoluciones recibidas
+              </a>{' '}
+              y en{' '}
+              <a href="#aplicaciones" className="font-semibold text-blue-600 hover:underline">
+                Aplicado a otras facturas
+              </a>
+              ).
+            </p>
+          ) : bloqueadaPorPagos ? (
             // Los dos motivos dicen casi lo mismo («...antes de modificarla» / «...antes de anularla»): uno solo, y dónde están los pagos.
             <p className="text-sm text-slate-600">
               {esAbono
@@ -258,12 +286,13 @@ export default function GastoDetailPage() {
                       <span className="font-semibold">{o.numero ?? 'sin número'}</span>
                     )}
                     {o.fecha ? ` del ${fechaCorta(o.fecha)}` : ''}
-                    {!o.id && ', de fuera de la app,'}
+                    {!o.id && !unaDeFuera && ' (de fuera de la app)'}
                   </span>
                 ))}
               </>
             )}{' '}
-            ({rect.tipo === 'S' ? 'por sustitución' : 'por diferencias'}). Causa: {rect.causaTexto.charAt(0).toLowerCase() + rect.causaTexto.slice(1)}.
+            ({unaDeFuera ? 'de fuera de la app, ' : ''}
+            {rect.tipo === 'S' ? 'por sustitución' : 'por diferencias'}). Causa: {rect.causaTexto.charAt(0).toLowerCase() + rect.causaTexto.slice(1)}.
           </p>
           {rect.motivo && <p className="mt-1 break-words text-slate-600">Motivo: {rect.motivo}</p>}
           {rect.imputacionIva.casillas === '28-29' && (
@@ -287,10 +316,13 @@ export default function GastoDetailPage() {
               <dd className="font-semibold text-slate-900">{fechaCorta(gasto.fechaRegistro)}</dd>
             </div>
           )}
-          <div>
-            <dt className="text-sm text-slate-600">Vencimiento</dt>
-            <dd className={`font-semibold ${gasto.vencida ? 'text-rose-700' : 'text-slate-900'}`}>{fechaCorta(gasto.fechaVencimiento) || '—'}</dd>
-          </div>
+          {/* Un abono no se paga ni vence: su vencimiento no significa nada. */}
+          {!esAbono && (
+            <div>
+              <dt className="text-sm text-slate-600">Vencimiento</dt>
+              <dd className={`font-semibold ${gasto.vencida ? 'text-rose-700' : 'text-slate-900'}`}>{fechaCorta(gasto.fechaVencimiento) || '—'}</dd>
+            </div>
+          )}
           <div>
             <dt className="text-sm text-slate-600">Tipo de gasto</dt>
             <dd className="font-semibold text-slate-900">{gasto.tipoGastoTexto}</dd>
@@ -464,7 +496,7 @@ export default function GastoDetailPage() {
 
       {/* Abonos: aplicaciones a otras facturas; facturas: abonos que le han restado */}
       {!anulada && (
-        <div className="mb-6">
+        <div id="aplicaciones" className="mb-6 scroll-mt-20">
           <AplicacionesAbono gasto={gasto} puedeEditar={puedePagar} onCambio={loadGasto} />
         </div>
       )}
