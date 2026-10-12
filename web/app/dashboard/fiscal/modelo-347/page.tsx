@@ -33,7 +33,7 @@ interface Borrador347 {
   ejercicio: number;
   diseno: string;
   revisar: string;
-  declarante: { nif: string; razonSocial: string; telefono: string; contacto: string; numeroIdentificativo: string };
+  declarante: { nif: string; razonSocial: string; telefono: string; contacto: string; numeroIdentificativo: string; complementaria?: '' | 'C' | 'S' };
   resumen: { numeroDeclarados: number; importeTotal: number; numeroInmuebles: number; importeArrendamientos: number };
   declarados: Declarado[];
   advertencias: string[];
@@ -149,7 +149,11 @@ export default function Modelo347Page() {
           </div>
         </div>
         {b.declarados.length === 0 ? (
-          <p className="text-sm text-slate-600">Nadie supera 3.005,06 € en {ejercicio}: no hace falta presentar el 347.</p>
+          <p className="text-sm text-slate-600">
+            {b.declarante.complementaria === 'C'
+              ? 'No has marcado ningún declarado para la complementaria: elígelos abajo, en «Registros que van en la complementaria».'
+              : `Nadie supera 3.005,06 € en ${ejercicio}: no hace falta presentar el 347.`}
+          </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[960px] text-sm">
