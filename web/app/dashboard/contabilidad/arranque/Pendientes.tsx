@@ -152,8 +152,13 @@ function Detalle({ partida, puedeEscribir, onCerrar, onHecho }: { partida: Parti
       <p className="text-sm text-slate-600">
         {partida.tercero} · a 31-12-{A}: {eur.format(partida.importeInicial)} · queda {eur.format(partida.pendiente)}
       </p>
+      {partida.compensado !== 0 && (
+        <p className="mt-2 text-sm text-slate-600">
+          {eur.format(partida.compensado)} se han descontado con abonos del proveedor. Se ven y se anulan en la ficha del abono, en Compras.
+        </p>
+      )}
       {!liqs && !error && <p className="mt-3 text-sm text-slate-500">Cargando…</p>}
-      {liqs && liqs.length === 0 && <p className="mt-3 text-sm text-slate-600">Todavía no tiene cobros ni pagos.</p>}
+      {liqs && liqs.length === 0 && partida.compensado === 0 && <p className="mt-3 text-sm text-slate-600">Todavía no tiene cobros ni pagos.</p>}
       {liqs && liqs.length > 0 && (
         <ul className="mt-3 divide-y divide-slate-100 rounded-lg border border-slate-200 text-sm">
           {liqs.map((l) => (
@@ -314,6 +319,7 @@ export function Pendientes() {
                         {p.fechaDocumento ? ` del ${fechaEs(p.fechaDocumento)}` : ''}
                         {p.fechaVencimiento ? ` · vence el ${fechaEs(p.fechaVencimiento)}` : ''} · <span className="font-mono">{p.subcuenta}</span>
                         {p.moneda !== 'EUR' ? ` · en ${p.moneda}` : ''}
+                        {p.compensado !== 0 ? ` · ${eur.format(p.compensado)} descontados con abonos` : ''}
                       </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2 sm:justify-end">
