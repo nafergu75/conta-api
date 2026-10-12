@@ -8,6 +8,7 @@ import { apiFetch, companyPath } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { hoyIso } from '@/lib/anios';
 import { useAniosEmpresa } from '@/lib/useAniosEmpresa';
+import { paramDeUrl } from '@/lib/urlEstado';
 
 /**
  * Piezas comunes de las pantallas de nominas: tipos de la API, formatos,
@@ -210,6 +211,21 @@ const SECCIONES: Array<{ href: string; texto: string; escribir?: boolean }> = [
   { href: '/dashboard/nominas/coste', texto: 'Coste de personal' },
 ];
 
+/**
+ * Enlace a otra pantalla de nóminas con el año y el mes que se están viendo
+ * (?ejercicio=&mes= de la URL actual), para no volver al mes de hoy al cambiar
+ * de pestaña.
+ */
+function conPeriodoDeLaUrl(href: string): string {
+  const q = new URLSearchParams();
+  const ejercicio = paramDeUrl('ejercicio');
+  const mes = paramDeUrl('mes');
+  if (ejercicio) q.set('ejercicio', ejercicio);
+  if (ejercicio && mes) q.set('mes', mes);
+  const texto = q.toString();
+  return texto ? `${href}?${texto}` : href;
+}
+
 export function CabeceraNominas({ titulo, subtitulo, acciones }: { titulo: string; subtitulo: string; acciones?: ReactNode }) {
   const pathname = usePathname();
   const { escribir } = permisosNominas();
@@ -228,7 +244,7 @@ export function CabeceraNominas({ titulo, subtitulo, acciones }: { titulo: strin
           return (
             <Link
               key={s.href}
-              href={s.href}
+              href={conPeriodoDeLaUrl(s.href)}
               aria-current={activa ? 'page' : undefined}
               className={`-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium ${activa ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
             >

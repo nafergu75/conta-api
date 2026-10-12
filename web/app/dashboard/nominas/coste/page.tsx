@@ -7,6 +7,7 @@ import { Alerta, Avisos, botonSecundario, CabeceraNominas, Dato, eur, num, pagin
 import { anioEspana } from '@/lib/anios';
 import { useAniosEmpresa } from '@/lib/useAniosEmpresa';
 import SelectorAnio from '@/components/SelectorAnio';
+import { anioOTodosDeUrl, ponerEnUrl } from '@/lib/urlEstado';
 
 /**
  * Coste de personal del ejercicio por mes o por trabajador: bruto, dietas,
@@ -46,7 +47,8 @@ type Agrupar = 'mes' | 'empleado';
 
 export default function CostePersonalPage() {
   const { leer } = permisosNominas();
-  const [ejercicio, setEjercicio] = useState(() => anioEspana());
+  // El año de la URL (al venir de Nóminas del mes o volver atrás) o el actual; se guarda en la URL.
+  const [ejercicio, setEjercicio] = useState(() => anioOTodosDeUrl() ?? anioEspana());
   const aniosEmpresa = useAniosEmpresa();
   const [agrupar, setAgrupar] = useState<Agrupar>('mes');
   const [inf, setInf] = useState<InformeCoste | null>(null);
@@ -111,7 +113,11 @@ export default function CostePersonalPage() {
           etiqueta=""
           valor={ejercicio}
           anios={anios}
-          onChange={(a) => a !== null && setEjercicio(a)}
+          onChange={(a) => {
+            if (a === null) return;
+            setEjercicio(a);
+            ponerEnUrl({ ejercicio: a, mes: null });
+          }}
           className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
         />
         <div className="inline-flex rounded-lg border border-slate-300 bg-white p-0.5" role="group" aria-label="Agrupar">

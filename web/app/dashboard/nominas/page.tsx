@@ -80,6 +80,8 @@ function NominasMes() {
 
   // Sin mes en la URL: el último mes con nóminas de este año (hora de España). Si este año
   // todavía no tiene (en enero, por ejemplo), el último del año anterior; si tampoco, el mes de hoy.
+  // Con solo el año en la URL (al venir de Coste de personal), el último mes con nóminas de ese año
+  // o, si no tiene, diciembre (o el mes de hoy si es el año en curso).
   useEffect(() => {
     if (!leer || (ejercicio && mes)) return;
     const anio = anioEspana();
@@ -89,6 +91,13 @@ function NominasMes() {
         const conDatos = (r ?? []).filter((x) => x.totalBruto > 0).map((x) => x.mes);
         return conDatos.length ? Math.max(...conDatos) : null;
       });
+    if (ejercicio) {
+      const sinNominas = ejercicio < anio ? 12 : mesHoy;
+      ultimoMes(ejercicio)
+        .then((m) => irA(ejercicio, m ?? sinNominas))
+        .catch(() => irA(ejercicio, sinNominas));
+      return;
+    }
     ultimoMes(anio)
       .then(async (m) => {
         if (m !== null) return irA(anio, m);
