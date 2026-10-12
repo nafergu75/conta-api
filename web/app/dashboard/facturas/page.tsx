@@ -11,7 +11,7 @@ import { useRedSeguridad } from '@/lib/verifactu';
 import AvisoRedSeguridad from '@/components/verifactu/AvisoRedSeguridad';
 import SelectorAnio from '@/components/SelectorAnio';
 import { anioOTodosDeUrl, anioParaUrl, ponerEnUrl, trimestreDeUrl } from '@/lib/urlEstado';
-import { anioEspana, rangoFechas } from '@/lib/anios';
+import { anioEspana, nombreTrimestre, rangoFechas } from '@/lib/anios';
 import { useAniosEmpresa } from '@/lib/useAniosEmpresa';
 
 /** Facturas por página (la paginación la hace el servidor). */
@@ -181,10 +181,10 @@ export default function FacturasPage() {
                 className="mt-1 block rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-60"
               >
                 <option value={0}>Todo el año</option>
-                <option value={1}>1.er trimestre</option>
-                <option value={2}>2.º trimestre</option>
-                <option value={3}>3.er trimestre</option>
-                <option value={4}>4.º trimestre</option>
+                <option value={1}>{nombreTrimestre(1)}</option>
+                <option value={2}>{nombreTrimestre(2)}</option>
+                <option value={3}>{nombreTrimestre(3)}</option>
+                <option value={4}>{nombreTrimestre(4)}</option>
               </select>
             </div>
           </div>
