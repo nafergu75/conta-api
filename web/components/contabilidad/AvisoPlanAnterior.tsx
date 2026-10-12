@@ -64,7 +64,15 @@ export function useAvisoPlanAnterior(): {
   const responder = (r: 'seguir' | 'traer' | 'cerrar') => resolver.current?.(r);
 
   const dialogo = abierto ? (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" role="presentation" onClick={() => responder('cerrar')}>
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
+      role="presentation"
+      onClick={(e) => {
+        // Puede ir dentro de otro diálogo: el clic fuera cierra solo este.
+        e.stopPropagation();
+        responder('cerrar');
+      }}
+    >
       <div
         role="alertdialog"
         aria-modal="true"
