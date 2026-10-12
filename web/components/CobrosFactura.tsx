@@ -190,8 +190,8 @@ export default function CobrosFactura({
                 </>
               ) : (
                 <>
-                  {tipo === 'INGRESO' ? 'Cobrado' : 'Pagado'} {fmt(resumen.importeCobrado)} de {fmt(resumen.totalFactura)}
-                  {compensado > 0 && ` (${fmt(compensado)} descontados con abonos)`} ·{' '}
+                  {tipo === 'INGRESO' ? 'Cobrado' : 'Pagado'} {fmt(Math.round((resumen.importeCobrado - compensado) * 100) / 100)}
+                  {compensado > 0 && ` y descontado con abonos ${fmt(compensado)}`} de {fmt(resumen.totalFactura)} ·{' '}
                   <span className={`font-semibold ${pendiente > 0 ? 'text-amber-700' : 'text-green-700'}`}>Pendiente: {fmt(pendiente)}</span>
                 </>
               )}
