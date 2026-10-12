@@ -116,10 +116,13 @@ export function descripcionNeutraTramo(tipoIva: number): string {
   return tipoIva === 0 ? 'Base exenta' : `Base al ${porcentaje(tipoIva)}`;
 }
 
+/** Lo leido de una factura de gasto: lo del extractor clasico y, ademas, un tramo por tipo de IVA. */
+export type GastoLeido = GastoExtraido & { tramos?: TramoGasto[] };
+
 export interface LecturaGastoLista {
   lecturaId: string;
   estado: 'LISTA';
-  gasto: GastoExtraido & { tramos?: TramoGasto[] };
+  gasto: GastoLeido;
   lectura: InfoLectura;
 }
 

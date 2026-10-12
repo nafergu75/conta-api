@@ -1,0 +1,151 @@
+/**
+ * Lector de gastos: de lo leido en una factura de proveedor a la propuesta del
+ * formulario (inicialDe) y los avisos que la acompanan. Sin React: se usa en
+ * app/dashboard/compras/lector-gastos y se puede probar por separado.
+ */
+import type { FormInicial, LineaInicial } from '@/components/compras/FormFacturaGasto';
+import { pareceNifIvaUe } from './fiscal';
+import { calcularLinea, hoyIso, paisDelPrefijo, TIPO_GASTO_INFO, tipoGastoDeCuenta, tipoGastoParaRetencion, TIPOS_GASTO, tipoIvaMasCercano, type TipoGasto } from './compras';
+import { descripcionNeutraTramo, type EstadoCampo, type GastoLeido, type InfoLectura, type TramoGasto } from './lecturas';
+
+/** Tramos con base y tipo numericos. */
+export const tramosValidos = (g: GastoLeido): TramoGasto[] =>
+  (g.tramos ?? []).filter((t) => Number.isFinite(Number(t.base)) && Number.isFinite(Number(t.tipoIva)));
+
+export const centimos = (n: number) => Math.round(n * 100);
+
+/**
+ * El IVA del tramo esta marcado por la comprobacion CUOTA_TIPO del servidor
+ * (validaciones.ts: «El IVA del 21 % no corresponde a su base...» o, al 0 %,
+ * «La base exenta no lleva IVA...»). Se reconoce por su codigo, no por el texto.
+ */
+const marcadoPorCuotaTipo = (c: EstadoCampo) => !!c.codigos?.includes('CUOTA_TIPO');
+
+/**
+ * Tramos cuyo IVA leido no coincide al centimo con el de la linea que se
+ * propone al abrir el formulario (la de su tipo): solo diferencias de hasta
+ * 5 centimos, las del redondeo. Se compara con la propuesta inicial: el
+ * formulario no avisa de los cambios del usuario.
+ *
+ * El servidor marca el IVA de un tramo (CUOTA_TIPO) cuando se aparta de
+ * base x tipo en mas de un centimo por partida de ese tipo, sea cual sea la
+ * diferencia. Ese tramo ya sale en "Comprueba estos datos" con una tarjeta que
+ * dice cuanto sale y cuanto pone, asi que aqui no se repite. Solo se quita el
+ * aviso por ese motivo: si el IVA del tramo esta marcado por otra cosa (poca
+ * seguridad al leerlo, calculado a partir de la base...), su tarjeta no habla
+ * del descuadre y el aviso sigue saliendo.
+ */
+export function cuotasDescuadradas(
+  g: GastoLeido,
+  lineas: FormInicial['lineas'],
+  campos: InfoLectura['campos'],
+): Array<{ tipoIva: number; leida: number; linea: number }> {
+  const conTarjeta = new Set(
+    Object.entries(campos)
+      .filter(([id, c]) => /^desglose\.\d+\.cuota$/.test(id) && c && c.estado !== 'ok' && typeof c.tipoIva === 'number' && marcadoPorCuotaTipo(c))
+      .map(([, c]) => c!.tipoIva as number),
+  );
+  return tramosValidos(g).flatMap((t) => {
+    const tipo = Number(t.tipoIva);
+    const leida = Number(t.cuota);
+    // Con un tipo que no es de los de la app, la linea lleva otro: no se compara.
+    if (!Number.isFinite(leida) || tipoIvaMasCercano(tipo) !== tipo || conTarjeta.has(tipo)) return [];
+    const suyas = (lineas ?? []).filter((l) => l.tipoIva === tipo);
+    if (suyas.length !== 1) return [];
+    const linea = calcularLinea({ cantidad: suyas[0].cantidad, precioUnitario: suyas[0].precioUnitario, tipoIva: tipo }).iva;
+    const diferencia = Math.abs(centimos(linea) - centimos(leida));
+    return diferencia > 0 && diferencia <= 5 ? [{ tipoIva: tipo, leida, linea }] : [];
+  });
+}
+
+/** Las partidas del unico tramo; vacio si no lo hay o si solo trae el texto neutro. */
+function descripcionUnTipo(t: TramoGasto | undefined): string {
+  const d = t?.descripcion?.trim() ?? '';
+  return d && d !== descripcionNeutraTramo(Number(t!.tipoIva)) ? d : '';
+}
+
+/** Cuenta de gasto valida (grupo 6, de 3 a 10 digitos) o null. */
+const cuentaDeGasto = (c: string | null | undefined): string | null => (c && /^6\d{2,9}$/.test(c) ? c : null);
+
+/**
+ * Retencion leida (tipo en %). Si el lector solo dio el importe, sale de
+ * importe / base, redondeada como en el servidor (15 de 100 -> 15 %).
+ */
+function retencionLeida(g: GastoLeido): number {
+  const tipo = Number(g.tipoRetencion);
+  if (Number.isFinite(tipo) && tipo > 0) return tipo;
+  const importe = Number(g.retencion) || 0;
+  const base = Number(g.base) || 0;
+  return importe > 0 && base > 0 ? Math.round((importe / base) * 100) : 0;
+}
+
+/** La retencion leida no la admite ningun tipo de gasto (1 o 2 %): se conserva en las lineas y se avisa. */
+export function retencionSinTipo(g: GastoLeido): number | null {
+  const ret = retencionLeida(g);
+  return ret > 0 && !TIPOS_GASTO.some((t) => TIPO_GASTO_INFO[t].retenciones.includes(ret)) ? ret : null;
+}
+
+/**
+ * Lo leido, en la forma del formulario.
+ *
+ * Lineas: con varios tipos de IVA, una por tipo con su base (si no, el
+ * formulario las juntaria al tipo mayor). De descripcion, las partidas del
+ * tramo que manda el servidor. Con un solo tipo, si el servidor solo trae el
+ * texto neutro ("Base al 21 %"), el concepto de la factura: la lectura con IA
+ * no saca partidas y se perderia ("material de imprenta"); sin concepto, el
+ * texto neutro.
+ *
+ * Cuenta: va en la factura (cuentaGasto) y las lineas la heredan; cada una se
+ * puede llevar a otra con «Cambiar cuenta». Manda la cuenta habitual del
+ * proveedor (la que mas han usado sus ultimas facturas); sin ella, la sugerida
+ * por el concepto.
+ *
+ * Tipo de gasto: el de la cuenta habitual o el sugerido. Si la factura trae
+ * retencion y ese tipo no la admite, el que la admite (profesionales con el 7 o
+ * el 15 %, alquileres con el 19 %): si no, el formulario la pondria a 0 y el
+ * total no cuadraria. Si ninguno la admite (1 o 2 %), se conserva la leida y la
+ * pagina avisa (retencionSinTipo).
+ */
+export function inicialDe(g: GastoLeido, paisExistente: string | null): FormInicial {
+  const habitual = cuentaDeGasto(g.cuentaHabitual?.codigo);
+  const sugerida = cuentaDeGasto(g.cuentaContableBase);
+  const ret = retencionLeida(g);
+  let tipo: TipoGasto = habitual ? tipoGastoDeCuenta(habitual) : g.tipoGastoSugerido && TIPO_GASTO_INFO[g.tipoGastoSugerido] ? g.tipoGastoSugerido : 'SUMINISTROS';
+  if (ret > 0 && !TIPO_GASTO_INFO[tipo].retenciones.includes(ret)) tipo = tipoGastoParaRetencion(ret) ?? tipo;
+  // La sugerida solo vale si es de ese tipo (la de «Asesoramiento» era la 629 y el tipo pasa a profesionales).
+  const cuentaGasto = habitual ?? (sugerida && tipoGastoDeCuenta(sugerida) === tipo ? sugerida : null);
+  const base = Number(g.base) || 0;
+  const tipoIva = g.tipoIva !== null && g.tipoIva !== undefined ? tipoIvaMasCercano(g.tipoIva) : base > 0 ? tipoIvaMasCercano(((Number(g.iva) || 0) / base) * 100) : 21;
+  const nif = (g.nifProveedor ?? '').trim();
+  let proveedor: FormInicial['proveedor'] = null;
+  if (g.proveedorExistente) {
+    proveedor = { tipo: 'existente', id: g.proveedorExistente.id, nombre: g.proveedorExistente.nombreFiscal, nif: g.proveedorExistente.nifCif, pais: paisExistente || 'ES' };
+  } else if (g.proveedor || nif) {
+    const pais = pareceNifIvaUe(nif) ? (paisDelPrefijo(nif) ?? 'ES') : 'ES';
+    proveedor = { tipo: 'nuevo', nombreFiscal: g.proveedor ?? '', nifCif: nif, pais, direccion: '', cp: '', municipio: '', provincia: '' };
+  }
+  const fecha = g.fecha && /^\d{4}-\d{2}-\d{2}$/.test(g.fecha) ? g.fecha : hoyIso();
+  const concepto = g.conceptoGasto?.trim() || 'Gasto';
+  // La leida se conserva aunque el tipo no la admita (1 o 2 %): asi se ve y el total cuadra; la pagina avisa.
+  const tipoRetencion = ret;
+  const tramos = tramosValidos(g);
+  const lineas: LineaInicial[] =
+    tramos.length > 1
+      ? tramos.map((t) => ({
+          descripcion: t.descripcion?.trim() || descripcionNeutraTramo(Number(t.tipoIva)),
+          cantidad: 1,
+          precioUnitario: Number(t.base),
+          tipoIva: tipoIvaMasCercano(Number(t.tipoIva)),
+          tipoRetencion,
+        }))
+      : [{ descripcion: descripcionUnTipo(tramos[0]) || g.conceptoGasto?.trim() || tramos[0]?.descripcion?.trim() || concepto, cantidad: 1, precioUnitario: base, tipoIva, tipoRetencion }];
+  return {
+    proveedor,
+    numeroFacturaProveedor: g.numeroFactura ?? '',
+    fechaEmision: fecha,
+    tipoGasto: tipo,
+    cuentaGasto,
+    lineas,
+    totalDocumento: Number.isFinite(Number(g.total)) && Number(g.total) !== 0 ? Number(g.total) : undefined,
+  };
+}

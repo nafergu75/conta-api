@@ -5,11 +5,11 @@ import Link from 'next/link';
 import { ArrowLeft, CheckCircle, FileArrowUp, WarningCircle } from '@phosphor-icons/react';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import PanelLectura from '@/components/lector/PanelLectura';
-import { anuncioLecturaTerminada, descartarLectura, descripcionNeutraTramo, ErrorLectura, esCancelada, euros, leerFactura, porcentaje, type EstadoCampo, type InfoLectura, type TramoGasto } from '@/lib/lecturas';
+import { anuncioLecturaTerminada, descartarLectura, ErrorLectura, esCancelada, euros, leerFactura, porcentaje, type GastoLeido, type InfoLectura } from '@/lib/lecturas';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
-import { pareceNifIvaUe } from '@/lib/fiscal';
 import FormFacturaGasto, { type FormInicial } from '@/components/compras/FormFacturaGasto';
-import { calcularLinea, hoyIso, paisDelPrefijo, TIPO_GASTO_INFO, tipoIvaMasCercano, type GastoExtraido, type GastoRegistrado } from '@/lib/compras';
+import { type GastoRegistrado } from '@/lib/compras';
+import { centimos, cuotasDescuadradas, inicialDe, retencionSinTipo } from '@/lib/lectorGastos';
 
 /**
  * Lector de gastos: se sube el PDF o la foto de una factura de proveedor, el
@@ -24,7 +24,7 @@ const TIPOS = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
 const MOTIVO_FECHA_HOY = 'No se ha leído la fecha: se ha puesto la de hoy; cámbiala si no es la de la factura.';
 
 /** Si no se leyo la fecha, el formulario pone la de hoy: el panel lo dice y la marca para corregir. */
-function conFechaDeHoy(info: InfoLectura, g: GastoExtraido): InfoLectura {
+function conFechaDeHoy(info: InfoLectura, g: GastoLeido): InfoLectura {
   if (g.fecha && /^\d{4}-\d{2}-\d{2}$/.test(g.fecha)) return info;
   const previo = info.campos.fechaEmision;
   const motivos = [MOTIVO_FECHA_HOY, ...(previo?.motivos ?? []).filter((m) => m !== MOTIVO_FECHA_HOY)];
@@ -55,113 +55,6 @@ function sinTipoDocumento(info: InfoLectura): InfoLectura {
   return { ...info, campos, requiereRevision };
 }
 
-/** Tramos con base y tipo numericos. */
-const tramosValidos = (g: GastoExtraido & { tramos?: TramoGasto[] }): TramoGasto[] =>
-  (g.tramos ?? []).filter((t) => Number.isFinite(Number(t.base)) && Number.isFinite(Number(t.tipoIva)));
-
-const centimos = (n: number) => Math.round(n * 100);
-
-/**
- * El IVA del tramo esta marcado por la comprobacion CUOTA_TIPO del servidor
- * (validaciones.ts: «El IVA del 21 % no corresponde a su base...» o, al 0 %,
- * «La base exenta no lleva IVA...»). Se reconoce por su codigo, no por el texto.
- */
-const marcadoPorCuotaTipo = (c: EstadoCampo) => !!c.codigos?.includes('CUOTA_TIPO');
-
-/**
- * Tramos cuyo IVA leido no coincide al centimo con el de la linea que se
- * propone al abrir el formulario (la de su tipo): solo diferencias de hasta
- * 5 centimos, las del redondeo. Se compara con la propuesta inicial: el
- * formulario no avisa de los cambios del usuario.
- *
- * El servidor marca el IVA de un tramo (CUOTA_TIPO) cuando se aparta de
- * base x tipo en mas de un centimo por partida de ese tipo, sea cual sea la
- * diferencia. Ese tramo ya sale en "Comprueba estos datos" con una tarjeta que
- * dice cuanto sale y cuanto pone, asi que aqui no se repite. Solo se quita el
- * aviso por ese motivo: si el IVA del tramo esta marcado por otra cosa (poca
- * seguridad al leerlo, calculado a partir de la base...), su tarjeta no habla
- * del descuadre y el aviso sigue saliendo.
- */
-function cuotasDescuadradas(
-  g: GastoExtraido & { tramos?: TramoGasto[] },
-  lineas: FormInicial['lineas'],
-  campos: InfoLectura['campos'],
-): Array<{ tipoIva: number; leida: number; linea: number }> {
-  const conTarjeta = new Set(
-    Object.entries(campos)
-      .filter(([id, c]) => /^desglose\.\d+\.cuota$/.test(id) && c && c.estado !== 'ok' && typeof c.tipoIva === 'number' && marcadoPorCuotaTipo(c))
-      .map(([, c]) => c!.tipoIva as number),
-  );
-  return tramosValidos(g).flatMap((t) => {
-    const tipo = Number(t.tipoIva);
-    const leida = Number(t.cuota);
-    // Con un tipo que no es de los de la app, la linea lleva otro: no se compara.
-    if (!Number.isFinite(leida) || tipoIvaMasCercano(tipo) !== tipo || conTarjeta.has(tipo)) return [];
-    const suyas = (lineas ?? []).filter((l) => l.tipoIva === tipo);
-    if (suyas.length !== 1) return [];
-    const linea = calcularLinea({ cantidad: suyas[0].cantidad, precioUnitario: suyas[0].precioUnitario, tipoIva: tipo }).iva;
-    const diferencia = Math.abs(centimos(linea) - centimos(leida));
-    return diferencia > 0 && diferencia <= 5 ? [{ tipoIva: tipo, leida, linea }] : [];
-  });
-}
-
-/** Las partidas del unico tramo; vacio si no lo hay o si solo trae el texto neutro. */
-function descripcionUnTipo(t: TramoGasto | undefined): string {
-  const d = t?.descripcion?.trim() ?? '';
-  return d && d !== descripcionNeutraTramo(Number(t!.tipoIva)) ? d : '';
-}
-
-/**
- * Lo leido, en la forma del formulario. Con varios tipos de IVA, una linea por
- * tipo con su base (si no, el formulario las juntaria al tipo mayor). De
- * descripcion, las partidas del tramo que manda el servidor. Con un solo tipo,
- * si el servidor solo trae el texto neutro ("Base al 21 %"), el concepto de la
- * factura: la lectura con IA no saca partidas y se perderia ("material de
- * imprenta"); sin concepto, el texto neutro. La cuenta leida va para toda la factura;
- * sin ella, cada linea lleva la cuenta habitual del proveedor.
- */
-function inicialDe(g: GastoExtraido & { tramos?: TramoGasto[] }, paisExistente: string | null): FormInicial {
-  const tipo = g.tipoGastoSugerido && TIPO_GASTO_INFO[g.tipoGastoSugerido] ? g.tipoGastoSugerido : 'SUMINISTROS';
-  const base = Number(g.base) || 0;
-  const tipoIva = g.tipoIva !== null && g.tipoIva !== undefined ? tipoIvaMasCercano(g.tipoIva) : base > 0 ? tipoIvaMasCercano(((Number(g.iva) || 0) / base) * 100) : 21;
-  const ret = Number(g.tipoRetencion) || 0;
-  const nif = (g.nifProveedor ?? '').trim();
-  let proveedor: FormInicial['proveedor'] = null;
-  if (g.proveedorExistente) {
-    proveedor = { tipo: 'existente', id: g.proveedorExistente.id, nombre: g.proveedorExistente.nombreFiscal, nif: g.proveedorExistente.nifCif, pais: paisExistente || 'ES' };
-  } else if (g.proveedor || nif) {
-    const pais = pareceNifIvaUe(nif) ? (paisDelPrefijo(nif) ?? 'ES') : 'ES';
-    proveedor = { tipo: 'nuevo', nombreFiscal: g.proveedor ?? '', nifCif: nif, pais, direccion: '', cp: '', municipio: '', provincia: '' };
-  }
-  const fecha = g.fecha && /^\d{4}-\d{2}-\d{2}$/.test(g.fecha) ? g.fecha : hoyIso();
-  const cuentaLeida = g.cuentaContableBase && /^6\d{2,9}$/.test(g.cuentaContableBase) ? g.cuentaContableBase : null;
-  // Sin cuenta leida, cada linea va a la cuenta habitual del proveedor (se puede cambiar con «Cambiar cuenta»).
-  const habitual = !cuentaLeida && g.cuentaHabitual ? g.cuentaHabitual.codigo : null;
-  const concepto = g.conceptoGasto?.trim() || 'Gasto';
-  const tipoRetencion = TIPO_GASTO_INFO[tipo].retenciones.includes(ret) ? ret : 0;
-  const tramos = tramosValidos(g);
-  const lineas: FormInicial['lineas'] =
-    tramos.length > 1
-      ? tramos.map((t) => ({
-          descripcion: t.descripcion?.trim() || descripcionNeutraTramo(Number(t.tipoIva)),
-          cantidad: 1,
-          precioUnitario: Number(t.base),
-          tipoIva: tipoIvaMasCercano(Number(t.tipoIva)),
-          tipoRetencion,
-          cuenta: habitual,
-        }))
-      : [{ descripcion: descripcionUnTipo(tramos[0]) || g.conceptoGasto?.trim() || tramos[0]?.descripcion?.trim() || concepto, cantidad: 1, precioUnitario: base, tipoIva, tipoRetencion, cuenta: habitual }];
-  return {
-    proveedor,
-    numeroFacturaProveedor: g.numeroFactura ?? '',
-    fechaEmision: fecha,
-    tipoGasto: tipo,
-    cuentaGasto: cuentaLeida,
-    lineas,
-    totalDocumento: Number.isFinite(Number(g.total)) && Number(g.total) !== 0 ? Number(g.total) : undefined,
-  };
-}
-
 export default function LectorGastosPage() {
   const puedeEscribir = tieneAlgunPermiso(getUser(), ['compras:write']);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -170,9 +63,9 @@ export default function LectorGastosPage() {
   const [vista, setVista] = useState<string | null>(null);
   const [leyendo, setLeyendo] = useState(false);
   const [error, setError] = useState('');
-  const [leido, setLeido] = useState<GastoExtraido | null>(null);
+  const [leido, setLeido] = useState<GastoLeido | null>(null);
   const [inicial, setInicial] = useState<FormInicial | null>(null);
-  const [tipoDocumento, setTipoDocumento] = useState<GastoExtraido['tipoDocumento']>('factura');
+  const [tipoDocumento, setTipoDocumento] = useState<GastoLeido['tipoDocumento']>('factura');
   const [registrado, setRegistrado] = useState<GastoRegistrado | null>(null);
   const [lectura, setLectura] = useState(0);
   const [info, setInfo] = useState<InfoLectura | null>(null);
@@ -310,6 +203,7 @@ export default function LectorGastosPage() {
   const revisadoEnviado = !!info?.requiereRevision && !infoPanel?.requiereRevision ? !noEsFactura : revisado;
   const esImagen = archivo?.type.startsWith('image/');
   const descuadres = leido && inicial && info ? cuotasDescuadradas(leido, inicial.lineas, info.campos) : [];
+  const retencionRara = leido ? retencionSinTipo(leido) : null;
   const anuncio = leyendo
     ? segundos < 10
       ? 'Leyendo la factura. Tarda unos segundos.'
@@ -467,16 +361,26 @@ export default function LectorGastosPage() {
                 conCasilla={!rectificativa && !leido.duplicada}
                 sinArreglo={[...(rectificativa ? ['tipoDocumento'] : []), ...(leido.duplicada ? ['numero'] : [])]}
               />
-              {leido.cuentaContableBase && (
+              {/* De donde sale la cuenta de la factura (inicialDe): la habitual del proveedor o la sugerida por el concepto. */}
+              {leido.cuentaHabitual && inicial.cuentaGasto === leido.cuentaHabitual.codigo ? (
                 <p className="text-sm text-slate-600">
-                  Cuenta sugerida: <span className="font-mono">{leido.cuentaContableBase}</span>
-                  {leido.cuentaContableNombre && ` (${leido.cuentaContableNombre})`}
+                  Cuenta habitual de este proveedor: <span className="font-mono">{leido.cuentaHabitual.codigo}</span> {leido.cuentaHabitual.nombre}. La hemos puesto en la factura; cada
+                  línea se puede llevar a otra con «Cambiar cuenta».
                 </p>
+              ) : (
+                leido.cuentaContableBase &&
+                inicial.cuentaGasto === leido.cuentaContableBase && (
+                  <p className="text-sm text-slate-600">
+                    Cuenta sugerida por el concepto: <span className="font-mono">{leido.cuentaContableBase}</span>
+                    {leido.cuentaContableNombre && ` ${leido.cuentaContableNombre}`}. Cada línea se puede llevar a otra con «Cambiar cuenta».
+                  </p>
+                )
               )}
-              {!leido.cuentaContableBase && leido.cuentaHabitual && (
-                <p className="text-sm text-slate-600">
-                  Cuenta habitual de este proveedor: <span className="font-mono">{leido.cuentaHabitual.codigo}</span> {leido.cuentaHabitual.nombre}. La hemos puesto en cada línea; puedes
-                  cambiarla con «Cambiar cuenta».
+              {retencionRara !== null && (
+                <p className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                  La factura lleva una retención de IRPF del {porcentaje(retencionRara)}. En las facturas de gasto la app solo registra la del 7, el 15 o el 19 % (profesionales y
+                  alquileres). La hemos dejado en las líneas para que veas que el total cuadra, pero tienes que cambiarla antes de registrar la factura. Si no sabes cuál poner,
+                  pregúntale a tu asesor.
                 </p>
               )}
 

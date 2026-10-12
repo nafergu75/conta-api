@@ -21,6 +21,26 @@ export const TIPO_GASTO_INFO: Record<TipoGasto, { texto: string; cuenta: string;
   SUMINISTROS: { texto: 'Suministros y otros servicios', cuenta: '628', retenciones: [0] },
 };
 
+/** Tipo de gasto de una cuenta, como el servidor (tipoGastoDeCuenta): 621 alquiler, 623 profesionales, 600 compras; el resto, suministros. */
+export function tipoGastoDeCuenta(cuenta: string | null | undefined): TipoGasto {
+  const c = String(cuenta ?? '');
+  if (c.startsWith('621')) return 'ALQUILER';
+  if (c.startsWith('623')) return 'SERVICIO_PROFESIONAL';
+  if (c.startsWith('600')) return 'COMPRA';
+  return 'SUMINISTROS';
+}
+
+/**
+ * Tipo de gasto que admite una retencion de IRPF: el 19 %, alquileres (modelo
+ * 115); el 7 y el 15 %, profesionales (modelo 111). null si ninguno la admite
+ * (el 1 o el 2 %, de otras actividades).
+ */
+export function tipoGastoParaRetencion(tipoRetencion: number): TipoGasto | null {
+  if (!(tipoRetencion > 0)) return null;
+  if (tipoRetencion === 19) return 'ALQUILER';
+  return TIPO_GASTO_INFO.SERVICIO_PROFESIONAL.retenciones.includes(tipoRetencion) ? 'SERVICIO_PROFESIONAL' : null;
+}
+
 export const esTipoGasto = (v: unknown): v is TipoGasto => typeof v === 'string' && (TIPOS_GASTO as readonly string[]).includes(v);
 
 /** Lo que pide hacer un 409 del servidor con una factura de gasto (segun sus details). */
