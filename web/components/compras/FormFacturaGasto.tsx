@@ -113,6 +113,16 @@ interface Props {
   avisoInicial?: string;
   /** lector: los datos que el lector ha marcado, para colorearlos dentro del formulario. */
   marcas?: MarcasLector;
+  /**
+   * lector: el proveedor tiene que estar dado de alta (o elegido de los que ya
+   * hay) para registrar. Mientras no lo este, el boton queda desactivado con
+   * `motivo`; `aviso` va encima del bloque del proveedor (AvisoTerceroNuevo) y
+   * con `enlazar` deja el formulario a nombre del proveedor dado de alta o elegido.
+   */
+  proveedorDeAlta?: {
+    motivo: string;
+    aviso: (proveedor: ProveedorElegido | null, enlazar: (p: ProveedorElegido) => void) => React.ReactNode;
+  };
   onGuardado: (r: GastoRegistrado) => void;
   onCancelar?: () => void;
 }
@@ -250,6 +260,7 @@ export default function FormFacturaGasto({
   campoInicial,
   avisoInicial,
   marcas,
+  proveedorDeAlta,
   onGuardado,
   onCancelar,
 }: Props) {
@@ -417,6 +428,17 @@ export default function FormFacturaGasto({
   }, [intentoFallido]);
   const fmt = (n: number) => formatoImporte(n, monedaCuenta);
 
+  // Lector: sin un proveedor dado de alta no se registra (el servidor tambien lo exige).
+  const faltaAltaProveedor = proveedorDeAlta && proveedor?.tipo !== 'existente' ? proveedorDeAlta.motivo : undefined;
+  const motivoBloqueo = bloqueado ?? faltaAltaProveedor;
+  const cambiarProveedor = (p: ProveedorElegido | null) => {
+    setProveedor(p);
+    if (campoError?.startsWith('proveedor')) {
+      setError('');
+      setCampoError(undefined);
+    }
+  };
+
   const cambiarLinea = (clave: number, cambios: Partial<LineaForm>) => setLineas((ls) => ls.map((l) => (l.clave === clave ? { ...l, ...cambios } : l)));
 
   const cambiarFecha = (v: string) => {
@@ -511,6 +533,11 @@ export default function FormFacturaGasto({
         if (typeof d.facturaId === 'string') setFacturaRepetidaId(d.facturaId);
         if (typeof d.proveedorId === 'string') setProveedorRepetidoId(d.proveedorId);
       }
+      // Lector: 400 TERCERO_NO_DADO_DE_ALTA con uno que ya tiene ese NIF: se ofrece usarlo.
+      if (err instanceof ApiError && err.status === 400 && err.detalles && typeof err.detalles === 'object') {
+        const existente = (err.detalles as { existente?: { id?: unknown } }).existente;
+        if (existente && typeof existente.id === 'string') setProveedorRepetidoId(existente.id);
+      }
     } finally {
       setGuardando(false);
     }
@@ -561,18 +588,13 @@ export default function FormFacturaGasto({
       {/* 1. Proveedor */}
       <section className="rounded-xl border border-slate-200 bg-white p-4 md:p-6">
         <h2 className="mb-4 text-base font-semibold text-slate-900">Proveedor</h2>
+        {proveedorDeAlta && <div className="mb-4">{proveedorDeAlta.aviso(proveedor, cambiarProveedor)}</div>}
         <SelectorProveedor
           valor={proveedor}
           textoNuevo={avisoProveedor}
           marcaLector={(campo, actual) => marcaLeida(campo, actual)}
           marcaCon={marcaCon}
-          onCambio={(p) => {
-            setProveedor(p);
-            if (campoError?.startsWith('proveedor')) {
-              setError('');
-              setCampoError(undefined);
-            }
-          }}
+          onCambio={cambiarProveedor}
           marca={marca}
         />
         {empresaExtranjera ? (
@@ -974,7 +996,11 @@ export default function FormFacturaGasto({
       {modo === 'editar' && asientoEnFirme && (
         <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">Al guardar se rehace su asiento y su anotación en el libro de IVA.</p>
       )}
-      {bloqueado && <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{bloqueado}</p>}
+      {motivoBloqueo && (
+        <p id="fg-motivo-bloqueo" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          {motivoBloqueo}
+        </p>
+      )}
 
       <div className={PIE.pie}>
         {nota && <p className={PIE.nota}>{nota}</p>}
@@ -990,7 +1016,8 @@ export default function FormFacturaGasto({
           )}
           <button
             type="submit"
-            disabled={guardando || !!bloqueado}
+            disabled={guardando || !!motivoBloqueo}
+            aria-describedby={motivoBloqueo ? 'fg-motivo-bloqueo' : undefined}
             className={`${PIE.boton} rounded-lg bg-accent-600 px-5 py-2.5 font-semibold text-white transition-all hover:bg-accent-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-600 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-black active:scale-[0.98] disabled:pointer-events-none disabled:opacity-60`}
           >
             {guardando ? 'Guardando...' : textoBoton}
