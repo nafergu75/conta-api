@@ -7,7 +7,7 @@ import { Tooltip } from '@/app/dashboard/components/Tooltip';
 import { errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { useEmpresaEspanola } from '@/lib/fiscal';
-import { ANIO_GESTORIA, arranqueApi, EJERCICIO_ARRANQUE, RUTA_ARRANQUE, type EstadoArranque, type EstadoFase, type RespuestaCarga } from '@/lib/arranque';
+import { ANIO_GESTORIA, arranqueApi, EJERCICIO_ARRANQUE, RUTA_ARRANQUE, type AjustesCarga, type EstadoArranque, type EstadoFase, type RespuestaCarga } from '@/lib/arranque';
 import { Bloque, botonSecundario, Nota } from './comun';
 import { DeshacerCarga } from './Deshacer';
 import { Importando } from './Importando';
@@ -100,6 +100,26 @@ function Carga() {
   const [nuevaCarga, setNuevaCarga] = useState<'PROVISIONAL' | 'DEFINITIVA' | null>(null);
   const [tipoInicial, setTipoInicial] = useState<'PROVISIONAL' | 'DEFINITIVA'>('PROVISIONAL');
   const [deshaciendo, setDeshaciendo] = useState<string | null>(null);
+  /** Lo escrito a mano en la carga vigente (bancos, 303, resultado), para no tener que repetirlo en la nueva. */
+  const [heredado, setHeredado] = useState<AjustesCarga>({});
+
+  useEffect(() => {
+    if (!nuevaCarga) return;
+    arranqueApi
+      .comprobaciones()
+      .then((c) => {
+        if (!c || c.deBorrador) return setHeredado({});
+        const bancos = Object.fromEntries(
+          (c.bancos ?? []).filter((b) => b.saldoExtracto !== null).map((b) => [b.subcuenta, { saldoExtracto: b.saldoExtracto, ...(b.aceptada ? { aceptarDiferencia: true } : {}) }]),
+        );
+        setHeredado({
+          ...(Object.keys(bancos).length ? { bancos } : {}),
+          ...(c.datosFiscales ? { datosFiscales: c.datosFiscales } : {}),
+          ...(c.resultadoDeclarado !== null ? { resultadoDeclarado: c.resultadoDeclarado } : {}),
+        });
+      })
+      .catch(() => setHeredado({}));
+  }, [nuevaCarga]);
 
   const cargar = useCallback(async () => {
     try {
@@ -175,32 +195,20 @@ function Carga() {
         />
       ) : (
         <>
-          {estado.vigente && (
-            <Vigente
-              vigente={estado.vigente}
-              versiones={estado.versiones}
-              hayBorrador={!!borrador}
-              puedeEditar={puedeEditar}
-              esAdmin={esAdmin}
-              onNuevaCarga={(t) => setNuevaCarga(t)}
-              onDeshacer={() => setDeshaciendo(estado.vigente!.id)}
-            />
-          )}
-
           {estado.vigente && nuevaCarga && !borrador && (
             <Bloque titulo={nuevaCarga === 'DEFINITIVA' ? `Cierre definitivo de ${A}` : 'Una carga nueva'}>
               <p className="mb-3 text-sm text-slate-600">
                 Sube los ficheros nuevos de la gestoría (los que cambian y los que faltaban). Antes de aplicar nada verás qué cambia frente a la versión {estado.vigente.version},
-                subcuenta a subcuenta.
+                subcuenta a subcuenta. Lo que escribiste a mano (bancos, 303 y resultado) se copia en la nueva y lo puedes cambiar.
               </p>
-              <SubirFicheros ajustes={{ tipoCarga: nuevaCarga }} onSubido={alSubir} />
+              <SubirFicheros ajustes={{ ...heredado, tipoCarga: nuevaCarga }} onSubido={alSubir} />
               <button type="button" className={`${botonSecundario} mt-3`} onClick={() => setNuevaCarga(null)}>
                 Cancelar
               </button>
             </Bloque>
           )}
 
-          {borrador ? (
+          {borrador && (
             <>
               {estado.vigente && (
                 <h2 className="pt-2 text-lg font-semibold text-slate-900">
@@ -224,34 +232,46 @@ function Carga() {
                 }}
               />
             </>
-          ) : (
-            !estado.vigente && (
-              <>
-                <Peticion />
-                {puedeEditar ? (
-                  <Bloque titulo="Sube los ficheros">
-                    <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
-                      <span className="text-slate-600">¿Qué cierre es?</span>
-                      {(['PROVISIONAL', 'DEFINITIVA'] as const).map((t) => (
-                        <button
-                          key={t}
-                          type="button"
-                          aria-pressed={tipoInicial === t}
-                          onClick={() => setTipoInicial(t)}
-                          className={`rounded-full px-3 py-1 text-xs font-medium ${tipoInicial === t ? 'bg-emerald-600 text-white' : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50'}`}
-                        >
-                          {t === 'PROVISIONAL' ? 'Provisional (lo normal en enero)' : 'Definitivo'}
-                        </button>
-                      ))}
-                    </div>
-                    <SubirFicheros ajustes={{ tipoCarga: tipoInicial }} onSubido={alSubir} />
-                    <p className="mt-2 text-xs text-slate-500">Al subirlos no se cambia nada: primero verás el resumen.</p>
-                  </Bloque>
-                ) : (
-                  <Nota tipo="info">Para subir los ficheros hace falta el permiso Contabilidad «Modificar». Pídeselo al administrador de la empresa.</Nota>
-                )}
-              </>
-            )
+          )}
+
+          {estado.vigente && (
+            <Vigente
+              vigente={estado.vigente}
+              versiones={estado.versiones}
+              hayBorrador={!!borrador}
+              puedeEditar={puedeEditar}
+              esAdmin={esAdmin}
+              onNuevaCarga={(t) => setNuevaCarga(t)}
+              onDeshacer={() => setDeshaciendo(estado.vigente!.id)}
+            />
+          )}
+
+          {!borrador && !estado.vigente && (
+            <>
+              <Peticion />
+              {puedeEditar ? (
+                <Bloque titulo="Sube los ficheros">
+                  <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
+                    <span className="text-slate-600">¿Qué cierre es?</span>
+                    {(['PROVISIONAL', 'DEFINITIVA'] as const).map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        aria-pressed={tipoInicial === t}
+                        onClick={() => setTipoInicial(t)}
+                        className={`rounded-full px-3 py-1 text-xs font-medium ${tipoInicial === t ? 'bg-emerald-600 text-white' : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50'}`}
+                      >
+                        {t === 'PROVISIONAL' ? 'Provisional (lo normal en enero)' : 'Definitivo'}
+                      </button>
+                    ))}
+                  </div>
+                  <SubirFicheros ajustes={{ tipoCarga: tipoInicial }} onSubido={alSubir} />
+                  <p className="mt-2 text-xs text-slate-500">Al subirlos no se cambia nada: primero verás el resumen.</p>
+                </Bloque>
+              ) : (
+                <Nota tipo="info">Para subir los ficheros hace falta el permiso Contabilidad «Modificar». Pídeselo al administrador de la empresa.</Nota>
+              )}
+            </>
           )}
         </>
       )}
