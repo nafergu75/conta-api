@@ -191,7 +191,7 @@ export default function EjerciciosPage() {
     setOcupado(`mes-${mes}`);
     setMensaje(null);
     try {
-      const r = await apiFetch<PeriodoMes & { aviso?: string; modelosPresentados?: string[] }>(
+      const r = await apiFetch<PeriodoMes & { aviso?: string; modelosPresentados?: string[]; avisoAmortizacion?: string }>(
         companyPath(`/periodos/${mes}/estado?ejercicio=${anioSel}`),
         { method: 'PUT', body: JSON.stringify(confirmar ? { estado, confirmar: true } : { estado }) },
       );
@@ -201,7 +201,17 @@ export default function EjerciciosPage() {
         ok: true,
         texto:
           estado === 'bloqueado'
-            ? `Mes de ${nombre} bloqueado: ya no se pueden registrar facturas, cobros, pagos ni asientos con esa fecha.`
+            ? r.avisoAmortizacion
+              ? (
+                  // El bloqueo se hace igual; solo se avisa de la amortización que falta por apuntar.
+                  <>
+                    Mes de {nombre} bloqueado. Ojo: {r.avisoAmortizacion}{' '}
+                    <Link href="/dashboard/contabilidad/inmovilizado" className="font-medium underline">
+                      Ir a Inmovilizado
+                    </Link>
+                  </>
+                )
+              : `Mes de ${nombre} bloqueado: ya no se pueden registrar facturas, cobros, pagos ni asientos con esa fecha.`
             : r.aviso === 'modelo_presentado'
               ? (r.modelosPresentados?.length ?? 0) > 1
                 ? `Mes de ${nombre} desbloqueado. Ojo: ${enumerar(r.modelosPresentados ?? [], 'el ')} ya están presentados; si cambias algo, puede que tengas que presentar complementarias.`
@@ -226,7 +236,7 @@ export default function EjerciciosPage() {
                 <>
                   {' '}
                   <Link href={enlace} className="font-medium underline">
-                    Ir a Cierre y traspaso de saldos
+                    {enlace.includes('/arranque') ? 'Ir a Traer la contabilidad de 2026' : 'Ir a Cierre y traspaso de saldos'}
                   </Link>
                 </>
               )}

@@ -159,6 +159,8 @@ function InformesContables() {
   const [cargando, setCargando] = useState(false);
   const [descargando, setDescargando] = useState<'' | 'pdf' | 'xlsx'>('');
   const [error, setError] = useState('');
+  /** El año lo llevó la gestoría (solo lectura) o su apertura es la provisional de la carga. */
+  const [avisoAnio, setAvisoAnio] = useState<{ llevanzaExterna: boolean; aperturaProvisional: boolean }>({ llevanzaExterna: false, aperturaProvisional: false });
 
   // Ejercicios del servidor (con asientos, dados de alta, el actual y el siguiente) y, si se llega
   // con un enlace, el informe pedido (?tipo=pyg). Se abre en el año en curso, no en el siguiente.
@@ -193,8 +195,11 @@ function InformesContables() {
     const ruta = INFORMES.find((i) => i.id === c.tipo)!.ruta;
     setCargando(true);
     try {
-      const r = await apiFetch<{ tabla: Tabla; tercero?: TerceroMayor | null }>(companyPath(`/informes-contables/${ruta}?${parametros(c)}`));
+      const r = await apiFetch<{ tabla: Tabla; tercero?: TerceroMayor | null; llevanzaExterna?: boolean; aperturaProvisional?: boolean }>(
+        companyPath(`/informes-contables/${ruta}?${parametros(c)}`),
+      );
       setTabla(r.tabla);
+      setAvisoAnio({ llevanzaExterna: !!r.llevanzaExterna, aperturaProvisional: !!r.aperturaProvisional });
       if (r.tercero) setTerceroLeido(r.tercero);
     } catch (e) {
       setTabla(null);
@@ -450,6 +455,16 @@ function InformesContables() {
             <h2 className="text-lg font-semibold text-slate-900">{tabla.titulo}</h2>
             <span className="text-sm text-slate-500">{tabla.periodo}</span>
           </div>
+          {avisoAnio.llevanzaExterna && (
+            <p role="note" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+              Este año lo llevó tu gestoría: son los datos que trajiste y solo se pueden consultar. No se puede apuntar nada con fecha de este año.
+            </p>
+          )}
+          {avisoAnio.aperturaProvisional && (
+            <p role="note" className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-800">
+              Apertura provisional: los saldos iniciales cambiarán cuando cargues el cierre definitivo de la gestoría.
+            </p>
+          )}
           <TablaInforme tabla={tabla} maxFilas={3000} />
         </section>
       ) : null}

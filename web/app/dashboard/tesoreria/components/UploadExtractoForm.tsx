@@ -30,6 +30,8 @@ interface Lectura {
   nuevos?: number;
   repetidos: number;
   importados?: number;
+  /** Movimientos con fecha hasta el saldo inicial de la cuenta (31-12-2026): ya están dentro de ese saldo y no se guardan. */
+  anteriores?: number;
   muestra?: Fila[];
 }
 
@@ -249,6 +251,8 @@ export function UploadExtractoForm({ accountId, onSuccess }: { accountId: string
           <CheckCircle size={20} className="text-green-600" />
           {hecho.importados} {plural(hecho.importados ?? 0, 'movimiento importado', 'movimientos importados')}
           {hecho.repetidos > 0 ? ` (${hecho.repetidos} ${plural(hecho.repetidos, 'repetido omitido', 'repetidos omitidos')})` : ''}. Ya puedes conciliarlos.
+          {(hecho.anteriores ?? 0) > 0 &&
+            ` ${hecho.anteriores} ${plural(hecho.anteriores ?? 0, 'movimiento de antes del saldo inicial no se ha guardado', 'movimientos de antes del saldo inicial no se han guardado')}: ya están dentro de ese saldo.`}
         </p>
       )}
     </div>

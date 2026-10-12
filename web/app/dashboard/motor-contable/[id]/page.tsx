@@ -44,6 +44,8 @@ const ESTADO_CONFIG: Record<string, { color: string; label: string; icon: IconoP
   PENDING_REVIEW: { color: 'bg-yellow-50 text-yellow-700 border-yellow-200', label: 'Pendiente de revisar', icon: Clock },
   POSTED: { color: 'bg-green-50 text-green-700 border-green-200', label: 'En firme', icon: CheckCircle },
   REVERSED: { color: 'bg-red-50 text-red-700 border-red-200', label: 'Anulado', icon: WarningCircle },
+  // Asiento de 2026 hecho en la app y retirado al traer la contabilidad de la gestoría.
+  SUSTITUIDO: { color: 'bg-slate-100 text-slate-700 border-slate-200', label: 'Retirado (2026 lo lleva la gestoría)', icon: WarningCircle },
 };
 
 const ORIGEN: Record<string, string> = {
@@ -51,6 +53,13 @@ const ORIGEN: Record<string, string> = {
   FACTURA_GASTO: 'Factura de gasto',
   TESORERIA: 'Tesorería',
   AJUSTE_MANUAL: 'Asiento manual',
+  APERTURA: 'Apertura',
+  APERTURA_AJUSTE: 'Ajuste de la apertura',
+  AMORTIZACION: 'Amortización',
+  HISTORICO: 'Diario de la gestoría',
+  HISTORICO_APERTURA: 'Apertura de la gestoría',
+  HISTORICO_REGULARIZACION: 'Regularización de la gestoría',
+  HISTORICO_CIERRE: 'Cierre de la gestoría',
 };
 
 const num = (v: unknown) => Number(v) || 0;

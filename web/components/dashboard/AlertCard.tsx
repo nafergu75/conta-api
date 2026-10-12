@@ -32,9 +32,11 @@ function textoDias(dias: number): string {
 
 interface AlertCardProps {
   alert: Alert;
+  /** El año lo llevó la gestoría: el modelo lo presenta ella (sin urgencia). */
+  gestoria?: boolean;
 }
 
-export function AlertCard({ alert }: AlertCardProps) {
+export function AlertCard({ alert, gestoria = false }: AlertCardProps) {
   // Determina color según urgencia
   const getColorClasses = (diasFaltantes: number) => {
     if (diasFaltantes < 30) {
@@ -64,7 +66,9 @@ export function AlertCard({ alert }: AlertCardProps) {
     }
   };
 
-  const colors = getColorClasses(alert.diasFaltantes);
+  const colors = gestoria
+    ? { bg: 'bg-slate-50', border: 'border-slate-200', text: 'text-slate-600', badge: 'bg-slate-100', icon: 'text-slate-500' }
+    : getColorClasses(alert.diasFaltantes);
 
   const getUrgencyLabel = (diasFaltantes: number) => {
     if (diasFaltantes < 0) return 'Vencido';
@@ -87,7 +91,7 @@ export function AlertCard({ alert }: AlertCardProps) {
             <div className="flex items-center gap-2 mb-2">
               <h3 className="font-semibold text-gray-900">{alert.modelo}</h3>
               <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${colors.bg} ${colors.text} border ${colors.border}`}>
-                {getUrgencyLabel(alert.diasFaltantes)}
+                {gestoria ? 'Lo presenta la gestoría' : getUrgencyLabel(alert.diasFaltantes)}
               </span>
             </div>
             <p className="text-sm text-gray-600 mb-2">{alert.periodo}</p>
@@ -96,11 +100,11 @@ export function AlertCard({ alert }: AlertCardProps) {
             </p>
           </div>
           <div className={`rounded-lg ${colors.badge} p-2 flex-shrink-0`}>
-            <div className={colors.icon}>{getIcon(alert.diasFaltantes)}</div>
+            <div className={colors.icon}>{gestoria ? <CheckCircle size={20} /> : getIcon(alert.diasFaltantes)}</div>
           </div>
         </div>
         <div className="mt-3 text-sm font-medium text-gray-700">
-          {textoDias(alert.diasFaltantes)}
+          {gestoria ? 'Ese año lo llevó la gestoría: no tienes que hacerlo desde la app.' : textoDias(alert.diasFaltantes)}
         </div>
       </div>
     </Link>

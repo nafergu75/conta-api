@@ -27,6 +27,7 @@ import { useCuentasLinea } from '@/lib/subcuentas';
 import { CuentaLinea } from '@/components/contabilidad/CuentaLinea';
 import { hoyEspana, LIMITE_SIMPLIFICADA, useRedSeguridad } from '@/lib/verifactu';
 import AvisoRedSeguridad from '@/components/verifactu/AvisoRedSeguridad';
+import { useAvisoPlanAnterior } from '@/components/contabilidad/AvisoPlanAnterior';
 
 /**
  * Alta de factura de venta, o edicion de un borrador (?id=...).
@@ -215,6 +216,7 @@ function FormularioFactura() {
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState('');
+  const avisoPlan = useAvisoPlanAnterior();
 
   const [clienteId, setClienteId] = useState('');
   const [serie, setSerie] = useState('');
@@ -657,10 +659,18 @@ function FormularioFactura() {
       if (id) {
         await apiFetch(companyPath(`/income-invoices/${id}`), { method: 'PUT', body: JSON.stringify(cuerpo()) });
       } else {
-        const { invoice } = await apiFetch<{ invoice: { id: string } }>(companyPath('/income-invoices'), {
-          method: 'POST',
-          body: JSON.stringify(esProforma ? { ...cuerpo(), proforma: true } : { ...cuerpo(), borrador: true }),
-        });
+        // Primer cliente de una empresa española sin el plan de la gestoría: se pregunta antes.
+        const creada = await avisoPlan.intentar((extra) =>
+          apiFetch<{ invoice: { id: string } }>(companyPath('/income-invoices'), {
+            method: 'POST',
+            body: JSON.stringify(esProforma ? { ...cuerpo(), proforma: true, ...extra } : { ...cuerpo(), borrador: true, ...extra }),
+          }),
+        );
+        if (creada === null) {
+          setGuardando(false);
+          return;
+        }
+        const { invoice } = creada;
         id = invoice.id;
         // Si pasarlo a factura falla, el siguiente intento modifica este borrador (no crea otro).
         setIdCreado(invoice.id);
@@ -710,6 +720,7 @@ function FormularioFactura() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-6">
+      {avisoPlan.dialogo}
       <div className="flex items-center gap-3">
         <Link
           href={esProforma ? '/dashboard/proformas' : '/dashboard/facturas'}
