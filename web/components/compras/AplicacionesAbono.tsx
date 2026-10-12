@@ -102,10 +102,24 @@ export default function AplicacionesAbono({ gasto, puedeEditar, onCambio }: { ga
             const anulada = c.estado !== 'ACTIVO';
             const nombre = c.otra.numero ?? c.otra.numeroCompleto ?? 'sin número';
             return (
-              <li key={c.id} className={`flex flex-wrap items-center gap-x-4 gap-y-1 py-2 ${anulada ? 'text-slate-400' : ''}`}>
-                <span className="w-24 tabular-nums">{fechaCorta(c.fecha)}</span>
-                <span className={`w-28 text-right font-mono tabular-nums ${anulada ? 'line-through' : 'font-semibold text-slate-900'}`}>{fmt(c.importe)}</span>
-                <span className="min-w-0 flex-1 break-words text-slate-600">
+              <li key={c.id} className={`py-2 ${anulada ? 'text-slate-400' : ''}`}>
+                {/* Fecha, importe y Anular en una fila; la factura debajo (en el móvil no cabe al lado). */}
+                <div className="flex items-center gap-x-4">
+                  <span className="w-24 tabular-nums">{fechaCorta(c.fecha)}</span>
+                  <span className={`text-right font-mono tabular-nums ${anulada ? 'line-through' : 'font-semibold text-slate-900'}`}>{fmt(c.importe)}</span>
+                  <span className="ml-auto">
+                    {anulada ? (
+                      <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs">Anulada{c.anuladaEn ? ` el ${fechaCorta(c.anuladaEn)}` : ''}</span>
+                    ) : (
+                      puedeEditar && (
+                        <button type="button" disabled={ocupado} onClick={() => anular(c)} className="text-xs font-medium text-red-700 hover:underline disabled:opacity-50">
+                          Anular
+                        </button>
+                      )
+                    )}
+                  </span>
+                </div>
+                <p className="mt-0.5 break-words text-slate-600">
                   {esAbono ? 'A ' : 'Abono '}
                   {c.otra.id ? (
                     <Link href={`/dashboard/compras/${c.otra.id}`} className="font-medium text-blue-600 hover:underline">
@@ -115,20 +129,9 @@ export default function AplicacionesAbono({ gasto, puedeEditar, onCambio }: { ga
                     <span className="font-medium">{nombre}</span>
                   )}
                   {c.otra.fecha ? ` del ${fechaCorta(c.otra.fecha)}` : ''}
-                  {c.otra.fuera ? ' (de fuera de la app)' : ''}
+                  {c.otra.fuera ? ', de fuera de la app' : ''}
                   <span className="text-slate-500"> · {c.origen === 'AUTO' ? 'automática, al contabilizar el abono' : 'a mano'}</span>
-                </span>
-                <span className="ml-auto">
-                  {anulada ? (
-                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs">Anulada{c.anuladaEn ? ` el ${fechaCorta(c.anuladaEn)}` : ''}</span>
-                  ) : (
-                    puedeEditar && (
-                      <button type="button" disabled={ocupado} onClick={() => anular(c)} className="text-xs font-medium text-red-700 hover:underline disabled:opacity-50">
-                        Anular
-                      </button>
-                    )
-                  )}
-                </span>
+                </p>
               </li>
             );
           })}
