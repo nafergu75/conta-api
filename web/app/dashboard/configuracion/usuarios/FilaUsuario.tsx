@@ -23,9 +23,9 @@ function EstadoCuenta({ usuario }: { usuario: UsuarioEmpresa }) {
     case 'desactivado':
       return <Etiqueta tono="gris">Desactivado</Etiqueta>;
     case 'contrasena_caducada':
-      return <Etiqueta tono="rojo">Contraseña provisional caducada</Etiqueta>;
+      return <Etiqueta tono="rojo" ajustar>Contraseña provisional caducada</Etiqueta>;
     case 'contrasena_pendiente':
-      return <Etiqueta tono="ambar">Contraseña provisional pendiente</Etiqueta>;
+      return <Etiqueta tono="ambar" ajustar>Contraseña provisional pendiente</Etiqueta>;
     default:
       return <Etiqueta tono="verde">Activo</Etiqueta>;
   }
