@@ -125,9 +125,11 @@ interface Props {
   onCambiar?: () => void;
   /** id del aviso, para el aria-describedby del boton de registrar. */
   id?: string;
+  /** El servidor ha dicho que no hay permiso de alta (403): la pagina ajusta sus textos. */
+  onSinPermiso?: () => void;
 }
 
-export default function AvisoTerceroNuevo({ tipo, datos, nifLeido, enlazado, puedeDarDeAlta, onEnlazar, onCambiar, id }: Props) {
+export default function AvisoTerceroNuevo({ tipo, datos, nifLeido, enlazado, puedeDarDeAlta, onEnlazar, onCambiar, id, onSinPermiso }: Props) {
   const t = TEXTOS[tipo];
   const [dialogo, setDialogo] = useState<'alta' | 'buscar' | null>(null);
   // El servidor dijo que no hay permiso (la sesion puede ser de antes de un cambio de permisos).
@@ -238,7 +240,10 @@ export default function AvisoTerceroNuevo({ tipo, datos, nifLeido, enlazado, pue
           tipo={tipo}
           datos={datos}
           onCerrar={() => setDialogo(null)}
-          onSinPermiso={() => setSinPermiso(true)}
+          onSinPermiso={() => {
+            setSinPermiso(true);
+            onSinPermiso?.();
+          }}
           onHecho={enlazar}
         />
       )}
