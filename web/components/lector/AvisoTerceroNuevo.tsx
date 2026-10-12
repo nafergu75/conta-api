@@ -6,6 +6,7 @@ import { CheckCircle, MagnifyingGlass, UserPlus, WarningCircle, X } from '@phosp
 import { ApiError, apiFetch, campoDelError, companyPath, errorMessage } from '@/lib/api';
 import { PAISES, pareceNifIvaUe } from '@/lib/fiscal';
 import { paisDelPrefijo } from '@/lib/compras';
+import { useAvisoPlanAnterior } from '@/components/contabilidad/AvisoPlanAnterior';
 
 /**
  * Proveedor o cliente de una factura leida que no esta dado de alta (lector de
@@ -23,6 +24,10 @@ import { paisDelPrefijo } from '@/lib/compras';
  *   ya hay uno con ese NIF y, si lo hay, se ofrece usarlo.
  * - Sin permiso de alta (compras:write o ventas:write), el aviso lo dice y
  *   solo queda «Es uno que ya tengo».
+ * - Si es el primer cliente o proveedor de una empresa española que aun no ha
+ *   traido el plan de cuentas de la gestoria, el alta da 409
+ *   PLAN_ANTERIOR_PENDIENTE y sale el mismo aviso que en Clientes y
+ *   Proveedores (AvisoPlanAnterior), encima de la ficha.
  * - Una vez enlazado, el aviso pasa a verde («Dado de alta»).
  */
 
@@ -378,6 +383,8 @@ function DialogoAlta({
   const [repetidoId, setRepetidoId] = useState<string | null>(null);
   const [sinPermiso, setSinPermiso] = useState(false);
   const yaExiste = useTerceroPorNif(tipo, f.nifCif, datos.nifCif);
+  // Primer tercero sin el plan de la gestoria: se pregunta antes de darlo de alta.
+  const avisoPlan = useAvisoPlanAnterior();
   const ids = useId();
   const idDe = (c: string) => `${ids}-${c}`;
 
@@ -432,8 +439,9 @@ function DialogoAlta({
     }
     setGuardando(true);
     try {
-      const ficha = await apiFetch<Ficha>(companyPath(t.ruta), { method: 'POST', body: JSON.stringify(cuerpo) });
-      onHecho(deFicha(ficha, 'alta'));
+      const ficha = await avisoPlan.intentar((extra) => apiFetch<Ficha>(companyPath(t.ruta), { method: 'POST', body: JSON.stringify({ ...cuerpo, ...extra }) }));
+      // null: ha elegido traer antes el plan (se va a ese apartado) o ha cerrado el aviso sin seguir.
+      if (ficha) onHecho(deFicha(ficha, 'alta'));
     } catch (err) {
       if (err instanceof ApiError && err.status === 403) {
         setSinPermiso(true);
@@ -464,6 +472,7 @@ function DialogoAlta({
 
   return (
     <Dialogo titulo={tipo === 'proveedor' ? 'Dar de alta el proveedor' : 'Dar de alta el cliente'} onCerrar={onCerrar}>
+      {avisoPlan.dialogo}
       <form onSubmit={guardar} noValidate className="flex flex-col gap-4">
         <p className="text-sm text-slate-600">
           Lo hemos rellenado con lo que pone la factura. Corrige lo que haga falta: se guarda en tu lista de {t.plural} con su subcuenta y la factura queda a su nombre.
