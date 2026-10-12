@@ -101,6 +101,12 @@ export default function FormularioUsuario(props: Props) {
   // La contraseña provisional vive SOLO aquí: ni en el navegador ni en la URL.
   const [creado, setCreado] = useState<{ email: string; contrasena: string; acceso: string } | null>(null);
   const consulta = useRef(0);
+  const avisoError = useRef<HTMLParagraphElement>(null);
+
+  // El error del servidor sale junto a «Grabar»: se lleva a la vista por si la ventana está desplazada.
+  useEffect(() => {
+    if (error) avisoError.current?.scrollIntoView({ block: 'nearest' });
+  }, [error]);
 
   const empresa = empresas.find((e) => e.id === companyId);
   const nombreEmpresa = empresa?.nombre ?? 'esta empresa';
@@ -471,7 +477,7 @@ export default function FormularioUsuario(props: Props) {
         )}
 
         {error && (
-          <p role="alert" className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
+          <p ref={avisoError} role="alert" className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
             <WarningCircle size={18} className="mt-0.5 shrink-0" aria-hidden />
             <span>{error}</span>
           </p>
