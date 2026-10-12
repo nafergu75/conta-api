@@ -76,7 +76,9 @@ export default function LectorGastosPage() {
   const [segundos, setSegundos] = useState(0);
   // Proveedor dado de alta o elegido en esta lectura (el aviso pasa a verde).
   const [proveedorResuelto, setProveedorResuelto] = useState<TerceroEnlazado | null>(null);
-  const puedeAltaProveedor = tieneAlgunPermiso(getUser(), ['compras:write']);
+  // Sin permiso de alta en la sesion, o el servidor lo ha negado (403) en esta pagina.
+  const [altaDenegada, setAltaDenegada] = useState(false);
+  const puedeAltaProveedor = tieneAlgunPermiso(getUser(), ['compras:write']) && !altaDenegada;
   // Lectura en curso o sin registrar: "Leer otra" corta la espera y la descarta.
   const lecturaIdRef = useRef<string | null>(null);
   const cortarRef = useRef<AbortController | null>(null);
@@ -450,7 +452,11 @@ export default function LectorGastosPage() {
                         ? 'Marca que has revisado los datos señalados (arriba) antes de registrar.'
                         : undefined
                 }
-                avisoProveedor="Ficha del proveedor: corrige aquí lo que haga falta antes de darlo de alta."
+                avisoProveedor={
+                  puedeAltaProveedor
+                    ? 'Datos del proveedor leídos de la factura. Corrígelos aquí si hace falta: con ellos se rellena la ficha del alta.'
+                    : 'Datos del proveedor leídos de la factura, para que puedas comprobar cuál es.'
+                }
                 proveedorDeAlta={{
                   motivo: 'Antes, da de alta el proveedor o elige uno que ya tengas (aviso del bloque «Proveedor», arriba).',
                   aviso: (p, enlazar) => {
@@ -467,6 +473,7 @@ export default function LectorGastosPage() {
                           enlazado={null}
                           puedeDarDeAlta={puedeAltaProveedor}
                           onEnlazar={alEnlazar}
+                          onSinPermiso={() => setAltaDenegada(true)}
                         />
                       );
                     }
