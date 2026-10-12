@@ -63,7 +63,6 @@ export function DeshacerCarga({ cargaId, puedeDeshacer, onCerrar, onHecho }: { c
                 <li key={a}>{a}</li>
               ))}
             </ul>
-            {plan.vuelveVersion !== null && <p className="mt-2 text-slate-700">La versión {plan.vuelveVersion} vuelve a ser la vigente.</p>}
           </div>
 
           {plan.asientos2026 > 0 && (
