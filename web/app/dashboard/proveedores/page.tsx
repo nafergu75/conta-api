@@ -8,6 +8,7 @@ import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { nombrePais, PAISES, PAISES_UE, pareceNifIvaUe } from '@/lib/fiscal';
 import { paisDelPrefijo } from '@/lib/compras';
 import { mensajeSinAcceso, PantallaSinAcceso } from '@/components/dashboard/SinAcceso';
+import { useAvisoPlanAnterior } from '@/components/contabilidad/AvisoPlanAnterior';
 
 interface Proveedor {
   id: string;
@@ -289,6 +290,7 @@ export default function ProveedoresPage() {
 function NuevoProveedorModal({ onClose, onCreated }: { onClose: () => void; onCreated: (p: Proveedor) => void }) {
   const [d, setD] = useState({ nombreFiscal: '', nifCif: '', pais: 'ES', direccion: '', cp: '', municipio: '', provincia: '', email: '', telefono: '' });
   const [saving, setSaving] = useState(false);
+  const avisoPlan = useAvisoPlanAnterior();
   const [error, setError] = useState<string | null>(null);
   const [campo, setCampo] = useState<string | undefined>();
 
@@ -319,7 +321,13 @@ function NuevoProveedorModal({ onClose, onCreated }: { onClose: () => void; onCr
     setSaving(true);
     try {
       const cuerpo = Object.fromEntries(Object.entries(d).map(([k, v]) => [k, v.trim()]).filter(([k, v]) => v !== '' || k === 'pais'));
-      onCreated(await apiFetch<Proveedor>(companyPath('/proveedores'), { method: 'POST', body: JSON.stringify(cuerpo) }));
+      // Primer proveedor de una empresa española sin el plan de la gestoría: se pregunta antes.
+      const creado = await avisoPlan.intentar((extra) => apiFetch<Proveedor>(companyPath('/proveedores'), { method: 'POST', body: JSON.stringify({ ...cuerpo, ...extra }) }));
+      if (creado === null) {
+        setSaving(false);
+        return;
+      }
+      onCreated(creado);
     } catch (err) {
       setError(errorMessage(err));
       setCampo(campoDelError(err));
@@ -422,6 +430,7 @@ function NuevoProveedorModal({ onClose, onCreated }: { onClose: () => void; onCr
             </button>
           </div>
         </form>
+        {avisoPlan.dialogo}
       </div>
     </div>
   );
