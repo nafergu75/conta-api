@@ -32,6 +32,8 @@ Desde el 1 de enero de ${EJERCICIO_ARRANQUE} vamos a llevar la contabilidad en n
 7. Cuenta de pérdidas y ganancias de ${A}, si el sumas y saldos va regularizado.
 8. El 303 del 4.º trimestre de ${A}, las cuotas de IVA que quedan por compensar, las bases imponibles negativas y las deducciones pendientes.
 
+Si nos los mandáis en un ZIP, que sea sin contraseña.
+
 Al principio nos vale un cierre provisional. Cuando cerréis el año, os pediremos los mismos ficheros con el cierre definitivo.
 
 Si os va bien, mandadnos antes una muestra (por ejemplo, el plan y el sumas y saldos a 30 de septiembre) para comprobar que el formato de vuestro programa se lee bien.
