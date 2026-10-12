@@ -113,7 +113,8 @@ export default function AsientoDetailPage() {
     } catch (err) {
       setError(errorMessage(err));
       const c = conflictoGasto(err);
-      setFacturaRecibidaTarde(c?.fechaRegistro && c.facturaId ? c.facturaId : null);
+      // También con rectificar_303 por el art. 80: si llegó más tarde, se pone esa fecha en la factura.
+      setFacturaRecibidaTarde((c?.fechaRegistro || c?.rectificar303?.campo === 'fechaRegistro') && c.facturaId ? c.facturaId : null);
       setRectificar303(c?.rectificar303 ?? null);
     } finally {
       setApproving(false);
@@ -187,7 +188,7 @@ export default function AsientoDetailPage() {
                 onClick={() => handleApprove(true)}
                 className="rounded-lg bg-rose-600 px-3 py-1.5 font-semibold text-white hover:bg-rose-700 disabled:opacity-60"
               >
-                Registrar y avisarme de rectificar el 303
+                Aprobar y avisarme de rectificar el 303
               </button>
               <Link href={rectificar303.enlace} className="font-semibold underline">
                 Ver el 303{rectificar303.periodo ? ` del ${textoPeriodoModelo(rectificar303.ejercicio, rectificar303.periodo)}` : ''}

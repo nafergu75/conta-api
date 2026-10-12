@@ -100,7 +100,7 @@ export default function MotorContablePage() {
   // Borrador de un gasto cuyo trimestre ya esta presentado: se corrige en la factura.
   const [recibidaTarde, setRecibidaTarde] = useState<{ mensaje: string; facturaId: string; numero: string } | null>(null);
   // Abono que reduce el IVA de un 303 ya presentado: se aprueba si se confirma.
-  const [rectificar303, setRectificar303] = useState<{ mensaje: string; asiento: Asiento; datos: Rectificar303 } | null>(null);
+  const [rectificar303, setRectificar303] = useState<{ mensaje: string; asiento: Asiento; datos: Rectificar303; facturaId: string | null } | null>(null);
   const [toasts, setToasts] = useState<Array<{ id: string; type: ToastType; title: string; message?: string }>>([]);
 
   const cargar = useCallback(async () => {
@@ -164,7 +164,7 @@ export default function MotorContablePage() {
     } catch (err) {
       const c = conflictoGasto(err);
       if (c?.rectificar303) {
-        setRectificar303({ mensaje: errorMessage(err), asiento: a, datos: c.rectificar303 });
+        setRectificar303({ mensaje: errorMessage(err), asiento: a, datos: c.rectificar303, facturaId: c.facturaId });
         setConfirmar({ asiento: null, cargando: false });
         return;
       }
@@ -251,8 +251,14 @@ export default function MotorContablePage() {
               onClick={() => aprobar(rectificar303.asiento)}
               className="rounded-lg bg-rose-600 px-3 py-1.5 font-semibold text-white hover:bg-rose-700"
             >
-              Registrar y avisarme de rectificar el 303
+              Aprobar y avisarme de rectificar el 303
             </button>
+            {/* Por el art. 80 cuenta la fecha en que llegó: si llegó más tarde, se pone esa en la factura. */}
+            {rectificar303.datos.campo === 'fechaRegistro' && rectificar303.facturaId && (
+              <Link href={enlaceRecibidaTarde(rectificar303.facturaId)} className="font-semibold text-amber-900 underline">
+                Me llegó más tarde: poner la fecha de recepción
+              </Link>
+            )}
             <Link href={rectificar303.datos.enlace} className="inline-flex items-center gap-1 font-semibold text-amber-900 underline">
               Ver el 303{rectificar303.datos.periodo ? ` del ${textoPeriodoModelo(rectificar303.datos.ejercicio, rectificar303.datos.periodo)}` : ''} <ArrowRight size={14} />
             </Link>
