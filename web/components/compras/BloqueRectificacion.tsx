@@ -104,6 +104,12 @@ export default function BloqueRectificacion({ valor: e, onCambio, proveedorId, e
   const elegirCausa = (v: string) => {
     const c = v as CausaRectificacion | '';
     const info = c ? CAUSA_INFO[c] : null;
+    // Un error de IVA de una factura de la app se registra mejor por sustitución: la corregida sale
+    // con las líneas de la original y solo hay que cambiar el tipo de IVA (la base no cambia).
+    if (c === 'ERROR_IVA' && unaDeApp && e.tipo === 'I') {
+      cambiar({ causa: c, tipo: 'S', que: 'facturas', originales: e.originales.slice(0, 1), lineasOriginal: [], lineasOriginalDeApp: false });
+      return;
+    }
     cambiar({
       causa: c,
       // Una devolucion o un descuento solo restan.
@@ -185,7 +191,15 @@ export default function BloqueRectificacion({ valor: e, onCambio, proveedorId, e
               </option>
             ))}
           </select>
-          <p className={ayuda}>Las rectificativas por impago o concurso del proveedor no se registran aquí: consúltalo con tu asesor.</p>
+          {e.causa === 'ERROR_IVA' ? (
+            <p className="mt-1 text-xs text-violet-800">
+              {sustitucion
+                ? 'Cambia el tipo de IVA en la factura corregida (las líneas de abajo): la app registra solo la diferencia de IVA. La base no cambia.'
+                : 'La base no cambia: escribe la línea con el IVA equivocado y debajo la misma con el IVA correcto y el signo menos.'}
+            </p>
+          ) : (
+            <p className={ayuda}>Las rectificativas por impago o concurso del proveedor no se registran aquí: consúltalo con tu asesor.</p>
+          )}
         </div>
         <div>
           <label htmlFor="fr-motivo" className={etiqueta}>
@@ -227,7 +241,9 @@ export default function BloqueRectificacion({ valor: e, onCambio, proveedorId, e
           <p className={ayuda}>
             {soloBaja(e)
               ? 'Una devolución, un descuento o un rappel siempre restan.'
-              : 'Escribe los importes en positivo. Si una línea va al revés que las demás (por ejemplo, al cambiar el tipo de IVA), escríbela con el signo menos.'}
+              : e.causa === 'ERROR_IVA'
+                ? 'Con «Reduce el importe», la línea en positivo (la del IVA equivocado) resta y la que lleva el signo menos (la del IVA correcto) suma.'
+                : 'Escribe los importes en positivo. Si una línea va al revés que las demás (por ejemplo, al cambiar el tipo de IVA), escríbela con el signo menos.'}
           </p>
         </fieldset>
       )}
