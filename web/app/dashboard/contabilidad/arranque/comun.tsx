@@ -128,23 +128,26 @@ function Punto({ p, accion }: { p: PuntoComprobacion; accion?: ReactNode }) {
       {ICONO_PUNTO[p.nivel]}
       <div className="min-w-0 flex-1 text-sm text-slate-800">
         <p className="break-words">{p.texto}</p>
-        {p.detalle && p.detalle.length > 0 && (
-          <>
-            <button type="button" onClick={() => setAbierto((v) => !v)} className="mt-1 text-xs font-medium text-slate-600 underline-offset-2 hover:underline" aria-expanded={abierto}>
-              {abierto ? 'Ocultar el detalle' : `Ver el detalle (${p.detalle.length})`}
-            </button>
-            {abierto && (
-              <ul className="mt-1 max-h-60 space-y-0.5 overflow-y-auto rounded border border-slate-200 bg-slate-50 p-2 font-mono text-xs text-slate-700">
-                {p.detalle.map((d, i) => (
-                  <li key={i} className="break-words">
-                    {d}
-                  </li>
-                ))}
-              </ul>
+        {/* El detalle y la acción, en una fila y separados (si no, se leía «Ver el detalle (1)Escribirlo»). */}
+        {((p.detalle && p.detalle.length > 0) || accion) && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            {p.detalle && p.detalle.length > 0 && (
+              <button type="button" onClick={() => setAbierto((v) => !v)} className="mt-1 text-xs font-medium text-slate-600 underline-offset-2 hover:underline" aria-expanded={abierto}>
+                {abierto ? 'Ocultar el detalle' : `Ver el detalle (${p.detalle.length})`}
+              </button>
             )}
-          </>
+            {accion}
+          </div>
         )}
-        {accion}
+        {p.detalle && p.detalle.length > 0 && abierto && (
+          <ul className="mt-1 max-h-60 space-y-0.5 overflow-y-auto rounded border border-slate-200 bg-slate-50 p-2 font-mono text-xs text-slate-700">
+            {p.detalle.map((d, i) => (
+              <li key={i} className="break-words">
+                {d}
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </li>
   );
@@ -161,19 +164,23 @@ export function MensajeComprobacion({
   puntos,
   accionDe,
   pie,
+  resumir = true,
 }: {
   nivel: NivelCarga;
   mensaje: string;
   puntos: PuntoComprobacion[];
   accionDe?: (p: PuntoComprobacion) => ReactNode;
   pie?: ReactNode;
+  /** false: la cabecera enseña `mensaje` tal cual (al terminar la importación, que diga que ya está hecha). */
+  resumir?: boolean;
 }) {
   const e = ESTILO_NIVEL[nivel];
   // Con la lista de abajo, la cabecera solo resume (no repite todos los puntos seguidos).
   const errores = puntos.filter((p) => p.nivel === 'ERROR').length;
   const faltan = puntos.filter((p) => p.nivel === 'FALTA').length;
-  const resumen =
-    nivel === 'ERRORES' && errores
+  const resumen = !resumir
+    ? mensaje
+    : nivel === 'ERRORES' && errores
       ? `Todavía no se puede traer la contabilidad: ${errores === 1 ? 'hay 1 cosa que corregir' : `hay ${errores} cosas que corregir`}. Están en la lista de abajo.`
       : nivel === 'FALTAN_DATOS' && faltan
         ? `Puedes seguir, pero ${faltan === 1 ? 'falta 1 dato' : `faltan ${faltan} datos`}. Están en la lista de abajo; los puedes completar después.`
