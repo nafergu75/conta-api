@@ -1,15 +1,16 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { apiFetch, errorMessage } from '@/lib/api';
-import { ejercicioAnualAPresentar } from '@/lib/aeatCalendar';
 import { Declaraciones } from '../components/Declaraciones';
+import { useEjercicioAnual } from '../components/periodoModelo';
 import {
   CabeceraBorrador,
   Cargando,
+  CargandoModelo,
   Cifra,
   DescargarFichero,
-  ErrorCarga,
+  ErrorModelo,
   ErroresYAvisos,
   eur,
   PaginaCasillas,
@@ -42,8 +43,16 @@ const FORMATO = {
 };
 
 export default function Modelo390Page() {
-  // Modelo anual: se presenta por el ejercicio anterior.
-  const [ejercicio, setEjercicio] = useState(ejercicioAnualAPresentar);
+  return (
+    <Suspense fallback={<Cargando />}>
+      <Modelo390 />
+    </Suspense>
+  );
+}
+
+function Modelo390() {
+  // Modelo anual: se presenta por el ejercicio anterior (nunca antes del primer año de la empresa).
+  const { ejercicio, setEjercicio, anios, listo } = useEjercicioAnual();
   const [ultimoPeriodo, setUltimoPeriodo] = useState<'compensar' | 'devolver'>('compensar');
   const [borrador, setBorrador] = useState<Borrador390 | null>(null);
   const [loading, setLoading] = useState(true);
@@ -51,6 +60,7 @@ export default function Modelo390Page() {
   const [recarga, setRecarga] = useState(0);
 
   useEffect(() => {
+    if (!listo) return;
     let vivo = true;
     setLoading(true);
     setError('');
@@ -61,10 +71,42 @@ export default function Modelo390Page() {
     return () => {
       vivo = false;
     };
-  }, [ejercicio, ultimoPeriodo, recarga]);
+  }, [listo, ejercicio, ultimoPeriodo, recarga]);
 
-  if (loading && !borrador) return <Cargando />;
-  if (error || !borrador) return <ErrorCarga mensaje={error || 'No se ha podido preparar el borrador.'} />;
+  const cabecera = (
+    <CabeceraBorrador
+      titulo="Modelo 390 · Resumen anual del IVA"
+      subtitulo="Resumen del IVA devengado y deducible del año, el resultado de los 303 y el volumen de operaciones."
+      diseno={borrador ? `Borrador con el diseño oficial de la AEAT, versión ${borrador.diseno}. ${borrador.revisar}` : 'Borrador con el diseño oficial de la AEAT.'}
+    />
+  );
+  // El periodo va siempre a la vista: si el ejercicio da error, se puede elegir otro.
+  const filtros = (
+    <div className="flex flex-wrap items-end gap-4 rounded-lg border border-slate-200 bg-white p-4">
+      <SelectorEjercicio ejercicio={ejercicio} anios={anios} onChange={setEjercicio} />
+      <label className="block text-sm font-medium text-slate-700">
+        Si el último periodo salió negativo
+        <select
+          value={ultimoPeriodo}
+          onChange={(e) => setUltimoPeriodo(e.target.value as 'compensar' | 'devolver')}
+          className="mt-1 block rounded-lg border border-slate-300 px-3 py-2 text-sm"
+        >
+          <option value="compensar">Lo dejé a compensar [97]</option>
+          <option value="devolver">Pedí la devolución [98]</option>
+        </select>
+      </label>
+    </div>
+  );
+
+  if (error || !borrador) {
+    return (
+      <div className="space-y-6">
+        {cabecera}
+        {filtros}
+        {error ? <ErrorModelo mensaje={error} /> : <CargandoModelo />}
+      </div>
+    );
+  }
 
   const b = borrador;
   const c = b.casillas;
@@ -74,26 +116,8 @@ export default function Modelo390Page() {
 
   return (
     <div className="space-y-6">
-      <CabeceraBorrador
-        titulo="Modelo 390 · Resumen anual del IVA"
-        subtitulo="Resumen del IVA devengado y deducible del año, el resultado de los 303 y el volumen de operaciones."
-        diseno={`Borrador con el diseño oficial de la AEAT, versión ${b.diseno}. ${b.revisar}`}
-      />
-
-      <div className="flex flex-wrap items-end gap-4 rounded-lg border border-slate-200 bg-white p-4">
-        <SelectorEjercicio ejercicio={ejercicio} onChange={setEjercicio} />
-        <label className="block text-sm font-medium text-slate-700">
-          Si el último periodo salió negativo
-          <select
-            value={ultimoPeriodo}
-            onChange={(e) => setUltimoPeriodo(e.target.value as 'compensar' | 'devolver')}
-            className="mt-1 block rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          >
-            <option value="compensar">Lo dejé a compensar [97]</option>
-            <option value="devolver">Pedí la devolución [98]</option>
-          </select>
-        </label>
-      </div>
+      {cabecera}
+      {filtros}
 
       <ErroresYAvisos errores={b.errores} advertencias={b.advertencias} ejercicio={ejercicio} />
 
