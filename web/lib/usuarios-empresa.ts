@@ -24,7 +24,13 @@ export interface UsuarioEmpresa {
   contrasenaProvisionalHasta: string | null;
   ultimoAcceso: string | null;
   /** Lo que puede hacer con el quien pregunta (el servidor lo decide). */
-  puedes: { editarAcceso: boolean; nuevaContrasena: boolean; quitarAcceso: boolean };
+  puedes: {
+    editarAcceso: boolean;
+    nuevaContrasena: boolean;
+    quitarAcceso: boolean;
+    /** Cambiar su nombre y su teléfono (los propios, siempre). Un servidor antiguo no lo manda. */
+    datosPersonales?: boolean;
+  };
 }
 
 /** Respuesta de POST /usuarios. La contraseña solo viene con un usuario nuevo, y solo esta vez. */
@@ -44,6 +50,11 @@ export interface ResultadoNuevaContrasena {
 export interface ComprobacionCorreo {
   existe: boolean;
   yaTieneAcceso: boolean;
+  /**
+   * Desde esta pantalla no se le puede dar acceso: es el administrador global o
+   * una cuenta que no entra en ninguna empresa. Solo el global puede.
+   */
+  soloAdminGlobal?: boolean;
 }
 
 /** Empresa que se puede elegir en el desplegable de Usuarios. */
