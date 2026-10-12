@@ -1078,7 +1078,7 @@ export default function FormFacturaGasto({
             </div>
           )}
           <div className="flex justify-between border-t border-slate-200 pt-2 text-base font-semibold">
-            <dt className="text-slate-900">{sustitucion ? 'Total de la corregida' : rect && sinSentido ? 'Total leído' : rect && totales.total < 0 ? 'Total del abono' : 'Total a pagar'}</dt>
+            <dt className="text-slate-900">{sustitucion ? 'Total de la corregida' : rect && sinSentido ? 'Total leído' : rect && (totales.total < 0 || (totales.total === 0 && signo < 0)) ? 'Total del abono' : 'Total a pagar'}</dt>
             <dd className={`font-mono ${rect && totales.total < 0 ? 'text-rose-700' : 'text-slate-900'}`}>{fmt(totales.total)}</dd>
           </div>
           {rect && !sustitucion && totales.total < 0 && <p className="text-xs text-slate-500">En negativo: resta de lo que le debes al proveedor y del IVA soportado.</p>}
