@@ -1,16 +1,17 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { MagnifyingGlass, X } from '@phosphor-icons/react';
 import { apiFetch, errorMessage } from '@/lib/api';
-import { ejercicioAnualAPresentar } from '@/lib/aeatCalendar';
 import { Declaraciones } from '../components/Declaraciones';
+import { useEjercicioAnual } from '../components/periodoModelo';
 import {
   CabeceraBorrador,
   Cargando,
+  CargandoModelo,
   Cifra,
   DescargarFichero,
-  ErrorCarga,
+  ErrorModelo,
   ErroresYAvisos,
   eur,
   rutaBorrador,
@@ -47,8 +48,16 @@ interface Borrador347 {
 const CLAVES: Record<string, string> = { A: 'A · Compras', B: 'B · Ventas' };
 
 export default function Modelo347Page() {
-  // Modelo anual: se presenta por el ejercicio anterior.
-  const [ejercicio, setEjercicio] = useState(ejercicioAnualAPresentar);
+  return (
+    <Suspense fallback={<Cargando />}>
+      <Modelo347 />
+    </Suspense>
+  );
+}
+
+function Modelo347() {
+  // Modelo anual: se presenta por el ejercicio anterior (nunca antes del primer año de la empresa).
+  const { ejercicio, setEjercicio, anios, listo } = useEjercicioAnual();
   const [borrador, setBorrador] = useState<Borrador347 | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -56,6 +65,7 @@ export default function Modelo347Page() {
   const [recarga, setRecarga] = useState(0);
 
   useEffect(() => {
+    if (!listo) return;
     let vivo = true;
     setLoading(true);
     setError('');
@@ -66,7 +76,7 @@ export default function Modelo347Page() {
     return () => {
       vivo = false;
     };
-  }, [ejercicio, recarga]);
+  }, [listo, ejercicio, recarga]);
 
   const filtrados = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
@@ -74,22 +84,36 @@ export default function Modelo347Page() {
     return q ? lista.filter((d) => d.nombre.toLowerCase().includes(q) || d.nif.toLowerCase().includes(q)) : lista;
   }, [borrador, busqueda]);
 
-  if (loading && !borrador) return <Cargando />;
-  if (error || !borrador) return <ErrorCarga mensaje={error || 'No se ha podido preparar el borrador.'} />;
+  const cabecera = (
+    <CabeceraBorrador
+      titulo="Modelo 347 · Operaciones con terceras personas"
+      subtitulo="Clientes y proveedores con los que has operado más de 3.005,06 € en el año (IVA incluido)."
+      diseno={borrador ? `Borrador con el diseño oficial de la AEAT «${borrador.diseno}». ${borrador.revisar}` : 'Borrador con el diseño oficial de la AEAT.'}
+    />
+  );
+  // El periodo va siempre a la vista: si el ejercicio da error, se puede elegir otro.
+  const filtros = (
+    <div className="flex flex-wrap items-end gap-4 rounded-lg border border-slate-200 bg-white p-4">
+      <SelectorEjercicio ejercicio={ejercicio} anios={anios} onChange={setEjercicio} />
+      <p className="text-sm text-slate-600">La persona de contacto y el teléfono son los de Más &gt; Datos de la empresa, apartado Contacto.</p>
+    </div>
+  );
+
+  if (error || !borrador) {
+    return (
+      <div className="space-y-6">
+        {cabecera}
+        {filtros}
+        {error ? <ErrorModelo mensaje={error} /> : <CargandoModelo />}
+      </div>
+    );
+  }
 
   const b = borrador;
   return (
     <div className="space-y-6">
-      <CabeceraBorrador
-        titulo="Modelo 347 · Operaciones con terceras personas"
-        subtitulo="Clientes y proveedores con los que has operado más de 3.005,06 € en el año (IVA incluido)."
-        diseno={`Borrador con el diseño oficial de la AEAT «${b.diseno}». ${b.revisar}`}
-      />
-
-      <div className="flex flex-wrap items-end gap-4 rounded-lg border border-slate-200 bg-white p-4">
-        <SelectorEjercicio ejercicio={ejercicio} onChange={setEjercicio} />
-        <p className="text-sm text-slate-600">La persona de contacto y el teléfono son los de Más &gt; Datos de la empresa, apartado Contacto.</p>
-      </div>
+      {cabecera}
+      {filtros}
 
       <ErroresYAvisos errores={b.errores} advertencias={b.advertencias} ejercicio={ejercicio} />
 
