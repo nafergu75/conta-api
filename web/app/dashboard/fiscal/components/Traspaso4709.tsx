@@ -86,14 +86,16 @@ export function Traspaso4709Panel({
   return (
     <section className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 md:p-6">
       <h2 className="font-semibold">Retención de abonos que no cabe en este {codigo}</h2>
-      <p>
-        Los abonos del periodo restan {eur(exceso)} más de retención de lo que este modelo puede restar: el {codigo} no admite importes negativos. Esa parte no se resta
-        en ningún otro periodo: se recupera pidiendo la rectificación del {codigo} en que se declaró la factura original.
-      </p>
+      {!traspaso && (
+        <p>
+          {eur(exceso)} de retención de abonos no caben en este {codigo} (el aviso de arriba explica por qué y cómo se recuperan). Cuando lo pagues, pásalos de la 4751 a
+          la 4709 con un asiento.
+        </p>
+      )}
       {traspaso ? (
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
           <p>
-            Ya está pasada de la 4751 a la 4709 con el asiento{' '}
+            Pasados de la 4751 a la 4709 con el asiento{' '}
             {veAsiento ? (
               <Link href={`/dashboard/motor-contable/${encodeURIComponent(traspaso.asientoId)}`} className="font-mono font-semibold underline">
                 {traspaso.numero}
