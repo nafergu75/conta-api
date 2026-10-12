@@ -7,6 +7,7 @@ import { ApiError, apiFetch, campoDelError, companyPath, errorMessage } from '@/
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { useCuentasLinea } from '@/lib/subcuentas';
 import { CuentaLinea } from '@/components/contabilidad/CuentaLinea';
+import { useAvisoPlanAnterior } from '@/components/contabilidad/AvisoPlanAnterior';
 import { formatoImporte, parseImporte } from '@/lib/moneda';
 import { PAISES, pareceNifIvaUe, useEmpresaEspanola } from '@/lib/fiscal';
 import {
@@ -237,6 +238,7 @@ export default function FormFacturaGasto({
   const [totalDocumento, setTotalDocumento] = useState(numeroATexto(inicial?.totalDocumento));
 
   const [guardando, setGuardando] = useState(false);
+  const avisoPlan = useAvisoPlanAnterior();
   const [error, setError] = useState(campoInicial ? (avisoInicial ?? '') : '');
   const [campoError, setCampoError] = useState<string | undefined>(campoInicial);
   const [facturaRepetidaId, setFacturaRepetidaId] = useState<string | null>(null);
@@ -404,13 +406,19 @@ export default function FormFacturaGasto({
     setGuardando(true);
     try {
       if (modo === 'lector') {
-        onGuardado(await apiFetch<GastoRegistrado>(companyPath('/gastos-extractor/confirmar'), { method: 'POST', body: JSON.stringify(cuerpo) }));
+        // Primer proveedor de una empresa española sin el plan de la gestoría: se pregunta antes.
+        const r = await avisoPlan.intentar((extra) =>
+          apiFetch<GastoRegistrado>(companyPath('/gastos-extractor/confirmar'), { method: 'POST', body: JSON.stringify({ ...cuerpo, ...extra }) }),
+        );
+        if (r) onGuardado(r);
       } else if (modo === 'editar' && facturaId) {
         const factura = await apiFetch<GastoDetalle>(companyPath(`/expense-invoices/${encodeURIComponent(facturaId)}`), { method: 'PUT', body: JSON.stringify(cuerpo) });
         onGuardado({ factura });
       } else {
-        const factura = await apiFetch<GastoDetalle>(companyPath('/expense-invoices'), { method: 'POST', body: JSON.stringify(cuerpo) });
-        onGuardado({ factura });
+        const factura = await avisoPlan.intentar((extra) =>
+          apiFetch<GastoDetalle>(companyPath('/expense-invoices'), { method: 'POST', body: JSON.stringify({ ...cuerpo, ...extra }) }),
+        );
+        if (factura) onGuardado({ factura });
       }
     } catch (err) {
       const campo = normalizarCampo(campoDelError(err));
@@ -489,6 +497,7 @@ export default function FormFacturaGasto({
 
   return (
     <form onSubmit={guardar} noValidate className="flex flex-col gap-6">
+      {avisoPlan.dialogo}
       {modo === 'lector' && marcas && Object.values(marcas).some(Boolean) && (
         <p id="fg-marcas-lector" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
           Los datos que el lector no ha podido confirmar van marcados en el formulario: en ámbar, los que conviene comprobar con la factura; en rojo, los que faltan o no
