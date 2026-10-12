@@ -158,7 +158,8 @@ function ModalAplicar({ gasto, onCerrar, onHecho }: { gasto: GastoDetalle; onCer
   const [destino, setDestino] = useState<string>(''); // id de la factura o 'FUERA'
   const [numeroFuera, setNumeroFuera] = useState('');
   const [fechaFuera, setFechaFuera] = useState('');
-  const [importe, setImporte] = useState('');
+  // Vacio = el propuesto (lo que quede del abono y de la factura elegida); se escribe otro si se quiere.
+  const [importe, setImporte] = useState<string | null>(null);
   const [fecha, setFecha] = useState(() => {
     const h = hoyIso();
     return h < fechaContable(gasto) ? fechaContable(gasto) : h;
@@ -191,9 +192,7 @@ function ModalAplicar({ gasto, onCerrar, onHecho }: { gasto: GastoDetalle; onCer
   // Importe propuesto: lo que quede del abono y de la factura elegida.
   const elegida = facturas?.find((f) => f.id === destino) ?? null;
   const tope = elegida ? Math.min(aFavor, elegida.importePendiente) : aFavor;
-  useEffect(() => {
-    setImporte(tope > 0 ? tope.toFixed(2).replace('.', ',') : '');
-  }, [tope]);
+  const importeMostrado = importe ?? (tope > 0 ? tope.toFixed(2).replace('.', ',') : '');
 
   useEffect(() => {
     const esc = (e: KeyboardEvent) => e.key === 'Escape' && onCerrar();
@@ -205,7 +204,7 @@ function ModalAplicar({ gasto, onCerrar, onHecho }: { gasto: GastoDetalle; onCer
     e.preventDefault();
     setError('');
     setCampo(undefined);
-    const valor = parseImporte(importe);
+    const valor = parseImporte(importeMostrado);
     if (!(valor > 0)) {
       setCampo('importe');
       return setError('Indica un importe mayor que cero.');
@@ -267,7 +266,7 @@ function ModalAplicar({ gasto, onCerrar, onHecho }: { gasto: GastoDetalle; onCer
               {facturas.length === 0 && <p className="text-sm text-slate-500">Este proveedor no tiene otras facturas pendientes de pago en la app.</p>}
               {facturas.map((f) => (
                 <label key={f.id} className={`flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-sm ${destino === f.id ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 hover:bg-slate-50'}`}>
-                  <input type="radio" name="aplicar-destino" checked={destino === f.id} onChange={() => setDestino(f.id)} className="mt-0.5 accent-emerald-600" />
+                  <input type="radio" name="aplicar-destino" checked={destino === f.id} onChange={() => { setDestino(f.id); setImporte(null); }} className="mt-0.5 accent-emerald-600" />
                   <span className="min-w-0">
                     <span className="font-medium text-slate-900">{f.numeroFacturaProveedor ?? f.numeroCompleto}</span>
                     <span className="block text-xs text-slate-500">
@@ -277,7 +276,7 @@ function ModalAplicar({ gasto, onCerrar, onHecho }: { gasto: GastoDetalle; onCer
                 </label>
               ))}
               <label className={`flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-sm ${destino === 'FUERA' ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 hover:bg-slate-50'}`}>
-                <input type="radio" name="aplicar-destino" checked={destino === 'FUERA'} onChange={() => setDestino('FUERA')} className="mt-0.5 accent-emerald-600" />
+                <input type="radio" name="aplicar-destino" checked={destino === 'FUERA'} onChange={() => { setDestino('FUERA'); setImporte(null); }} className="mt-0.5 accent-emerald-600" />
                 <span>
                   <span className="font-medium text-slate-900">Una factura de fuera de la app</span>
                   <span className="block text-xs text-slate-500">Por ejemplo, una de 2026 que llevaste fuera y que le pagaste con el abono ya restado.</span>
@@ -309,7 +308,7 @@ function ModalAplicar({ gasto, onCerrar, onHecho }: { gasto: GastoDetalle; onCer
             <label htmlFor="aplicar-importe" className="mb-1 block text-sm font-medium text-slate-700">
               Importe
             </label>
-            <input id="aplicar-importe" inputMode="decimal" value={importe} onChange={(e) => setImporte(e.target.value)} aria-invalid={campo === 'importe'} className={`${campoCls} text-right font-mono`} />
+            <input id="aplicar-importe" inputMode="decimal" value={importeMostrado} onChange={(e) => setImporte(e.target.value)} aria-invalid={campo === 'importe'} className={`${campoCls} text-right font-mono`} />
           </div>
           <div>
             <label htmlFor="aplicar-fecha" className="mb-1 block text-sm font-medium text-slate-700">
