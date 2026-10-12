@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { formatoImporte } from '@/lib/moneda';
 
 /** Casilla del 303 tal como la da el servidor: número, descripción oficial e importe (los mismos que el fichero). */
 export interface Casilla303 {
@@ -29,7 +30,8 @@ interface Seccion {
 /** Casillas que se ven siempre, aunque estén a cero: totales y resultado. */
 const SIEMPRE = new Set(['27', '45', '46', '64', '66', '69', '71']);
 
-const eur = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2 });
+// Mismo formato que el resto de la app: punto de miles también en cuatro cifras (1.500,00 €).
+const eur = { format: (n: number) => formatoImporte(n, 'EUR') };
 const pct = new Intl.NumberFormat('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /**
@@ -37,14 +39,20 @@ const pct = new Intl.NumberFormat('es-ES', { minimumFractionDigits: 2, maximumFr
  * devengado, IVA deducible, información adicional, resultado) y, dentro, una
  * fila por concepto con sus columnas (base, tipo, cuota). Una fila nueva
  * empieza cuando cambia el concepto o vuelve a salir la columna de la base.
+ * Un bloque que vuelve a salir más adelante (el «Resultado» de la página 3
+ * viene en dos trozos) se junta con el primero: cada bloque sale una sola vez,
+ * en el orden en que aparece por primera vez.
  */
 function agrupar(casillas: Casilla303[]): Seccion[] {
   const secciones: Seccion[] = [];
+  const porClave = new Map<string, Seccion>();
   for (const c of casillas) {
-    let s = secciones[secciones.length - 1];
-    if (!s || s.titulo !== c.seccion || s.pagina !== c.pagina) {
+    const clave = `${c.pagina}-${c.seccion}`;
+    let s = porClave.get(clave);
+    if (!s) {
       s = { titulo: c.seccion, pagina: c.pagina, filas: [] };
       secciones.push(s);
+      porClave.set(clave, s);
     }
     const ultima = s.filas[s.filas.length - 1];
     const empiezaBase = /^Base/.test(c.columna) && !!ultima?.casillas.length;
@@ -95,8 +103,8 @@ export function Casillas303({ casillas }: { casillas: Casilla303[] }) {
               {s.titulo} <span className="font-normal text-slate-500">· página {Number(s.pagina)}</span>
             </h3>
             <ul className="divide-y divide-slate-100">
-              {filas.map((f) => (
-                <li key={f.casillas.map((c) => c.numero).join('-')} className="grid gap-2 px-4 py-3 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] md:items-center">
+              {filas.map((f, i) => (
+                <li key={`${i}-${f.casillas.map((c) => c.numero).join('-')}`} className="grid gap-2 px-4 py-3 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] md:items-center">
                   <div className="text-sm text-slate-700">
                     {f.concepto}
                     {f.casillas[0]?.formula && <span className="block text-xs text-slate-500">{f.casillas[0].formula}</span>}
