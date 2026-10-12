@@ -1,10 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CheckCircle, Trash, XCircle } from '@phosphor-icons/react';
+import Link from 'next/link';
+import { ArrowRight, CheckCircle, Trash, XCircle } from '@phosphor-icons/react';
 import { Tooltip } from '@/app/dashboard/components/Tooltip';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
+import { ANIO_GESTORIA, RUTA_ARRANQUE } from '@/lib/arranque';
+import { useEmpresaEspanola } from '@/lib/fiscal';
 import {
   AJUSTES_INICIALES,
   boton,
@@ -73,6 +76,7 @@ const anioActual = new Date().getFullYear();
 
 export default function PuestaEnMarchaPage() {
   const puedeEditar = tieneAlgunPermiso(getUser(), ['contabilidad:write']);
+  const espanola = useEmpresaEspanola();
   const [pestana, setPestana] = useState<Pestana>('plan');
   const [estado, setEstado] = useState<Estado | null>(null);
   const [error, setError] = useState('');
@@ -118,6 +122,18 @@ export default function PuestaEnMarchaPage() {
           Trae tu plan de cuentas, carga el balance del último cierre para crear el asiento de apertura y, si empiezas a mitad de año, los movimientos del año en curso.
         </p>
       </div>
+
+      {espanola !== false && (
+        <section className="flex flex-col gap-3 rounded-xl border border-sky-200 bg-sky-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-sky-900">
+            ¿Tu gestoría llevaba la contabilidad de {ANIO_GESTORIA}? Usa «Traer la contabilidad de {ANIO_GESTORIA}»: subes todos sus ficheros de una vez y lo trae todo con una
+            sola confirmación. Esta pantalla queda para las empresas que empiezan sin gestoría o a mitad de año.
+          </p>
+          <Link href={RUTA_ARRANQUE} className="inline-flex shrink-0 items-center gap-1.5 self-start rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50 sm:self-auto">
+            Traer la contabilidad <ArrowRight size={16} />
+          </Link>
+        </section>
+      )}
 
       {aviso && (
         <p className="flex gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
