@@ -198,6 +198,19 @@ const PIE = {
 let siguienteClave = 1;
 const lineaVacia = (tipoIva = 21): LineaForm => ({ clave: siguienteClave++, descripcion: '', cantidad: '1', precio: '', descuento: 0, tipoIva, tipoRetencion: 0 });
 
+/** Las líneas de la factura que se rectifica, en positivo y con su cuenta (para proponer la de la causa). */
+const copiaDeOriginal = (d: DatosParaRectificar): LineaForm[] =>
+  d.lineas.map((l) => ({
+    clave: siguienteClave++,
+    descripcion: l.descripcion,
+    cantidad: numeroATexto(l.cantidad),
+    precio: numeroATexto(Math.abs(l.precioUnitario)),
+    descuento: l.descuentoPorcentaje ?? 0,
+    tipoIva: l.tipoIva,
+    tipoRetencion: l.tipoRetencion,
+    cuentaOriginal: l.cuenta,
+  }));
+
 const esEspana = (pais: string) => {
   const p = (pais || 'ES').trim().toUpperCase();
   return p === 'ES' || p === 'ESP';
@@ -465,56 +478,62 @@ export default function FormFacturaGasto({
         const cuentaDe = (tipoIva: number) => (cuentas.length === 1 ? cuentas[0] : (d.lineas.find((x) => x.tipoIva === tipoIva)?.cuenta ?? d.lineas[0]?.cuenta ?? undefined));
         return ls.map((l) => ({ ...l, cuentaOriginal: cuentaDe(l.tipoIva) ?? undefined, ...(modo === 'lector' ? { cuenta: undefined } : {}) }));
       }
-      return d.lineas.map((l) => ({
-        clave: siguienteClave++,
-        descripcion: l.descripcion,
-        cantidad: numeroATexto(l.cantidad),
-        precio: numeroATexto(Math.abs(l.precioUnitario)),
-        descuento: l.descuentoPorcentaje ?? 0,
-        tipoIva: l.tipoIva,
-        tipoRetencion: l.tipoRetencion,
-        cuentaOriginal: l.cuenta,
-      }));
+      return copiaDeOriginal(d);
     });
   };
 
   // Descuento, rappel o pronto pago de una factura de la app: el proveedor manda un solo importe.
   // Si las líneas siguen siendo la copia de la original, se cambian por una por tipo de IVA (cantidad 1,
   // precio vacío): con la cantidad copiada, el importe escrito se multiplicaba.
-  const causaAnterior = useRef(rect?.causa ?? '');
+  // Si después se elige otra causa o se pasa a sustitución sin haber escrito ningún importe en esas
+  // líneas, vuelven las de la original: la factura corregida (o la devolución) sale de ellas.
+  const causaAnterior = useRef(`${rect?.causa ?? ''}|${rect?.tipo ?? ''}`);
+  /** Claves de las líneas de un solo importe que puso la causa, mientras sigan sin tocar. */
+  const lineasDeLaCausa = useRef<number[]>([]);
   useEffect(() => {
     const causa = rect?.causa ?? '';
-    if (causaAnterior.current === causa) return;
-    causaAnterior.current = causa;
+    const clave = `${causa}|${rect?.tipo ?? ''}`;
+    if (causaAnterior.current === clave) return;
+    causaAnterior.current = clave;
     const d = datosOriginal;
-    if (!rect || rect.tipo !== 'I' || !d || !(causa === 'DESCUENTO' || causa === 'RAPPEL' || causa === 'PRONTO_PAGO')) return;
-    setLineas((ls) => {
-      const copia =
-        ls.length === d.lineas.length &&
-        ls.every((l, i) => l.descripcion === d.lineas[i].descripcion && parseImporte(l.cantidad) === d.lineas[i].cantidad && parseImporte(l.precio) === Math.abs(d.lineas[i].precioUnitario));
-      if (!copia) return ls;
-      const que = causa === 'RAPPEL' ? 'Rappel' : causa === 'PRONTO_PAGO' ? 'Descuento por pronto pago' : 'Descuento';
-      const numeroOriginal = d.original.numero ?? d.original.numeroCompleto;
-      const grupos = new Map<string, (typeof d.lineas)[number]>();
-      for (const l of d.lineas) {
-        const k = `${l.tipoIva}|${l.tipoRetencion}|${l.cuenta}`;
-        if (!grupos.has(k)) grupos.set(k, l);
+    if (!rect || !d) return;
+    const puestas = lineasDeLaCausa.current;
+    const sinTocar = puestas.length > 0 && lineas.length === puestas.length && lineas.every((l, i) => l.clave === puestas[i] && !l.precio.trim());
+    const unSoloImporte = rect.tipo === 'I' && (causa === 'DESCUENTO' || causa === 'RAPPEL' || causa === 'PRONTO_PAGO');
+    if (!unSoloImporte) {
+      if (sinTocar) {
+        lineasDeLaCausa.current = [];
+        setLineas(copiaDeOriginal(d));
       }
-      const varios = grupos.size > 1;
-      return Array.from(grupos.values()).map((l) => ({
-        clave: siguienteClave++,
-        descripcion: `${que} sobre la ${numeroOriginal}${varios ? ` (IVA ${l.tipoIva} %)` : ''}`,
-        cantidad: '1',
-        precio: '',
-        descuento: 0,
-        tipoIva: l.tipoIva,
-        tipoRetencion: l.tipoRetencion,
-        cuentaOriginal: l.cuenta,
-      }));
-    });
-    // Solo al cambiar la causa.
+      return;
+    }
+    const copia =
+      lineas.length === d.lineas.length &&
+      lineas.every((l, i) => l.descripcion === d.lineas[i].descripcion && parseImporte(l.cantidad) === d.lineas[i].cantidad && parseImporte(l.precio) === Math.abs(d.lineas[i].precioUnitario));
+    if (!copia && !sinTocar) return;
+    const que = causa === 'RAPPEL' ? 'Rappel' : causa === 'PRONTO_PAGO' ? 'Descuento por pronto pago' : 'Descuento';
+    const numeroOriginal = d.original.numero ?? d.original.numeroCompleto;
+    const grupos = new Map<string, (typeof d.lineas)[number]>();
+    for (const l of d.lineas) {
+      const k = `${l.tipoIva}|${l.tipoRetencion}|${l.cuenta}`;
+      if (!grupos.has(k)) grupos.set(k, l);
+    }
+    const varios = grupos.size > 1;
+    const nuevas: LineaForm[] = Array.from(grupos.values()).map((l) => ({
+      clave: siguienteClave++,
+      descripcion: `${que} sobre la ${numeroOriginal}${varios ? ` (IVA ${l.tipoIva} %)` : ''}`,
+      cantidad: '1',
+      precio: '',
+      descuento: 0,
+      tipoIva: l.tipoIva,
+      tipoRetencion: l.tipoRetencion,
+      cuentaOriginal: l.cuenta,
+    }));
+    lineasDeLaCausa.current = nuevas.map((l) => l.clave);
+    setLineas(nuevas);
+    // Solo al cambiar la causa o el tipo (diferencias o sustitución).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rect?.causa]);
+  }, [rect?.causa, rect?.tipo]);
 
   // Al cambiar a otro proveedor, las facturas de la app elegidas (del anterior) ya no valen.
   const proveedorIdActual = proveedor?.tipo === 'existente' ? proveedor.id : null;
