@@ -701,7 +701,7 @@ function ModalRectificativa({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" role="dialog" aria-modal="true" aria-labelledby="titulo-rect">
+    <div className="fixed inset-0 z-50 !mt-0 flex items-center justify-center bg-slate-900/40 p-4" role="dialog" aria-modal="true" aria-labelledby="titulo-rect">
       <div className="w-full max-w-lg space-y-4 rounded-xl bg-white p-6 shadow-xl">
         <div className="flex items-start justify-between">
           <h2 id="titulo-rect" className="text-lg font-semibold text-slate-900">Rectificar la factura {factura.numeroCompleto}</h2>

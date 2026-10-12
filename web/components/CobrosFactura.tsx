@@ -386,7 +386,7 @@ function ModalCobro({
   const campo = 'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" role="dialog" aria-modal="true" aria-labelledby="titulo-cobro">
+    <div className="fixed inset-0 z-50 !mt-0 flex items-center justify-center bg-slate-900/40 p-4" role="dialog" aria-modal="true" aria-labelledby="titulo-cobro">
       <div className="max-h-[90dvh] w-full max-w-md space-y-4 overflow-y-auto rounded-xl bg-white p-6 shadow-xl">
         <div className="flex items-start justify-between">
           <h2 id="titulo-cobro" className="text-lg font-semibold text-slate-900">{t.registrar}</h2>
