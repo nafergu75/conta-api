@@ -56,6 +56,25 @@ function redirigirALogin() {
   }
 }
 
+/** Evento con el aviso de un modelo de un año que lleva la gestoría (cabecera X-Aviso-Gestoria); null si ese año no lo tiene. */
+export const EVENTO_AVISO_GESTORIA = 'conta:aviso-gestoria';
+
+/**
+ * Las consultas de modelos de un año (/impuestos o /tax-models con
+ * ?ejercicio=) avisan si ese año lo lleva la gestoría: la pantalla de modelos
+ * escucha el evento y enseña el aviso, sin tocar cada modelo.
+ */
+function avisarGestoria(path: string, cabecera: string | null) {
+  if (typeof window === 'undefined' || !/\/(impuestos|tax-models)(\/|\?)/.test(path) || !/[?&]ejercicio=/.test(path)) return;
+  let texto: string | null = null;
+  try {
+    texto = cabecera ? decodeURIComponent(cabecera) : null;
+  } catch {
+    texto = cabecera;
+  }
+  window.dispatchEvent(new CustomEvent(EVENTO_AVISO_GESTORIA, { detail: texto }));
+}
+
 /**
  * fetch contra el backend con el token de la sesion.
  *
@@ -102,6 +121,7 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
   if (!esJson) {
     throw new ApiError(`Respuesta inesperada del servidor (HTTP ${res.status}).`, res.status);
   }
+  avisarGestoria(path, res.headers.get('X-Aviso-Gestoria'));
   return (cuerpo && typeof cuerpo === 'object' && 'data' in cuerpo ? cuerpo.data : cuerpo) as T;
 }
 
