@@ -8,11 +8,18 @@ import FormFacturaGasto, { type FormInicial } from '@/components/compras/FormFac
 import { ApiError, apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { esTipoGasto, type GastoDetalle } from '@/lib/compras';
+import { estadoDesdeFicha, guardarAvisosGasto } from '@/lib/rectificativasGasto';
 
-/** Los datos de la factura guardada, en la forma del formulario. */
+/**
+ * Los datos de la factura guardada, en la forma del formulario. Un abono se
+ * enseña con las líneas en positivo y «Reduce el importe» (el formulario
+ * vuelve a poner el signo al guardar).
+ */
 function inicialDe(g: GastoDetalle): FormInicial {
   const cuentas = new Set(g.lineas.map((l) => l.accountCode ?? ''));
   const unaCuenta = g.cuentaGasto ?? null;
+  const rectificativa = g.esRectificativa ? estadoDesdeFicha(g) ?? undefined : undefined;
+  const signo = rectificativa && g.totalFactura < 0 ? -1 : 1;
   return {
     proveedor: { tipo: 'existente', id: g.supplier.id, nombre: g.supplier.nombreFiscal, nif: g.supplier.nifCif, pais: g.supplier.pais || 'ES' },
     numeroFacturaProveedor: g.numeroFacturaProveedor ?? '',
@@ -24,7 +31,7 @@ function inicialDe(g: GastoDetalle): FormInicial {
     lineas: g.lineas.map((l) => ({
       descripcion: l.descripcion,
       cantidad: l.cantidad,
-      precioUnitario: l.precioUnitario,
+      precioUnitario: signo * l.precioUnitario,
       descuentoPorcentaje: l.descuentoPorcentaje,
       tipoIva: l.tipoIva,
       tipoRetencion: l.tipoRetencion,
@@ -32,6 +39,7 @@ function inicialDe(g: GastoDetalle): FormInicial {
       cuenta: !unaCuenta && cuentas.size > 1 ? l.accountCode : null,
     })),
     observaciones: g.observaciones ?? '',
+    ...(rectificativa ? { rectificativa } : {}),
   };
 }
 
@@ -71,7 +79,9 @@ export default function EditarFacturaGastoPage() {
           <Link href={`/dashboard/compras/${id}`} className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900" aria-label="Volver a la factura">
             <ArrowLeft size={20} />
           </Link>
-          <h1 className="min-w-0 truncate font-semibold text-slate-900">Modificar {gasto ? `gasto ${gasto.numeroCompleto}` : 'factura de gasto'}</h1>
+          <h1 className="min-w-0 truncate font-semibold text-slate-900">
+            Modificar {gasto ? `${gasto.esRectificativa ? (gasto.totalFactura < 0 ? 'abono' : 'rectificativa') : 'gasto'} ${gasto.numeroCompleto}` : 'factura de gasto'}
+          </h1>
         </div>
       </header>
 
@@ -82,6 +92,14 @@ export default function EditarFacturaGastoPage() {
           <p className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error || 'No se pudo cargar la factura.'}</p>
         ) : !puedeEscribir ? (
           <p className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">Para modificar facturas de gasto hace falta el permiso de escritura en Compras.</p>
+        ) : gasto.esRectificativa && gasto.rectificativa?.tipo === 'S' ? (
+          // La app guarda la diferencia, no la factura corregida entera: no se puede rehacer aquí.
+          <div className="flex flex-col gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+            <p>Una rectificativa por sustitución no se modifica: si te has equivocado, anúlala y regístrala de nuevo con la factura corregida.</p>
+            <Link href={`/dashboard/compras/${id}`} className="font-semibold underline">
+              Volver a la rectificativa
+            </Link>
+          </div>
         ) : !gasto.acciones.editar.permitido ? (
           <div className="flex flex-col gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
             <p>{gasto.acciones.editar.motivo || 'Esta factura ya no se puede modificar.'}</p>
@@ -108,7 +126,10 @@ export default function EditarFacturaGastoPage() {
                   ? 'No se ha podido aprobar: el trimestre de la fecha de esta factura ya tiene el IVA (o las retenciones) presentado. Si la recibiste más tarde, pon la fecha en que te llegó, de un periodo sin presentar, y guarda. Después aprueba el asiento en el Motor contable.'
                   : undefined
               }
-              onGuardado={() => router.push(`/dashboard/compras/${id}?modificada=1`)}
+              onGuardado={({ factura }) => {
+                guardarAvisosGasto(id, factura.avisos);
+                router.push(`/dashboard/compras/${id}?modificada=1`);
+              }}
               onCancelar={() => router.push(`/dashboard/compras/${id}`)}
             />
           </>
