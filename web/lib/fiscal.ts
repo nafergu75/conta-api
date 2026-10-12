@@ -215,12 +215,16 @@ export function useEmpresaEspanola(): boolean | null {
 export const CODIGO_DEVENGO_FUERA = 'DEVENGO_FUERA_APP';
 
 /**
- * Pasa a factura una venta y, si el servidor avisa de que la operación es de un
- * periodo cuyo 303 presenta la gestoría (por ejemplo, una entrega de diciembre
- * de 2026 facturada en enero), enseña el aviso y repite con la confirmación.
+ * Pasa a factura una venta (o registra una compra intracomunitaria) y, si el
+ * servidor avisa de que su IVA es de un periodo cuyo 303 presenta la gestoría
+ * (por ejemplo, una entrega de diciembre de 2026 facturada en enero), enseña el
+ * aviso y repite con la confirmación.
  * Devuelve null si la persona no la confirma, y el aviso si se confirmó.
  */
-export async function conDevengoFuera<T>(hacer: (extra: { confirmaDevengoFuera?: true }) => Promise<T>): Promise<{ r: T; aviso: string | null } | null> {
+export async function conDevengoFuera<T>(
+  hacer: (extra: { confirmaDevengoFuera?: true }) => Promise<T>,
+  pregunta = '¿La pasas a factura igualmente?',
+): Promise<{ r: T; aviso: string | null } | null> {
   try {
     return { r: await hacer({}), aviso: null };
   } catch (e) {
@@ -228,7 +232,7 @@ export async function conDevengoFuera<T>(hacer: (extra: { confirmaDevengoFuera?:
     if (!(e instanceof ApiError) || d?.codigo !== CODIGO_DEVENGO_FUERA) throw e;
     if (!window.confirm(`${e.message}
 
-¿La pasas a factura igualmente?`)) return null;
+${pregunta}`)) return null;
     return { r: await hacer({ confirmaDevengoFuera: true }), aviso: e.message };
   }
 }
