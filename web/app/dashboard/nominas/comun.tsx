@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { CaretLeft, CaretRight, CheckCircle, LockKey, X, XCircle } from '@phosphor-icons/react';
 import { apiFetch, companyPath } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
+import { hoyIso } from '@/lib/anios';
 
 /**
  * Piezas comunes de las pantallas de nominas: tipos de la API, formatos,
@@ -420,10 +421,8 @@ interface CargoExtracto {
   cuenta: string;
 }
 
-export const hoyIso = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-};
+/** Hoy en España (AAAA-MM-DD). */
+export { hoyIso };
 
 /** Cuerpo de la peticion de pago a partir de lo elegido (con un cargo, la fecha y la cuenta son las suyas). */
 export function cuerpoMedioPago(m: MedioPago): { fecha?: string; caja?: boolean; cuentaBancariaId?: string; movimientoId?: string } {
