@@ -61,9 +61,15 @@ export default function CierreEjercicioPage() {
   // Año en curso en España, calculado al abrir la pantalla (no al cargar el módulo).
   const anioActual = anioEspana();
   const aniosEmpresa = useAniosEmpresa();
-  const [ejercicio, setEjercicio] = useState(anioActual - 1);
+  // Por defecto, el año pasado, pero nunca antes del primer ejercicio dado de alta
+  // (una empresa que empieza este año abre este año); sin ejercicios, el actual.
+  const primerAlta = aniosEmpresa.ejercicios.length ? Math.min(...aniosEmpresa.ejercicios.map((e) => e.anio)) : null;
+  const porDefecto = primerAlta === null ? anioActual : Math.max(primerAlta, anioActual - 1);
+  const [elegido, setEjercicio] = useState<number | null>(null);
+  const ejercicio = elegido ?? porDefecto;
   // Desde Configuración o Registro Mercantil se llega con ?ejercicio=AAAA. Hasta
-  // leerlo no se carga nada (si no, llegarían dos vistas y podría quedar la otra).
+  // leerlo (y saber los ejercicios de la empresa) no se carga nada: si no,
+  // llegarían dos vistas y podría quedar la otra.
   const [urlLeida, setUrlLeida] = useState(false);
   useEffect(() => {
     const pedido = anioDeTexto(new URLSearchParams(window.location.search).get('ejercicio'));
@@ -92,8 +98,8 @@ export default function CierreEjercicioPage() {
   }, [ejercicio, reemplazarApertura]);
 
   useEffect(() => {
-    if (urlLeida) cargar();
-  }, [cargar, urlLeida]);
+    if (urlLeida && aniosEmpresa.listo) cargar();
+  }, [cargar, urlLeida, aniosEmpresa.listo]);
 
   const cerrar = async () => {
     setOcupado(true);
@@ -139,10 +145,14 @@ export default function CierreEjercicioPage() {
   const estadoDe = new Map(aniosEmpresa.ejercicios.map((e) => [e.anio, e.estado]));
   const primerEjercicio = aniosEmpresa.ejercicios.length ? Math.min(...aniosEmpresa.ejercicios.map((e) => e.anio)) : aniosEmpresa.primero;
   const anios = rangoAnios({ primero: Math.min(primerEjercicio, anioActual - 1), actual: anioActual, extra: 1, incluir: [ejercicio] });
+  // Sin la lista de la empresa (respaldo) no se sabe qué años están dados de alta.
+  const conoceEjercicios = aniosEmpresa.listo && !aniosEmpresa.respaldo;
   const sufijo = (a: number) => {
     const e = estadoDe.get(a);
-    return e === 'ABIERTO' ? '(abierto)' : e ? '(cerrado)' : '';
+    return e === 'ABIERTO' ? '(abierto)' : e ? '(cerrado)' : conoceEjercicios ? '(sin crear)' : '';
   };
+  // El año elegido no está dado de alta: no hay nada que cerrar todavía.
+  const sinCrear = conoceEjercicios && !estadoDe.has(ejercicio);
 
   return (
     <div className="space-y-6">
@@ -169,7 +179,7 @@ export default function CierreEjercicioPage() {
           }}
           className={`${campo} w-44`}
         />
-        {vista && (
+        {vista && !sinCrear && (
           <span
             className={`mb-1 inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm font-medium ${
               vista.estado === 'CERRADO' ? 'bg-slate-100 text-slate-700' : 'bg-emerald-50 text-emerald-700'
@@ -189,7 +199,17 @@ export default function CierreEjercicioPage() {
       {error && <Mensajes errores={[error]} />}
       {cargando && !vista && <p className="text-sm text-slate-500">Calculando...</p>}
 
-      {vista && vista.estado === 'ABIERTO' && (
+      {sinCrear && (
+        <p className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600">
+          No hay ejercicio {ejercicio} dado de alta, así que no hay nada que cerrar. Si lo necesitas, créalo en{' '}
+          <Link href="/dashboard/configuracion/ejercicios" className="font-medium text-blue-700 underline">
+            Configuración &gt; Ejercicios
+          </Link>
+          .
+        </p>
+      )}
+
+      {vista && !sinCrear && vista.estado === 'ABIERTO' && (
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <Dato titulo="Ingresos (grupo 7)" valor={eur.format(vista.ingresos)} />
