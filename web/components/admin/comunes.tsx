@@ -27,7 +27,11 @@ export const fechaYHora = (iso: string) => {
 
 export type TonoEtiqueta = 'verde' | 'gris' | 'indigo' | 'rojo' | 'ambar';
 
-export function Etiqueta({ tono, children }: { tono: TonoEtiqueta; children: React.ReactNode }) {
+/**
+ * Etiqueta de estado. Con `ajustar`, un texto largo puede partirse en dos
+ * líneas para no salirse de una columna estrecha.
+ */
+export function Etiqueta({ tono, ajustar = false, children }: { tono: TonoEtiqueta; ajustar?: boolean; children: React.ReactNode }) {
   const tonos = {
     verde: 'border-emerald-200 bg-emerald-50 text-emerald-700',
     gris: 'border-slate-200 bg-slate-100 text-slate-600',
@@ -36,7 +40,7 @@ export function Etiqueta({ tono, children }: { tono: TonoEtiqueta; children: Rea
     ambar: 'border-amber-200 bg-amber-50 text-amber-700',
   } as const;
   return (
-    <span className={`inline-flex items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium ${tonos[tono]}`}>
+    <span className={`inline-flex items-center ${ajustar ? 'rounded-xl' : 'whitespace-nowrap rounded-full'} border px-2 py-0.5 text-[11px] font-medium ${tonos[tono]}`}>
       {children}
     </span>
   );
