@@ -35,6 +35,8 @@ interface Modelo115Trimestre {
   retencion: number;
   operaciones: number;
   estado: string;
+  /** «Presentado · complementaria en preparación» cuando hay una presentada y otra en curso (el estado de la fila dice 'vigente'). */
+  estadoTexto?: string | null;
   casillas: Record<string, number>;
   perceptores: Arrendador[];
   avisos?: string[];
@@ -46,7 +48,7 @@ interface Resumen115 {
   ejercicio: number;
   totalBase: number;
   totalRetenido: number;
-  desgloseTrimestral: Array<{ numero: number; base: number; cuota: number; operaciones: number; estado: string }>;
+  desgloseTrimestral: Array<{ numero: number; base: number; cuota: number; operaciones: number; estado: string; estadoTexto?: string | null }>;
   arrendadores: Arrendador[];
   avisos?: string[];
 }
@@ -166,7 +168,7 @@ export default function Modelo115Page() {
                 <h2 className="font-semibold text-slate-900">
                   {textoPeriodo(modelo.periodo ?? periodo)} de {modelo.ejercicio}
                 </h2>
-                <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-medium text-slate-700">{ESTADO[modelo.estado] ?? modelo.estado}</span>
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-medium text-slate-700">{modelo.estadoTexto ?? ESTADO[modelo.estado] ?? modelo.estado}</span>
               </div>
               {modelo.avisos && modelo.avisos.length > 0 && (
                 <ul className="list-disc space-y-1 rounded-lg border border-amber-200 bg-amber-50 p-3 pl-8 text-sm text-amber-800">
@@ -227,7 +229,7 @@ export default function Modelo115Page() {
                         <td className="py-2 text-right font-mono">{eur(t.base)}</td>
                         <td className="py-2 text-right font-mono">{eur(t.cuota)}</td>
                         <td className="hidden py-2 text-right sm:table-cell">{t.operaciones}</td>
-                        <td className="py-2 text-right text-xs text-slate-600">{ESTADO[t.estado] ?? t.estado}</td>
+                        <td className="py-2 text-right text-xs text-slate-600">{t.estadoTexto ?? ESTADO[t.estado] ?? t.estado}</td>
                       </tr>
                     ))}
                   </tbody>
