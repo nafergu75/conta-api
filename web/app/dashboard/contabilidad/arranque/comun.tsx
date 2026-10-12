@@ -96,6 +96,30 @@ const ICONO_PUNTO: Record<NivelPunto, ReactNode> = {
   INFO: <Info size={18} className="mt-0.5 shrink-0 text-sky-600" />,
 };
 
+/** Lleva la pantalla a un bloque (por su id) y pone el foco en su primer campo. */
+export function irA(id: string) {
+  const el = typeof document !== 'undefined' ? document.getElementById(id) : null;
+  if (!el) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  el.querySelector<HTMLElement>('input:not([disabled]), select:not([disabled]), textarea:not([disabled])')?.focus({ preventScroll: true });
+}
+
+/** Lo que la comprobación dice de un formulario, repetido debajo de él (no hay que volver arriba para verlo). */
+export function PuntosFormulario({ puntos }: { puntos: PuntoComprobacion[] }) {
+  const vistos = puntos.filter((p) => p.nivel !== 'INFO');
+  if (!vistos.length) return null;
+  return (
+    <ul className="mt-3 space-y-1 rounded-lg border border-amber-200 bg-amber-50 p-2" aria-live="polite">
+      {vistos.map((p) => (
+        <li key={p.clave + p.texto} className="flex gap-2 text-sm text-slate-800">
+          {ICONO_PUNTO[p.nivel]}
+          <span className="min-w-0 break-words">{p.texto}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /** Un punto de la comprobación, con su detalle plegado. */
 function Punto({ p, accion }: { p: PuntoComprobacion; accion?: ReactNode }) {
   const [abierto, setAbierto] = useState(false);
@@ -145,13 +169,22 @@ export function MensajeComprobacion({
   pie?: ReactNode;
 }) {
   const e = ESTILO_NIVEL[nivel];
+  // Con la lista de abajo, la cabecera solo resume (no repite todos los puntos seguidos).
+  const errores = puntos.filter((p) => p.nivel === 'ERROR').length;
+  const faltan = puntos.filter((p) => p.nivel === 'FALTA').length;
+  const resumen =
+    nivel === 'ERRORES' && errores
+      ? `Todavía no se puede traer la contabilidad: ${errores === 1 ? 'hay 1 cosa que corregir' : `hay ${errores} cosas que corregir`}. Están en la lista de abajo.`
+      : nivel === 'FALTAN_DATOS' && faltan
+        ? `Puedes seguir, pero ${faltan === 1 ? 'falta 1 dato' : `faltan ${faltan} datos`}. Están en la lista de abajo; los puedes completar después.`
+        : mensaje;
   return (
     <section aria-live="polite" className={`rounded-xl border p-4 sm:p-5 ${e.caja}`}>
       <div className="flex gap-3">
         {e.icono}
         <div className={`min-w-0 ${e.texto}`}>
           <h2 className="text-lg font-semibold">{e.titulo}</h2>
-          <p className="mt-1 text-sm">{mensaje}</p>
+          <p className="mt-1 text-sm">{resumen}</p>
         </div>
       </div>
       {ORDEN.map((n) => {
