@@ -1,10 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
-import { ejerciciosSeleccionables, trimestreAPresentar } from '@/lib/aeatCalendar';
 import { formatoImporte } from '@/lib/moneda';
+import SelectorAnio from '@/components/SelectorAnio';
+import { usePeriodoTrimestral } from '../components/periodoModelo';
+import { CargandoModelo, ErrorModelo } from '../components/BorradorAeat';
 import { CaretLeft } from '@phosphor-icons/react';
 import { Declaraciones } from '../components/Declaraciones';
 import { FormularioRetenciones, type FormularioRetencionesDatos } from '../components/FormularioRetenciones';
@@ -98,8 +100,16 @@ function TablaArrendadores({ filas }: { filas: Arrendador[] }) {
 }
 
 export default function Modelo115Page() {
-  const [ejercicio, setEjercicio] = useState(() => trimestreAPresentar().ejercicio);
-  const [periodo, setPeriodo] = useState(() => `${trimestreAPresentar().trimestre}T`);
+  return (
+    <Suspense fallback={<CargandoModelo />}>
+      <Modelo115 />
+    </Suspense>
+  );
+}
+
+function Modelo115() {
+  // Periodo de la URL o el trimestre que toca presentar, nunca antes del primer año de la empresa.
+  const { ejercicio, setEjercicio, periodo, setPeriodo, anios, listo } = usePeriodoTrimestral();
   const [modelo, setModelo] = useState<Modelo115Trimestre | null>(null);
   const [resumen, setResumen] = useState<Resumen115 | null>(null);
   const [loading, setLoading] = useState(true);
@@ -107,6 +117,7 @@ export default function Modelo115Page() {
   const [recarga, setRecarga] = useState(0);
 
   useEffect(() => {
+    if (!listo) return;
     let vivo = true;
     setLoading(true);
     setError('');
@@ -124,7 +135,7 @@ export default function Modelo115Page() {
     return () => {
       vivo = false;
     };
-  }, [ejercicio, periodo, recarga]);
+  }, [listo, ejercicio, periodo, recarga]);
 
   return (
     <div className="space-y-6">
@@ -140,25 +151,14 @@ export default function Modelo115Page() {
       </div>
 
       <div className="flex flex-wrap gap-4 rounded-lg border border-slate-200 bg-white p-4">
-        <div>
-          <label htmlFor="m115-ej" className="block text-sm font-medium text-slate-700">
-            Ejercicio
-          </label>
-          <select id="m115-ej" value={ejercicio} onChange={(e) => setEjercicio(parseInt(e.target.value))} className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm">
-            {ejerciciosSeleccionables().map((year) => (
-              <option key={year} value={year}>
-                {year}
-              </option>
-            ))}
-          </select>
-        </div>
+        <SelectorAnio id="m115-ej" valor={ejercicio} anios={anios} onChange={(a) => a !== null && setEjercicio(a)} />
         <SelectorPeriodoRetenciones id="m115-periodo" valor={periodo} onChange={setPeriodo} />
       </div>
 
       {loading && !modelo ? (
-        <div className="h-96 animate-pulse rounded-lg bg-slate-200" />
+        <CargandoModelo />
       ) : error ? (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center text-red-800">{error}</div>
+        <ErrorModelo mensaje={error} />
       ) : (
         modelo && (
           <>
