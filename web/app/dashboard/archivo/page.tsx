@@ -17,6 +17,7 @@ import {
 } from '@phosphor-icons/react';
 import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
+import { hoyIso } from '@/lib/anios';
 
 /**
  * Archivo de facturas por año y trimestre: todo el historial de ventas y
@@ -567,7 +568,7 @@ function SubirFacturaModal({
   onSubida: (fecha: string, tipo: Pestana, texto: string) => void;
 }) {
   const [tipo, setTipo] = useState<Pestana>(tipoInicial);
-  const [fecha, setFecha] = useState(adjuntarA?.fecha ?? new Date().toISOString().slice(0, 10));
+  const [fecha, setFecha] = useState(adjuntarA?.fecha ?? hoyIso());
   const [numero, setNumero] = useState(adjuntarA?.numero ?? '');
   const [tercero, setTercero] = useState(adjuntarA?.tercero ?? '');
   const [nif, setNif] = useState(adjuntarA?.nif ?? '');
