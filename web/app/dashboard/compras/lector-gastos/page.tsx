@@ -10,6 +10,8 @@ import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import FormFacturaGasto, { type FormInicial } from '@/components/compras/FormFacturaGasto';
 import { type GastoRegistrado } from '@/lib/compras';
 import { centimos, cuotasDescuadradas, inicialDe, marcasDelFormulario, marcasDireccion, retencionSinTipo } from '@/lib/lectorGastos';
+import SoltarFactura from '@/components/lector/SoltarFactura';
+import AvisoTerceroNuevo, { type TerceroEnlazado } from '@/components/lector/AvisoTerceroNuevo';
 
 /**
  * Lector de gastos: se sube el PDF o la foto de una factura de proveedor, el
@@ -72,6 +74,9 @@ export default function LectorGastosPage() {
   const [revisado, setRevisado] = useState(false);
   const [alternativa, setAlternativa] = useState<{ ruta: string; texto: string } | null>(null);
   const [segundos, setSegundos] = useState(0);
+  // Proveedor dado de alta o elegido en esta lectura (el aviso pasa a verde).
+  const [proveedorResuelto, setProveedorResuelto] = useState<TerceroEnlazado | null>(null);
+  const puedeAltaProveedor = tieneAlgunPermiso(getUser(), ['compras:write']);
   // Lectura en curso o sin registrar: "Leer otra" corta la espera y la descarta.
   const lecturaIdRef = useRef<string | null>(null);
   const cortarRef = useRef<AbortController | null>(null);
@@ -121,6 +126,7 @@ export default function LectorGastosPage() {
     setInfo(null);
     setRevisado(false);
     setRegistrado(null);
+    setProveedorResuelto(null);
     setError('');
     setAlternativa(null);
     setLeyendo(false);
@@ -147,6 +153,7 @@ export default function LectorGastosPage() {
     setInicial(null);
     setInfo(null);
     setRevisado(false);
+    setProveedorResuelto(null);
     setLeyendo(true);
     try {
       const r = await leerFactura('gastos', f, {
@@ -183,13 +190,6 @@ export default function LectorGastosPage() {
 
   const alElegir = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
-    if (f) leer(f);
-  };
-
-  const alSoltar = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const f = e.dataTransfer.files?.[0];
     if (f) leer(f);
   };
 
@@ -236,6 +236,15 @@ export default function LectorGastosPage() {
           {anuncio}
         </p>
         <input ref={inputRef} type="file" accept="application/pdf,image/jpeg,image/png,image/webp" onChange={alElegir} className="hidden" tabIndex={-1} aria-hidden="true" />
+        {/* El archivo se puede soltar en cualquier parte de la pagina, no solo en la zona de subida. */}
+        <SoltarFactura
+          activo={puedeEscribir}
+          hayLectura={leyendo || (!!leido && !registrado)}
+          onArchivo={(f) => {
+            if (registrado) reiniciar();
+            leer(f);
+          }}
+        />
 
         {!puedeEscribir ? (
           <p className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">Para registrar facturas de gasto hace falta el permiso de escritura en Compras.</p>
@@ -264,14 +273,9 @@ export default function LectorGastosPage() {
           </div>
         ) : !leido || !inicial || !info || !infoPanel ? (
           <div className="mx-auto max-w-2xl">
-            {/* Zona para soltar el archivo; con el teclado se usa el boton "Seleccionar archivo". */}
+            {/* Zona de subida (el archivo se puede soltar en toda la pagina: SoltarFactura); con el teclado, el boton "Seleccionar archivo". */}
             <div
               onClick={abrirSelector}
-              onDragOver={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-              }}
-              onDrop={alSoltar}
               className={`rounded-xl border-2 border-dashed border-emerald-200 bg-white p-8 text-center transition-colors md:p-12 ${leyendo ? '' : 'cursor-pointer hover:border-emerald-400'}`}
             >
               <FileArrowUp size={48} weight="duotone" className="mx-auto mb-4 text-accent-600" />
@@ -281,7 +285,7 @@ export default function LectorGastosPage() {
                   ? segundos < 10
                     ? 'Tarda unos segundos.'
                     : 'Sigue leyendo; las facturas largas tardan un poco más.'
-                  : 'Arrástrala aquí o pulsa para elegirla. PDF, JPG, PNG o WEBP de hasta 4 MB. En el móvil puedes hacer la foto directamente.'}
+                  : 'Arrástrala a cualquier parte de la página o pulsa para elegirla. PDF, JPG, PNG o WEBP de hasta 4 MB. En el móvil puedes hacer la foto directamente.'}
               </p>
               <button
                 type="button"
@@ -446,7 +450,33 @@ export default function LectorGastosPage() {
                         ? 'Marca que has revisado los datos señalados (arriba) antes de registrar.'
                         : undefined
                 }
-                avisoProveedor="No está dado de alta: se creará al registrar la factura."
+                avisoProveedor="Ficha del proveedor: corrige aquí lo que haga falta antes de darlo de alta."
+                proveedorDeAlta={{
+                  motivo: 'Antes, da de alta el proveedor o elige uno que ya tengas (aviso del bloque «Proveedor», arriba).',
+                  aviso: (p, enlazar) => {
+                    const alEnlazar = (t: TerceroEnlazado) => {
+                      setProveedorResuelto(t);
+                      enlazar({ tipo: 'existente', id: t.id, nombre: t.nombre, nif: t.nif, pais: t.pais });
+                    };
+                    if (p?.tipo === 'nuevo') {
+                      return (
+                        <AvisoTerceroNuevo
+                          tipo="proveedor"
+                          datos={{ nombreFiscal: p.nombreFiscal, nifCif: p.nifCif, pais: p.pais, direccion: p.direccion, cp: p.cp, municipio: p.municipio, provincia: p.provincia }}
+                          nifLeido={leido.nifProveedor ?? ''}
+                          enlazado={null}
+                          puedeDarDeAlta={puedeAltaProveedor}
+                          onEnlazar={alEnlazar}
+                        />
+                      );
+                    }
+                    // Dado de alta o elegido aqui: en verde. El que encontro el lector por su NIF no necesita aviso.
+                    if (p?.tipo === 'existente' && proveedorResuelto?.id === p.id) {
+                      return <AvisoTerceroNuevo tipo="proveedor" datos={{ nombreFiscal: p.nombre, nifCif: p.nif }} enlazado={proveedorResuelto} puedeDarDeAlta={puedeAltaProveedor} onEnlazar={alEnlazar} />;
+                    }
+                    return null;
+                  },
+                }}
                 onGuardado={(r) => setRegistrado(r)}
                 onCancelar={reiniciar}
               />
