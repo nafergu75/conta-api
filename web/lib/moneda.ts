@@ -62,7 +62,8 @@ export function formatoImporte(n: number, moneda = 'EUR', opciones: { idioma?: I
   const [ent, dec] = Math.abs(valor).toFixed(2).split('.');
   const cifra = `${signo}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, '.')},${dec}`;
   if (opciones.sinSimbolo) return cifra;
-  return `${cifra} ${simboloMoneda(mon)}`;
+  // Espacio de no separación: el símbolo nunca se queda solo en otra línea.
+  return `${cifra}\u00a0${simboloMoneda(mon)}`;
 }
 
 /** Tipo con 4 decimales: 1.149 -> '1,1490'. */
