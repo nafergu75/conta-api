@@ -111,6 +111,9 @@ interface AccesoEmpresa {
 interface UsuarioAdmin {
   id: string;
   email: string;
+  /** Nombre y apellidos; null en altas antiguas sin el. */
+  nombre?: string | null;
+  telefono?: string | null;
   activo: boolean;
   esAdminGlobal: boolean;
   creadoEn?: string;
@@ -296,7 +299,9 @@ export default function AdministracionPage() {
   const usuariosFiltrados = useMemo(() => {
     const q = normalizar(busqueda.trim());
     if (!q) return usuarios;
-    return usuarios.filter((u) => normalizar(u.email).includes(q) || u.empresas.some((e) => normalizar(e.nombre).includes(q)));
+    return usuarios.filter(
+      (u) => normalizar(u.email).includes(q) || normalizar(u.nombre ?? '').includes(q) || u.empresas.some((e) => normalizar(e.nombre).includes(q)),
+    );
   }, [usuarios, busqueda]);
 
   const entrar = (e: EmpresaAdmin) => {
@@ -413,7 +418,7 @@ export default function AdministracionPage() {
               type="search"
               value={busqueda}
               onChange={(e) => setBusqueda(e.target.value)}
-              placeholder={pestana === 'empresas' ? 'Buscar por nombre, código o NIF' : 'Buscar por email o empresa'}
+              placeholder={pestana === 'empresas' ? 'Buscar por nombre, código o NIF' : 'Buscar por nombre, email o empresa'}
               aria-label="Buscar"
               className={`${CLASE_INPUT} pl-9`}
             />
@@ -525,10 +530,15 @@ export default function AdministracionPage() {
                 {usuariosFiltrados.map((u) => (
                   <li key={u.id} className="flex flex-col gap-2 px-4 py-3 text-sm md:grid md:grid-cols-[minmax(0,1.6fr)_minmax(0,2.4fr)_112px] md:items-center md:gap-3">
                     <div className="min-w-0">
-                      <p className="truncate font-medium text-slate-900" title={u.email}>
-                        {u.email}
+                      <p className="truncate font-medium text-slate-900" title={u.nombre ? `${u.nombre} · ${u.email}` : u.email}>
+                        {u.nombre || u.email}
                         {u.email.toLowerCase() === miEmail && <span className="font-normal text-slate-500"> (tú)</span>}
                       </p>
+                      {u.nombre && (
+                        <p className="truncate text-xs text-slate-500" title={u.email}>
+                          {u.email}
+                        </p>
+                      )}
                       <div className="mt-1 flex flex-wrap gap-1.5">
                         {u.esAdminGlobal && <Etiqueta tono="indigo">Administrador global</Etiqueta>}
                         {!u.activo && <Etiqueta tono="rojo">Desactivado</Etiqueta>}
@@ -852,6 +862,8 @@ function ModalNuevoUsuario({
   onCreado: (u: UsuarioAdmin) => Promise<void>;
 }) {
   const [email, setEmail] = useState('');
+  const [nombre, setNombre] = useState('');
+  const [telefono, setTelefono] = useState('');
   const [companyId, setCompanyId] = useState('');
   const [rol, setRol] = useState('solo_lectura');
   const [ajustar, setAjustar] = useState(false);
@@ -888,7 +900,13 @@ function ModalNuevoUsuario({
     try {
       const u = await apiFetch<UsuarioConProvisional>('/admin/usuarios', {
         method: 'POST',
-        body: JSON.stringify({ email: email.trim(), ...(companyId ? { companyId, rol } : {}), ...(aMedida ? { areas: aMedida } : {}) }),
+        body: JSON.stringify({
+          email: email.trim(),
+          ...(nombre.trim() ? { nombre: nombre.trim() } : {}),
+          ...(telefono.trim() ? { telefono: telefono.trim() } : {}),
+          ...(companyId ? { companyId, rol } : {}),
+          ...(aMedida ? { areas: aMedida } : {}),
+        }),
       });
       // Con que acceso ha quedado, segun el servidor (no segun la pantalla).
       const a = u.empresas?.[0];
@@ -951,6 +969,37 @@ function ModalNuevoUsuario({
           <p className="text-xs text-slate-500">
             La contraseña la crea la aplicación y la verás una sola vez al terminar. Es provisional: al entrar tendrá que poner una suya.
           </p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="usuario-nombre" className="text-sm font-medium text-slate-700">
+              Nombre y apellidos <span className="font-normal text-slate-400">(opcional)</span>
+            </label>
+            <input
+              id="usuario-nombre"
+              type="text"
+              autoComplete="off"
+              maxLength={120}
+              value={nombre}
+              onChange={(e) => setNombre(e.target.value)}
+              className={CLASE_INPUT}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="usuario-telefono" className="text-sm font-medium text-slate-700">
+              Teléfono <span className="font-normal text-slate-400">(opcional)</span>
+            </label>
+            <input
+              id="usuario-telefono"
+              type="tel"
+              inputMode="tel"
+              autoComplete="off"
+              maxLength={30}
+              value={telefono}
+              onChange={(e) => setTelefono(e.target.value)}
+              className={CLASE_INPUT}
+            />
+          </div>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="flex flex-col gap-1.5">
@@ -1074,6 +1123,13 @@ function PanelUsuario({
   const [borrador, setBorrador] = useState<Areas | null>(null);
   // Contrasena provisional recien generada: solo en este estado, se pierde al cerrar.
   const [provisional, setProvisional] = useState<string | null>(null);
+  // Nombre y telefono de la cuenta (los de todas sus empresas).
+  const [nombre, setNombre] = useState(usuario.nombre ?? '');
+  const [telefono, setTelefono] = useState(usuario.telefono ?? '');
+  useEffect(() => {
+    setNombre(usuario.nombre ?? '');
+    setTelefono(usuario.telefono ?? '');
+  }, [usuario.nombre, usuario.telefono]);
 
   const base = `/admin/usuarios/${encodeURIComponent(usuario.id)}`;
   const sinAcceso = empresas.filter((e) => !usuario.empresas.some((a) => a.companyId === e.id));
@@ -1213,6 +1269,30 @@ function PanelUsuario({
 
   const caducada = usuario.contrasenaProvisionalCaducada === true;
 
+  /** Guarda el nombre y el telefono. El nombre no se puede dejar vacio si ya tenia uno; el telefono si. */
+  const guardarDatos = (ev: React.FormEvent) => {
+    ev.preventDefault();
+    const n = nombre.trim().replace(/\s+/g, ' ');
+    const t = telefono.trim() || null;
+    const cuerpo: Record<string, unknown> = {};
+    if (n !== (usuario.nombre ?? '')) {
+      if (!n) {
+        setAviso('');
+        setError('Escribe el nombre y apellidos. Se puede cambiar, pero no dejar vacío.');
+        document.getElementById('ficha-nombre')?.focus();
+        return;
+      }
+      cuerpo.nombre = n;
+    }
+    if (t !== (usuario.telefono ?? null)) cuerpo.telefono = t;
+    if (Object.keys(cuerpo).length === 0) {
+      setError('');
+      setAviso('No había nada que cambiar en el nombre ni en el teléfono.');
+      return;
+    }
+    hacer(() => apiFetch<UsuarioAdmin>(base, { method: 'PATCH', body: JSON.stringify(cuerpo) }), 'Nombre y teléfono guardados.');
+  };
+
   const generarProvisional = () => {
     const pregunta = caducada
       ? `Se creará una contraseña provisional nueva para ${usuario.email}. Valdrá 7 días. ¿Seguir?`
@@ -1253,6 +1333,49 @@ function PanelUsuario({
         </div>
 
         <Mensajes error={error} aviso={aviso} />
+
+        <form onSubmit={guardarDatos} className="flex flex-col gap-2" aria-labelledby="ficha-datos-titulo">
+          <h3 id="ficha-datos-titulo" className="text-sm font-semibold text-slate-900">
+            Datos de la persona
+          </h3>
+          <p className="text-xs text-slate-500">Son de su cuenta: se ven igual en todas las empresas en las que entra.</p>
+          <div className="grid gap-3 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_auto] sm:items-end">
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="ficha-nombre" className="text-sm font-medium text-slate-700">
+                Nombre y apellidos
+              </label>
+              <input
+                id="ficha-nombre"
+                type="text"
+                autoComplete="off"
+                maxLength={120}
+                value={nombre}
+                onChange={(e) => setNombre(e.target.value)}
+                disabled={ocupado}
+                className={CLASE_INPUT}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="ficha-telefono" className="text-sm font-medium text-slate-700">
+                Teléfono <span className="font-normal text-slate-400">(opcional)</span>
+              </label>
+              <input
+                id="ficha-telefono"
+                type="tel"
+                inputMode="tel"
+                autoComplete="off"
+                maxLength={30}
+                value={telefono}
+                onChange={(e) => setTelefono(e.target.value)}
+                disabled={ocupado}
+                className={CLASE_INPUT}
+              />
+            </div>
+            <button type="submit" disabled={ocupado} className={BOTON_SECUNDARIO_ALTO}>
+              Guardar datos
+            </button>
+          </div>
+        </form>
 
         <section className="flex flex-col gap-2">
           <h3 className="text-sm font-semibold text-slate-900">Accesos a empresas</h3>
