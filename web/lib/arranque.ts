@@ -44,7 +44,7 @@ export const NOMBRE_CAMPO: Record<string, string> = {
   haber: 'Haber',
   saldoDeudor: 'Saldo deudor',
   saldoAcreedor: 'Saldo acreedor',
-  saldo: 'Saldo (una sola columna)',
+  saldo: 'Saldo con signo (deudor +, acreedor −)',
   saldoAnterior: 'Saldo anterior',
   pesetas: 'Importe en pesetas',
   fecha: 'Fecha',
@@ -82,6 +82,8 @@ export interface ColumnaHoja {
   letra: string;
   titulo: string;
   ejemplo: string;
+  /** Hasta dos valores de filas con datos. */
+  ejemplos?: string[];
 }
 
 export interface HojaAnalizada {
@@ -105,7 +107,18 @@ export interface HojaAnalizada {
   mapeo: Record<string, number>;
   resumen: string;
   avisos: string[];
-  error: { mensaje: string; necesitaMapeo?: boolean; faltan?: string[]; columnas?: ColumnaHoja[] } | null;
+  /** Columnas leídas y su fila de títulos (1 = primera; 0 = sin títulos), para revisarlas a mano. */
+  columnas?: ColumnaHoja[];
+  filaTitulos?: number;
+  error: {
+    mensaje: string;
+    necesitaMapeo?: boolean;
+    faltan?: string[];
+    columnas?: ColumnaHoja[];
+    filaTitulos?: number;
+    /** Primeras filas de una hoja sin reconocer. */
+    muestra?: string[][];
+  } | null;
 }
 
 export type NivelPunto = 'ERROR' | 'FALTA' | 'AVISO' | 'INFO';
@@ -261,6 +274,8 @@ export interface CargaBreve {
   confirmadaPor: string | null;
   confirmadaEn: string | null;
   nivel: NivelCarga | null;
+  /** Ficheros de los que no se usó nada (marcados «No usar» o ilegibles). */
+  ficherosNoUsados?: string[];
 }
 
 export interface EstadoArranque {
