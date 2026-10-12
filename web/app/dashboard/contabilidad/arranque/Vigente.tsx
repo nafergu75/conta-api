@@ -128,9 +128,12 @@ export function Vigente({
     }
   }, []);
 
+  // Otra versión vigente (tras deshacer o traer otra): sus comprobaciones son otras.
   useEffect(() => {
+    setComp(null);
+    setHecho('');
     cargar();
-  }, [cargar]);
+  }, [cargar, vigente.id, vigente.confirmadaEn]);
 
   const crearSeries = async () => {
     setOcupado(true);
