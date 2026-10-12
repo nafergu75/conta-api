@@ -9,6 +9,7 @@ import { CaretLeft } from '@phosphor-icons/react';
 import { Declaraciones } from '../components/Declaraciones';
 import { FormularioRetenciones, type FormularioRetencionesDatos } from '../components/FormularioRetenciones';
 import { SelectorPeriodoRetenciones, textoPeriodo } from '../components/SelectorPeriodoRetenciones';
+import { type Traspaso4709, Traspaso4709Panel } from '../components/Traspaso4709';
 
 /**
  * Modelo 115 (retenciones de alquileres): el trimestre, calculado con las
@@ -42,6 +43,10 @@ interface Modelo115Trimestre {
   avisos?: string[];
   /** Formulario oficial: la misma declaracion que el fichero de la AEAT. */
   formulario: FormularioRetencionesDatos;
+  /** Retencion de abonos que no cabe en el modelo (se pasa de la 4751 a la 4709). null si no hay. */
+  excesoAbonos?: number | null;
+  /** Asiento de ese traspaso, si ya esta hecho. */
+  traspaso4709?: Traspaso4709 | null;
 }
 
 interface Resumen115 {
@@ -185,6 +190,15 @@ export default function Modelo115Page() {
                 El pago del 115 se anota con un asiento manual contra la 4751 (la parte de alquileres). Las facturas pendientes de revisar o anuladas no cuentan.
               </p>
             </section>
+
+            <Traspaso4709Panel
+              codigo="115"
+              ejercicio={modelo.ejercicio}
+              periodo={modelo.periodo ?? periodo}
+              exceso={modelo.excesoAbonos}
+              traspaso={modelo.traspaso4709}
+              onCambio={() => setRecarga((n) => n + 1)}
+            />
 
             {/* Formulario oficial (misma fuente que el fichero) */}
             <FormularioRetenciones formulario={modelo.formulario} estado={modelo.estado} onGuardado={() => setRecarga((n) => n + 1)} />
