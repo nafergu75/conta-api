@@ -67,7 +67,9 @@ export default function GastoDetailPage() {
     const p = new URLSearchParams(window.location.search);
     if (p.has('guardada')) setRecienGuardada(true);
     else if (p.has('modificada')) setAviso('Cambios guardados.');
-    setAvisosGuardado(leerAvisosGasto(gastoId));
+    // Solo si los hay: en desarrollo el efecto corre dos veces y la segunda lectura ya sale vacía.
+    const avisos = leerAvisosGasto(gastoId);
+    if (avisos.length) setAvisosGuardado(avisos);
   }, [gastoId]);
 
   if (loading) {
