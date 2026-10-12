@@ -56,13 +56,11 @@ export function SubirFicheros({
   const [ocupado, setOcupado] = useState(false);
   const [progreso, setProgreso] = useState('');
   const [error, setError] = useState('');
-  const [aviso, setAviso] = useState('');
   const [encima, setEncima] = useState(false);
 
   const subir = async (todos: File[]) => {
     if (!todos.length || ocupado) return;
     setError('');
-    setAviso('');
     // Los que no valen se avisan sin bloquear la subida de los demás.
     const avisos: string[] = [];
     const nombres = (fs: File[]) => fs.map((f) => `«${f.name}»`).join(', ');
@@ -100,8 +98,8 @@ export function SubirFicheros({
         if (!lote.length && (i > 0 || !ids.length)) continue;
         r = await arranqueApi.subir(lote, i === 0 ? ids : [], ajustes);
       }
-      if (r) onSubido(r);
-      if (avisos.length) setAviso(avisos.join(' '));
+      // Lo que se ha dejado fuera viaja con la respuesta y lo enseña el resumen (esta zona puede desaparecer al terminar).
+      if (r) onSubido(avisos.length ? { ...r, avisos: [...avisos, ...(r.avisos ?? [])] } : r);
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -149,7 +147,6 @@ export function SubirFicheros({
         />
       </label>
       {error && <Nota tipo="error">{error}</Nota>}
-      {aviso && <Nota tipo="aviso">{aviso}</Nota>}
     </div>
   );
 }
