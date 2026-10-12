@@ -72,6 +72,8 @@ export interface UsoAniosEmpresa {
   anios: (incluir?: Array<number | null | undefined>, extra?: number) => number[];
   /** Modelos de la AEAT: del primero al actual, con los de `incluir`. */
   aniosModelos: (incluir?: Array<number | null | undefined>) => number[];
+  /** Vuelve a leer los años (tras crear, cerrar o reabrir un ejercicio). */
+  recargar: () => void;
 }
 
 export function useAniosEmpresa(): UsoAniosEmpresa {
@@ -79,6 +81,8 @@ export function useAniosEmpresa(): UsoAniosEmpresa {
     const id = empresaActiva();
     return { companyId: id, datos: leidos.get(id) ?? null, listo: leidos.has(id) };
   });
+
+  const [version, setVersion] = useState(0);
 
   useEffect(() => {
     const id = empresaActiva();
@@ -91,6 +95,11 @@ export function useAniosEmpresa(): UsoAniosEmpresa {
     return () => {
       vivo = false;
     };
+  }, [version]);
+
+  const recargar = useCallback(() => {
+    refrescarAniosEmpresa();
+    setVersion((v) => v + 1);
   }, []);
 
   const actual = estado.datos?.actual ?? anioEspana();
@@ -117,6 +126,7 @@ export function useAniosEmpresa(): UsoAniosEmpresa {
     ejercicios: estado.datos?.ejercicios ?? [],
     anios,
     aniosModelos,
+    recargar,
   };
 }
 
