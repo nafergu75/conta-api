@@ -22,6 +22,7 @@ import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { anioDeTexto, anioEspana, hoyIso } from '@/lib/anios';
 import { refrescarAniosEmpresa } from '@/lib/useAniosEmpresa';
+import { diasEntre } from '@/lib/aeatCalendar';
 import { DatosMemoria } from './DatosMemoria';
 
 /**
@@ -136,11 +137,10 @@ function fecha(iso: string | null | undefined): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('es-ES');
 }
 
+/** Días que faltan hasta la fecha límite, contando desde hoy en España. */
 function diasHasta(iso: string | null): number | null {
   if (!iso) return null;
-  const hoy = new Date();
-  hoy.setHours(0, 0, 0, 0);
-  return Math.round((new Date(`${iso}T00:00:00`).getTime() - hoy.getTime()) / 86_400_000);
+  return diasEntre(hoyIso(), iso.slice(0, 10));
 }
 
 function Plazo({ titulo, fechaLimite, hecho }: { titulo: string; fechaLimite: string | null; hecho: boolean }) {
