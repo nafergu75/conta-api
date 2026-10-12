@@ -408,12 +408,14 @@ export default function ImpuestosPage() {
             </h2>
             <p className="text-sm text-slate-600">
               El día desde el que llevas la contabilidad aquí. Los modelos de periodos que terminaron antes no salen como pendientes: los presentó otra
-              persona (tu gestoría, por ejemplo).
+              persona (tu gestoría, por ejemplo). Si registras un abono que baja el IVA de uno de esos periodos, la app te recordará que hay que
+              rectificar ese 303.
             </p>
             {!ajustes.inicioEnApp && ajustes.inicioDeducido && (
               <p className="text-sm text-slate-600">
                 Si la dejas vacía, la app cuenta desde el {ajustes.inicioDeducido.split('-').reverse().join('/')}: el primer día con datos de la empresa
-                o, si todavía no tiene ninguno, el día en que se dio de alta.
+                o, si todavía no tiene ninguno, el día en que se dio de alta. Si tienes aquí datos de antes de empezar a usarla (de 2026, por
+                ejemplo), indica la fecha. Si no, la app da por hecho que esos periodos también los llevas aquí y sus modelos salen como pendientes.
               </p>
             )}
             <div className="flex flex-wrap items-end gap-3">
