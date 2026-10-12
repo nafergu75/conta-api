@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { ListNumbers, X } from '@phosphor-icons/react';
 import { ApiError } from '@/lib/api';
@@ -26,8 +26,11 @@ function enlaceDe(e: ApiError): string {
  * Si el servidor responde 409 PLAN_ANTERIOR_PENDIENTE, se abre el diálogo:
  *  - «Traer antes el plan» lleva al apartado y `intentar` devuelve null;
  *  - «Seguir» repite la petición con `confirmarSinPlanAnterior: true`;
- *  - cerrar el diálogo devuelve null sin hacer nada.
+ *  - cerrar el diálogo (también con Escape) devuelve null sin hacer nada.
  * Cualquier otro error se lanza tal cual. Pinta `aviso.dialogo` en la página.
+ * Puede ir dentro de otro diálogo (la ficha de alta del lector): mientras está
+ * abierto, Escape y el tabulador son solo suyos, y al cerrarlo el foco vuelve
+ * a donde estaba.
  */
 export function useAvisoPlanAnterior(): {
   intentar: <T>(hacer: (extra: ExtraPlanAnterior) => Promise<T>) => Promise<T | null>;
@@ -36,6 +39,38 @@ export function useAvisoPlanAnterior(): {
   const router = useRouter();
   const [abierto, setAbierto] = useState<{ texto: string; enlace: string } | null>(null);
   const resolver = useRef<((r: 'seguir' | 'traer' | 'cerrar') => void) | null>(null);
+  const cajaRef = useRef<HTMLDivElement>(null);
+  const estaAbierto = !!abierto;
+
+  useEffect(() => {
+    if (!estaAbierto) return;
+    const antes = document.activeElement;
+    // En captura y en window: llega antes que el Escape del diálogo de debajo, que ya no se entera.
+    const alTeclear = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        e.preventDefault();
+        resolver.current?.('cerrar');
+        return;
+      }
+      if (e.key !== 'Tab' || !cajaRef.current) return;
+      const botones = Array.from(cajaRef.current.querySelectorAll<HTMLElement>('button:not([disabled])'));
+      if (!botones.length) return;
+      const dentro = cajaRef.current.contains(document.activeElement);
+      const primero = botones[0];
+      const ultimo = botones[botones.length - 1];
+      if (!dentro || (e.shiftKey && document.activeElement === primero) || (!e.shiftKey && document.activeElement === ultimo)) {
+        e.stopPropagation();
+        e.preventDefault();
+        (e.shiftKey ? ultimo : primero).focus();
+      }
+    };
+    window.addEventListener('keydown', alTeclear, true);
+    return () => {
+      window.removeEventListener('keydown', alTeclear, true);
+      if (antes instanceof HTMLElement && document.contains(antes)) antes.focus({ preventScroll: true });
+    };
+  }, [estaAbierto]);
 
   const intentar = useCallback(
     async <T,>(hacer: (extra: ExtraPlanAnterior) => Promise<T>): Promise<T | null> => {
@@ -74,6 +109,7 @@ export function useAvisoPlanAnterior(): {
       }}
     >
       <div
+        ref={cajaRef}
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="aviso-plan-titulo"
