@@ -7,6 +7,7 @@ import { CaretDown, CaretLeft, CaretRight, Download, WarningCircle } from '@phos
 import { apiDownload, companyPath, errorMessage } from '@/lib/api';
 import { ejerciciosSeleccionables } from '@/lib/aeatCalendar';
 import { AvisosModelo } from './AvisosModelo';
+import { formatoImporte } from '@/lib/moneda';
 
 /**
  * Piezas comunes de los borradores del 347, 390 y 200 con el diseño oficial de
@@ -26,7 +27,8 @@ export interface PaginaBorrador {
   detalle: CasillaDetalle[];
 }
 
-export const eur = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' });
+/** Importes en euros como en el resto de la app (formatoImporte: punto de miles también en cuatro cifras, 1.500,00 €). */
+export const eur = { format: (n: number) => formatoImporte(n, 'EUR') };
 
 /** Ruta del borrador o de su fichero con los parámetros que tengan valor. */
 export function rutaBorrador(modelo: string, ejercicio: number, parametros: Record<string, string | number | boolean | undefined> = {}, fichero = false): string {
