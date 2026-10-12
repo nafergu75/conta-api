@@ -62,6 +62,8 @@ export function BloqueContabilidadTercero({ tipo, id, subcuentas, subcuentasEnPl
   }, [veContabilidad, tipo, id]);
 
   const saldo = detalle?.tercero.saldoFinal ?? 0;
+  // El saldo contable y lo pendiente segun facturas no cuadran (mas de un centimo): se explica por que puede ser.
+  const noCoinciden = !!detalle && Math.abs(Math.round(saldo * 100) - Math.round(detalle.totalPendiente * 100)) > 1;
   const lectura =
     saldo === 0
       ? 'sin saldo'
@@ -113,6 +115,15 @@ export function BloqueContabilidadTercero({ tipo, id, subcuentas, subcuentasEnPl
                   <span className="block text-xs text-slate-500">
                     Según facturas, pendiente de {tipo === 'cliente' ? 'cobro' : 'pago'}: <span className="font-mono">{importe(detalle.totalPendiente)}</span>
                   </span>
+                  {noCoinciden && (
+                    <span className="mt-1 block text-xs text-amber-800">
+                      No coinciden: puede haber asientos en borrador, que no cuentan hasta que los apruebas en el{' '}
+                      <Link href="/dashboard/motor-contable" className="font-medium underline">
+                        Motor contable
+                      </Link>
+                      , o {tipo === 'cliente' ? 'cobros' : 'pagos'} sin contabilizar.
+                    </span>
+                  )}
                 </>
               ) : null}
             </dd>
