@@ -18,6 +18,8 @@ interface Borrador202 {
   ejercicio: number;
   periodo: '1P' | '2P' | '3P';
   estado: string;
+  /** «Presentado · complementaria en preparación» cuando hay una presentada y otra en curso (el estado de la fila dice 'vigente'). */
+  estadoTexto?: string | null;
   opciones: {
     modalidad: 'A' | 'B';
     baseManual: number | null;
@@ -180,7 +182,7 @@ export default function Modelo202Page() {
 
             <Seccion
               titulo={`Modalidad A – ${b.periodo} de ${b.ejercicio}`}
-              extra={<span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-medium text-slate-700">{ESTADO_MODELO[b.estado] ?? b.estado}</span>}
+              extra={<span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-medium text-slate-700">{b.estadoTexto ?? ESTADO_MODELO[b.estado] ?? b.estado}</span>}
             >
               <p className="text-sm text-slate-600">
                 Base: {origenBase(b.base)}.{' '}
