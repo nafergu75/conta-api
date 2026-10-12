@@ -7,9 +7,27 @@ interface Alert {
   id: string;
   modelo: string;
   periodo: string;
-  fechaVencimiento: Date;
+  /** AAAA-MM-DD */
+  fechaVencimiento: string;
+  /** 0 = hoy; negativo = ya ha vencido. */
   diasFaltantes: number;
   enlace: string;
+}
+
+const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+
+/** '2027-02-01' -> '1 de febrero de 2027' (sin Date: no cambia con la hora del navegador). */
+function fechaLarga(iso: string): string {
+  const [a, m, d] = iso.slice(0, 10).split('-');
+  const mes = MESES[Number(m) - 1];
+  return mes ? `${Number(d)} de ${mes} de ${a}` : iso;
+}
+
+function textoDias(dias: number): string {
+  if (dias === 0) return 'Vence hoy';
+  if (dias === 1) return 'Queda 1 día';
+  if (dias > 1) return `Quedan ${dias} días`;
+  return dias === -1 ? 'Venció ayer' : `Venció hace ${-dias} días`;
 }
 
 interface AlertCardProps {
@@ -49,6 +67,7 @@ export function AlertCard({ alert }: AlertCardProps) {
   const colors = getColorClasses(alert.diasFaltantes);
 
   const getUrgencyLabel = (diasFaltantes: number) => {
+    if (diasFaltantes < 0) return 'Vencido';
     if (diasFaltantes < 30) return 'Urgente';
     if (diasFaltantes < 90) return 'Próximo';
     return 'Normal';
@@ -73,7 +92,7 @@ export function AlertCard({ alert }: AlertCardProps) {
             </div>
             <p className="text-sm text-gray-600 mb-2">{alert.periodo}</p>
             <p className="text-xs text-gray-500">
-              Vence: {alert.fechaVencimiento.toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric' })}
+              {alert.diasFaltantes < 0 ? 'Venció' : 'Vence'}: {fechaLarga(alert.fechaVencimiento)}
             </p>
           </div>
           <div className={`rounded-lg ${colors.badge} p-2 flex-shrink-0`}>
@@ -81,7 +100,7 @@ export function AlertCard({ alert }: AlertCardProps) {
           </div>
         </div>
         <div className="mt-3 text-sm font-medium text-gray-700">
-          {alert.diasFaltantes} días restantes
+          {textoDias(alert.diasFaltantes)}
         </div>
       </div>
     </Link>
