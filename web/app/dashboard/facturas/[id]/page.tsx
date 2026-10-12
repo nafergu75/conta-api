@@ -10,7 +10,7 @@ import CobrosFactura from '@/components/CobrosFactura';
 import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getCompanyId, getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { formatoImporte, NOMBRE_MONEDA, parseTipo, textoTipo, tipoParaEditar } from '@/lib/moneda';
-import { ETIQUETA_CORTA, ETIQUETA_LARGA, nombrePais } from '@/lib/fiscal';
+import { conDevengoFuera, ETIQUETA_CORTA, ETIQUETA_LARGA, nombrePais } from '@/lib/fiscal';
 import { useRedSeguridad, type EstadoRedSeguridad } from '@/lib/verifactu';
 import AvisoRedSeguridad from '@/components/verifactu/AvisoRedSeguridad';
 
@@ -287,13 +287,18 @@ export default function FacturaDetallePage() {
       return;
     }
     accion(async () => {
-      const { invoice } = await apiFetch<{ invoice: { contabilizada?: boolean; motivoSinAsiento?: string | null } }>(
-        companyPath(`/income-invoices/${id}/finalizar`),
-        { method: 'POST', body: JSON.stringify(tipoCambio !== undefined ? { tipoCambio } : {}) },
+      // Operación de un periodo cuyo 303 presenta la gestoría: se pregunta antes de emitirla.
+      const emitida = await conDevengoFuera((extra) =>
+        apiFetch<{ invoice: { contabilizada?: boolean; motivoSinAsiento?: string | null } }>(companyPath(`/income-invoices/${id}/finalizar`), {
+          method: 'POST',
+          body: JSON.stringify({ ...(tipoCambio !== undefined ? { tipoCambio } : {}), ...extra }),
+        }),
       );
-      if (invoice.contabilizada === false) setSinAsiento(invoice.motivoSinAsiento || 'No se pudo contabilizar.');
+      if (emitida === null) return;
+      if (emitida.r.invoice.contabilizada === false) setSinAsiento(emitida.r.invoice.motivoSinAsiento || 'No se pudo contabilizar.');
       await cargar();
-    }, 'Factura emitida.');
+      setAviso(emitida.aviso ? `Factura emitida. ${emitida.aviso}` : 'Factura emitida.');
+    });
   };
 
   // Proforma aceptada por el cliente: se crea un borrador de factura con sus datos.
