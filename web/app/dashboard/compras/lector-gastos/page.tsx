@@ -209,7 +209,16 @@ export default function LectorGastosPage() {
   // Rectificativa o abono: se registra como abono (con el bloque «Rectificación»).
   const leidaRect = leido?.rectificativa ?? null;
   const abono = !!leidaRect && comoAbono;
-  const inicialForm = useMemo(() => (inicial && leidaRect && comoAbono ? inicialComoAbono(inicial, leidaRect) : inicial), [inicial, leidaRect, comoAbono]);
+  const inicialLeido = useMemo(() => (inicial && leidaRect && comoAbono ? inicialComoAbono(inicial, leidaRect) : inicial), [inicial, leidaRect, comoAbono]);
+  // El proveedor dado de alta o elegido aqui se conserva si el formulario se vuelve a montar
+  // (al pasar de abono a factura normal o al reves): no hay que darlo de alta otra vez.
+  const inicialForm = useMemo<FormInicial | null>(
+    () =>
+      inicialLeido && proveedorResuelto
+        ? { ...inicialLeido, proveedor: { tipo: 'existente', id: proveedorResuelto.id, nombre: proveedorResuelto.nombre, nif: proveedorResuelto.nif, pais: proveedorResuelto.pais } }
+        : inicialLeido,
+    [inicialLeido, proveedorResuelto],
+  );
   const propuesta = leidaRect?.propuesta ?? null;
   const faltaRevision = !!infoPanel?.requiereRevision && !revisado;
   // Si lo unico marcado era el tipo de documento, "es una factura de gasto" ya es la revision.
@@ -400,7 +409,10 @@ export default function LectorGastosPage() {
                             {propuesta.coincidencia === 'EXACTA' ? 'Coincide con el número leído.' : 'El número se parece al leído: compruébalo.'}
                           </>
                         ) : !propuesta && leidaRect.numeroRectificada ? (
-                          <>El proveedor no está en la app: la factura que rectifica ({leidaRect.numeroRectificada}) se registra como «de fuera». Pon su fecha.</>
+                          <>
+                            El proveedor no está en la app: la factura que rectifica ({leidaRect.numeroRectificada}) va como «de fuera» (pon su fecha). Si el NIF se leyó mal y eliges un
+                            proveedor que ya tienes, puedes buscarla entre sus facturas en «Rectificación».
+                          </>
                         ) : (
                           <>
                             Elige la factura que rectifica en «Rectificación»
