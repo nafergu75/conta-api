@@ -7,6 +7,7 @@ import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { ApiError, apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { proximosVencimientos } from '@/lib/aeatCalendar';
 import { AlertCard } from '@/components/dashboard/AlertCard';
+import { AvisoArranque } from '@/components/contabilidad/AvisoArranque';
 import { CobrosClientes } from '@/components/dashboard/CobrosClientes';
 import { getQuartersForYear, getCurrentQuarter, isDateInQuarter } from '@/lib/quarters';
 import NewMovementModal from '@/components/dashboard/NewMovementModal';
@@ -103,7 +104,7 @@ export default function DashboardPage() {
   const [selectedAnalysisPeriod, setSelectedAnalysisPeriod] = useState<string>(''); // Período único para análisis
   const [vencimientosAeat] = useState(() => proximosVencimientos());
   // Lo que deja ver su acceso en la empresa activa (se lee al montar: la sesion vive en el navegador).
-  const [acceso, setAcceso] = useState<{ cobros: boolean; aeat: boolean; nuevoMovimiento: boolean } | null>(null);
+  const [acceso, setAcceso] = useState<{ cobros: boolean; aeat: boolean; nuevoMovimiento: boolean; arranque: boolean } | null>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -193,6 +194,8 @@ export default function DashboardPage() {
       cobros: tieneAlgunPermiso(user, ['ventas:read', 'contabilidad:read']),
       aeat: tieneAlgunPermiso(user, ['impuestos:read', 'contabilidad:read']),
       nuevoMovimiento: tieneAlgunPermiso(user, ['contabilidad:write']),
+      // Aviso de la contabilidad del año anterior (GET /arranque/aviso pide contabilidad:read).
+      arranque: tieneAlgunPermiso(user, ['contabilidad:read']),
     });
     loadData();
   }, [loadData]);
@@ -405,6 +408,7 @@ export default function DashboardPage() {
       </header>
 
       <main className="max-w-6xl mx-auto px-4 md:px-8 py-8 flex flex-col gap-8">
+        {acceso?.arranque && <AvisoArranque />}
         {sinAccesoResumen && (
           <div role="status" className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
             Tu acceso a esta empresa no incluye el resumen general (ingresos, gastos y movimientos). En el menú tienes las áreas que sí
