@@ -102,6 +102,8 @@ export interface IngresoExtraido {
   errores: string[];
   /** Las lineas con que se registrara (una por tipo de IVA): la cuenta de cada una se puede cambiar. */
   lineas?: Array<{ descripcion: string; base: number; tipoIva: number }>;
+  /** El cliente dado de alta con el NIF leido, o null: hay que darlo de alta o elegir uno antes de registrar. */
+  clienteExistente?: { id: string; nombreFiscal: string; nifCif: string } | null;
 }
 
 /** Base y cuota de cada tipo de IVA de una factura de gasto (una linea del formulario por tramo). */
