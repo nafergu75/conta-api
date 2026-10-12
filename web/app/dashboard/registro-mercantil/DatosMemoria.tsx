@@ -22,10 +22,6 @@ interface Sociedad {
   provincia: string;
   actividad: string;
   cnae: string;
-  /** 390: clave de la actividad principal (A01, A03...). */
-  claveActividad: string;
-  /** 390: epígrafe del IAE de la actividad principal. */
-  epigrafeIae: string;
   registroMercantilProvincia: string;
   datosRegistrales: string;
   fechaConstitucion: string;
@@ -52,8 +48,6 @@ const SOCIEDAD_VACIA: Sociedad = {
   provincia: '',
   actividad: '',
   cnae: '',
-  claveActividad: '',
-  epigrafeIae: '',
   registroMercantilProvincia: '',
   datosRegistrales: '',
   fechaConstitucion: '',
@@ -211,24 +205,9 @@ export function DatosMemoria({ fyId, ejercicio, puedeEditar }: { fyId: string; e
             ancho="md:col-span-6"
             ayuda="Tal como quieres que aparezca en la nota 1, por ejemplo: «la fabricación y venta de muebles de madera»."
           />
-          <Campo
-            id="m-clave-actividad"
-            label="Clave de actividad (modelo 390)"
-            valor={sociedad.claveActividad}
-            onChange={s('claveActividad')}
-            disabled={off}
-            ancho="md:col-span-3"
-            ayuda="A01 si se dedica a alquilar inmuebles; A03 para el resto de actividades empresariales."
-          />
-          <Campo
-            id="m-epigrafe-iae"
-            label="Epígrafe del IAE (modelo 390)"
-            valor={sociedad.epigrafeIae}
-            onChange={s('epigrafeIae')}
-            disabled={off}
-            ancho="md:col-span-3"
-            ayuda="El de la actividad principal, como figura en el alta censal (por ejemplo 615.1)."
-          />
+          <p className="text-xs text-slate-500 md:col-span-6">
+            La clave de actividad y el epígrafe del IAE del modelo 390 están en Más &gt; Datos de la empresa, apartado Identificación.
+          </p>
           <Campo id="m-rm" label="Registro Mercantil de" valor={sociedad.registroMercantilProvincia} onChange={s('registroMercantilProvincia')} disabled={off} ancho="md:col-span-2" />
           <Campo
             id="m-registrales"
