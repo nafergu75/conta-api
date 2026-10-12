@@ -28,6 +28,10 @@ export interface DatosEmpresa {
   web: string;
   /** Persona de contacto de los modelos de la AEAT (apellidos y nombre). */
   personaContacto: string;
+  /** Modelo 390: clave de la actividad principal (A01, A03...). */
+  claveActividad: string;
+  /** Modelo 390: epígrafe del IAE de la actividad principal. */
+  epigrafeIae: string;
   registroMercantilProvincia: string;
   registroTomo: string;
   registroFolio: string;
@@ -52,6 +56,8 @@ export const DATOS_EMPRESA_VACIOS: DatosEmpresa = {
   email: '',
   web: '',
   personaContacto: '',
+  claveActividad: '',
+  epigrafeIae: '',
   registroMercantilProvincia: '',
   registroTomo: '',
   registroFolio: '',
@@ -75,6 +81,8 @@ export const CAMPOS_EMPRESA: CampoEmpresa[] = [
   'email',
   'web',
   'personaContacto',
+  'claveActividad',
+  'epigrafeIae',
   'registroMercantilProvincia',
   'registroTomo',
   'registroFolio',
@@ -431,6 +439,25 @@ export function CamposEmpresa({
                 : 'El número fiscal de tu país (p. ej. ICE o IF en Marruecos, EIN en EE. UU.).'
             }
           />
+          {/* Datos de la empresa (no de un ejercicio) que pide la página 1 del 390. */}
+          {espana && !alta && (
+            <>
+              <Campo
+                {...c('claveActividad')}
+                label="Clave de actividad (modelo 390)"
+                maxLength={3}
+                className="md:col-span-3"
+                ayuda="A01 si se dedica a alquilar inmuebles; A03 para el resto de actividades empresariales. Va en la página 1 del 390."
+              />
+              <Campo
+                {...c('epigrafeIae')}
+                label="Epígrafe del IAE (modelo 390)"
+                maxLength={6}
+                className="md:col-span-3"
+                ayuda="El de la actividad principal, como figura en el alta censal (por ejemplo 615.1; se guarda sin el punto). Va en la página 1 del 390."
+              />
+            </>
+          )}
         </div>
       </Seccion>
 
