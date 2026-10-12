@@ -4,8 +4,8 @@ import { useEffect, useState } from 'react';
 import { Plus, Trash } from '@phosphor-icons/react';
 import { apiFetch, companyPath } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
-import { ANIO_GESTORIA, eur, importeEnCampo, leerImporte, type AjustesCarga, type BancoComprobar, type DatosFiscales } from '@/lib/arranque';
-import { Bloque, boton, campo, Nota } from './comun';
+import { ANIO_GESTORIA, eur, importeEnCampo, leerImporte, type AjustesCarga, type BancoComprobar, type DatosFiscales, type PuntoComprobacion } from '@/lib/arranque';
+import { Bloque, boton, campo, Nota, PuntosFormulario } from './comun';
 
 const A = ANIO_GESTORIA;
 type Bancos = NonNullable<AjustesCarga['bancos']>;
@@ -35,15 +35,19 @@ export function DatosBancos({
   puedeEditar,
   ocupado,
   onGuardar,
+  puntos = [],
 }: {
   bancos: BancoComprobar[];
   puedeEditar: boolean;
   ocupado: boolean;
   onGuardar: (b: Bancos) => Promise<void>;
+  /** Lo que la comprobación dice de los bancos (se repite debajo del formulario). */
+  puntos?: PuntoComprobacion[];
 }) {
   const [cuentas, setCuentas] = useState<CuentaBancaria[]>([]);
   const [filas, setFilas] = useState<Record<string, FilaBanco>>({});
   const [error, setError] = useState('');
+  const [guardado, setGuardado] = useState(false);
 
   useEffect(() => {
     setFilas(
@@ -60,10 +64,14 @@ export function DatosBancos({
       .catch(() => setCuentas([]));
   }, []);
 
-  const cambiar = (codigo: string, cambios: Partial<FilaBanco>) => setFilas((f) => ({ ...f, [codigo]: { ...f[codigo], ...cambios } }));
+  const cambiar = (codigo: string, cambios: Partial<FilaBanco>) => {
+    setGuardado(false);
+    setFilas((f) => ({ ...f, [codigo]: { ...f[codigo], ...cambios } }));
+  };
 
   const guardar = async () => {
     setError('');
+    setGuardado(false);
     const salida: Bancos = {};
     for (const b of bancos) {
       const f = filas[b.subcuenta];
@@ -82,6 +90,7 @@ export function DatosBancos({
     }
     try {
       await onGuardar(salida);
+      setGuardado(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se han podido guardar los bancos.');
     }
@@ -169,15 +178,23 @@ export function DatosBancos({
           );
         })}
       </ul>
+      <PuntosFormulario puntos={puntos} />
       {error && (
         <div className="mt-3">
           <Nota tipo="error">{error}</Nota>
         </div>
       )}
       {puedeEditar && (
-        <button type="button" className={`${boton} mt-3`} disabled={ocupado} onClick={guardar}>
-          Guardar los bancos
-        </button>
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <button type="button" className={boton} disabled={ocupado} onClick={guardar}>
+            Guardar los bancos
+          </button>
+          {guardado && !ocupado && (
+            <span role="status" className="text-sm font-medium text-emerald-700">
+              Guardado
+            </span>
+          )}
+        </div>
       )}
     </Bloque>
   );
@@ -203,6 +220,7 @@ export function DatosFiscalesForm({
   puedeEditar,
   ocupado,
   onGuardar,
+  puntos = [],
 }: {
   datos: DatosFiscales | null;
   resultadoDeclarado: number | null;
@@ -210,6 +228,8 @@ export function DatosFiscalesForm({
   puedeEditar: boolean;
   ocupado: boolean;
   onGuardar: (d: { datosFiscales: Record<string, unknown>; resultadoDeclarado?: number | null }) => Promise<void>;
+  /** Lo que la comprobación dice de estas cifras (se repite debajo del formulario). */
+  puntos?: PuntoComprobacion[];
 }) {
   const inicial = (): FiscalesTexto => ({
     resultado303T4: importeEnCampo(datos?.resultado303T4),
@@ -218,13 +238,19 @@ export function DatosFiscalesForm({
     basesNegativas: (datos?.basesNegativas ?? []).map((b) => ({ ejercicio: String(b.ejercicio), importe: importeEnCampo(b.importe) })),
     deducciones: (datos?.deducciones ?? []).map((d) => ({ concepto: d.concepto, importe: importeEnCampo(d.importe) })),
   });
-  const [f, setF] = useState<FiscalesTexto>(inicial);
+  const [f, setFTexto] = useState<FiscalesTexto>(inicial);
   const [error, setError] = useState('');
+  const [guardado, setGuardado] = useState(false);
+  const setF = (x: FiscalesTexto) => {
+    setGuardado(false);
+    setFTexto(x);
+  };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => setF(inicial()), [datos, resultadoDeclarado]);
+  useEffect(() => setFTexto(inicial()), [datos, resultadoDeclarado]);
 
   const guardar = async () => {
     setError('');
+    setGuardado(false);
     const num = (t: string, nombre: string): number | null | 'mal' => {
       if (!t.trim()) return null;
       const n = leerImporte(t);
@@ -245,6 +271,7 @@ export function DatosFiscalesForm({
         datosFiscales: { resultado303T4: r303, cuotasIvaACompensar: cuotas, basesNegativas: bases, deducciones },
         ...(conResultado ? { resultadoDeclarado: resultado } : {}),
       });
+      setGuardado(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se han podido guardar los datos.');
     }
@@ -345,15 +372,23 @@ export function DatosFiscalesForm({
           )}
         </div>
       </div>
+      <PuntosFormulario puntos={puntos} />
       {error && (
         <div className="mt-3">
           <Nota tipo="error">{error}</Nota>
         </div>
       )}
       {puedeEditar && (
-        <button type="button" className={`${boton} mt-4`} disabled={ocupado} onClick={guardar}>
-          Guardar estas cifras
-        </button>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <button type="button" className={boton} disabled={ocupado} onClick={guardar}>
+            Guardar estas cifras
+          </button>
+          {guardado && !ocupado && (
+            <span role="status" className="text-sm font-medium text-emerald-700">
+              Guardado
+            </span>
+          )}
+        </div>
       )}
     </Bloque>
   );
