@@ -21,7 +21,7 @@ type Pago = '' | 'pendiente' | 'parcial' | 'por_pagar' | 'pagada' | 'vencida' | 
 type Tipo = '' | 'facturas' | 'abonos';
 
 /** Estado de pago de la fila: en un abono, si está devuelto o aplicado. */
-const textoPagoDe = (f: GastoListado) => (f.esAbono ? textoEstadoAbono(f.estadoPago) : f.estadoPagoTexto);
+const textoPagoDe = (f: GastoListado) => (f.esAbono ? textoEstadoAbono(f.estadoPago, f.estado) : f.estadoPagoTexto);
 
 const campo =
   'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-accent-600 focus:border-accent-600';
