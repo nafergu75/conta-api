@@ -478,7 +478,7 @@ export default function FacturaDetallePage() {
             ) : factura.rectificaFuera ? (
               <span className="font-semibold">
                 {factura.rectificaFuera.numero}
-                {factura.rectificaFuera.fecha ? ` del ${factura.rectificaFuera.fecha.split('-').reverse().join('/')}` : ''}, de fuera de la app,
+                {factura.rectificaFuera.fecha ? ` del ${factura.rectificaFuera.fecha.split('-').reverse().join('/')}` : ''}, de fuera de la app
               </span>
             ) : (
               'original'
