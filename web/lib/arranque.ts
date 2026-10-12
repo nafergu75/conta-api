@@ -440,4 +440,5 @@ export function leerImporte(texto: string): number | null {
 }
 
 /** Número para un campo de texto con coma decimal. */
-export const importeEnCampo = (n: number | null | undefined) => (n === null || n === undefined ? '' : String(n).replace('.', ','));
+export const importeEnCampo = (n: number | null | undefined) =>
+  n === null || n === undefined ? '' : n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
