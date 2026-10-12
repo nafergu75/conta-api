@@ -347,6 +347,9 @@ export default function FormFacturaGasto({
   /** Cuenta de una linea si no tiene una propia: en un abono, la que toca por la causa. */
   const cuentaPorDefecto = (l: LineaForm): { codigo: string; texto: string } => {
     const base = l.cuentaOriginal || cuenta.trim() || TIPO_GASTO_INFO[tipoGasto].cuenta;
+    // Por sustitución, la corregida va a las cuentas de la original: el servidor resta línea a línea
+    // por cuenta, y con otra cuenta saldrían dos líneas (una que abona la 600 y otra que carga la 608).
+    if (sustitucion) return l.cuentaOriginal ? { codigo: l.cuentaOriginal, texto: 'la de la factura original' } : { codigo: cuenta.trim() || TIPO_GASTO_INFO[tipoGasto].cuenta, texto: cuenta.trim() ? 'la de la factura' : 'la del tipo de gasto' };
     if (rect?.causa) {
       const propuesta = cuentaPropuesta(rect.causa, base, rect.que === 'periodo');
       if (propuesta && propuesta !== base) return { codigo: propuesta, texto: 'la que corresponde a la causa' };
