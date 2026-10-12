@@ -180,7 +180,7 @@ export default function PuestaEnMarchaPage() {
       )}
 
       {!puedeEditar ? (
-        <p className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600">Para importar datos hace falta el permiso Contabilidad «Modificar». Pídeselo al administrador de la empresa. Si ya te lo han dado, sal y vuelve a entrar.</p>
+        <p className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600">Para importar datos hace falta el permiso Contabilidad «Modificar». Pídeselo al administrador de la empresa. Si ya te lo han dado, recarga la página o vuelve a entrar.</p>
       ) : (
         <>
           <div className="flex gap-1 overflow-x-auto border-b border-slate-200" role="tablist">

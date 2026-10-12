@@ -97,7 +97,7 @@ const segun = (n: number, uno: string, varios: string) => (n === 1 ? uno : vario
 const cuantas = (n: number, uno: string, varios: string) => `${n} ${segun(n, uno, varios)}`;
 
 /** Coletilla de los avisos de permiso que se basan en la sesion guardada al entrar. */
-const SAL_Y_ENTRA = 'Si ya te lo han dado, sal y vuelve a entrar.';
+const RECARGA_O_ENTRA = 'Si ya te lo han dado, recarga la página o vuelve a entrar.';
 
 /** El plan trae otra longitud y ya hay terceros con la de la app: convivirian las dos. */
 const longitudDistinta = (v: VistaPlan) => !!v.longitud.motivo && !!v.longitud.delPlan && v.longitud.delPlan !== v.longitud.actual && !v.longitud.seFija;
@@ -508,7 +508,7 @@ function avisoPermisoEnlace({
   if (modo === 'nueva' && !altaSegunSesion) {
     return {
       alerta: false,
-      texto: `Para crear un ${tipo} nuevo hace falta el permiso ${textoPermiso(PERMISO_ALTA[tipo])}, y no lo tienes en esta empresa. Pídeselo al administrador de la empresa, o enlaza la subcuenta a un ${tipo} que ya exista con ${elegir}. ${SAL_Y_ENTRA}`,
+      texto: `Para crear un ${tipo} nuevo hace falta el permiso ${textoPermiso(PERMISO_ALTA[tipo])}, y no lo tienes en esta empresa. Pídeselo al administrador de la empresa, o enlaza la subcuenta a un ${tipo} que ya exista con ${elegir}. ${RECARGA_O_ENTRA}`,
     };
   }
   return null;
