@@ -56,7 +56,7 @@ function Arranque() {
   );
 
   return (
-    <div className="mx-auto max-w-5xl space-y-5 pb-24">
+    <div className="mx-auto max-w-5xl space-y-5 px-4 pb-24 pt-6 md:px-8">
       <div>
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-bold text-slate-900 sm:text-3xl">Traer la contabilidad de {A}</h1>
