@@ -61,6 +61,12 @@ const ESTADO_CONFIG: Record<string, { color: string; icon: IconoPhosphor; label:
     label: 'Anulado',
     ayuda: 'Asiento anulado: no cuenta en la contabilidad.',
   },
+  SUSTITUIDO: {
+    color: 'bg-slate-100 text-slate-700 border-slate-200',
+    icon: XCircle,
+    label: 'Retirado (2026 lo lleva la gestoría)',
+    ayuda: 'Asiento de 2026 hecho en la app que se retiró al traer la contabilidad de la gestoría: no cuenta y no se puede aprobar ni cambiar.',
+  },
 };
 
 const ORIGEN: Record<string, string> = {
@@ -68,6 +74,13 @@ const ORIGEN: Record<string, string> = {
   FACTURA_GASTO: 'Factura de gasto',
   TESORERIA: 'Tesorería',
   AJUSTE_MANUAL: 'Asiento manual',
+  APERTURA: 'Apertura',
+  APERTURA_AJUSTE: 'Ajuste de la apertura',
+  AMORTIZACION: 'Amortización',
+  HISTORICO: 'Diario de la gestoría',
+  HISTORICO_APERTURA: 'Apertura de la gestoría',
+  HISTORICO_REGULARIZACION: 'Regularización de la gestoría',
+  HISTORICO_CIERRE: 'Cierre de la gestoría',
 };
 
 /** 'PENDIENTES' junta borradores y pendientes de revisar (el servidor filtra un estado cada vez). */
