@@ -122,7 +122,9 @@ export function inicialDe(g: GastoLeido, paisExistente: string | null): FormInic
     proveedor = { tipo: 'existente', id: g.proveedorExistente.id, nombre: g.proveedorExistente.nombreFiscal, nif: g.proveedorExistente.nifCif, pais: paisExistente || 'ES' };
   } else if (g.proveedor || nif) {
     const pais = pareceNifIvaUe(nif) ? (paisDelPrefijo(nif) ?? 'ES') : 'ES';
-    proveedor = { tipo: 'nuevo', nombreFiscal: g.proveedor ?? '', nifCif: nif, pais, direccion: '', cp: '', municipio: '', provincia: '' };
+    // La dirección leída en la factura (si la hay) ya va en la ficha: no hay que copiarla a mano.
+    const d = g.direccionProveedor;
+    proveedor = { tipo: 'nuevo', nombreFiscal: g.proveedor ?? '', nifCif: nif, pais, direccion: d?.calle ?? '', cp: d?.cp ?? '', municipio: d?.municipio ?? '', provincia: d?.provincia ?? '' };
   }
   const fecha = g.fecha && /^\d{4}-\d{2}-\d{2}$/.test(g.fecha) ? g.fecha : hoyIso();
   const concepto = g.conceptoGasto?.trim() || 'Gasto';
@@ -189,5 +191,20 @@ export function marcasDelFormulario(campos: InfoLectura['campos'], inicial: Form
     else if (id === 'concepto') for (const i of unica) poner(`lineas.${i}.descripcion`, n);
     else if (id === 'totales.totalFactura' || id === 'totales.totalAPagar') poner('totalDocumento', n);
   }
+  return m;
+}
+
+/**
+ * Marca en ámbar la dirección del proveedor nuevo que el lector puso con poca
+ * seguridad (solo los campos que rellenó). Se añade a las de marcasDelFormulario.
+ */
+export function marcasDireccion(g: GastoLeido, inicial: FormInicial): MarcasLector {
+  const d = g.direccionProveedor;
+  if (!d?.revisar || inicial.proveedor?.tipo !== 'nuevo') return {};
+  const m: MarcasLector = {};
+  if (d.calle) m['proveedor.direccion'] = 'revisar';
+  if (d.cp) m['proveedor.cp'] = 'revisar';
+  if (d.municipio) m['proveedor.municipio'] = 'revisar';
+  if (d.provincia) m['proveedor.provincia'] = 'revisar';
   return m;
 }
