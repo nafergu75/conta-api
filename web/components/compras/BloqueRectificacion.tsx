@@ -24,6 +24,7 @@ import {
   originalDeFuera,
   soloBaja,
 } from '@/lib/rectificativasGasto';
+import { CONCEPTOS } from './disenoConceptos';
 
 /**
  * Bloque «Rectificación» del formulario de Compras (abono o factura
@@ -560,6 +561,8 @@ export function LineasOriginal({
   const ok = valores.every((v) => Number.isFinite(v.cantidad) && Number.isFinite(v.precioUnitario));
   const t = ok ? calcularTotales(valores) : null;
   const cambiar = (clave: number, c: Partial<LineaOriginal>) => onCambio(lineas.map((l) => (l.clave === clave ? { ...l, ...c } : l)));
+  // Las mismas columnas que «Conceptos» (disenoConceptos.ts): tarjeta en estrecho y tabla en ancho. La original no lleva IRPF.
+  const L = CONCEPTOS.sinIrpf;
   return (
     <section id="fr-lorig" tabIndex={-1} className="rounded-xl border border-slate-200 bg-white p-4 focus:outline-none md:p-6" {...marca('rectificativa.importesOriginales')}>
       <h2 className="mb-1 text-base font-semibold text-slate-900">Factura original{numero ? ` (${numero})` : ''}</h2>
@@ -579,23 +582,32 @@ export function LineasOriginal({
           {lineas.length === 0 && <li className="py-1.5 text-slate-500">Cargando sus líneas...</li>}
         </ul>
       ) : (
-        <div className="flex flex-col gap-3">
+        <div className={L.contenedor}>
+          {/* Cabeceras de la tabla (solo en ancho). Cada campo lleva ademas su etiqueta para el lector de pantalla. */}
+          <div aria-hidden="true" className={`${L.cabecera} items-end gap-x-3`}>
+            <span className={CONCEPTOS.titulo}>Descripción</span>
+            <span className={`${CONCEPTOS.titulo} text-right`}>Cantidad</span>
+            <span className={`${CONCEPTOS.titulo} text-right`}>Precio (sin IVA)</span>
+            <span className={CONCEPTOS.titulo}>IVA</span>
+            <span className={`${CONCEPTOS.titulo} text-right`}>Base</span>
+            <span />
+          </div>
           {lineas.map((l, i) => (
-            <div key={l.clave} className="grid grid-cols-2 gap-2 rounded-lg border border-slate-200 p-3 md:grid-cols-12 md:items-end">
-              <div className="col-span-2 md:col-span-5">
-                <label htmlFor={`fr-ldesc-${l.clave}`} className="mb-1 block text-xs font-medium text-slate-600">
+            <div key={l.clave} className={`${CONCEPTOS.fila} ${L.linea}`}>
+              <div className={CONCEPTOS.descripcion}>
+                <label htmlFor={`fr-ldesc-${l.clave}`} className={CONCEPTOS.etiqueta}>
                   Descripción
                 </label>
                 <input id={`fr-ldesc-${l.clave}`} value={l.descripcion} onChange={(ev) => cambiar(l.clave, { descripcion: ev.target.value })} className={campoBase} />
               </div>
-              <div className="md:col-span-2">
-                <label htmlFor={`fr-lcant-${l.clave}`} className="mb-1 block text-xs font-medium text-slate-600">
+              <div>
+                <label htmlFor={`fr-lcant-${l.clave}`} className={CONCEPTOS.etiqueta}>
                   Cantidad
                 </label>
                 <input id={`fr-lcant-${l.clave}`} inputMode="decimal" value={l.cantidad} onChange={(ev) => cambiar(l.clave, { cantidad: ev.target.value })} className={`${campoBase} text-right`} />
               </div>
-              <div className="md:col-span-2">
-                <label htmlFor={`fr-lprecio-${l.clave}`} className="mb-1 block text-xs font-medium text-slate-600">
+              <div>
+                <label htmlFor={`fr-lprecio-${l.clave}`} className={CONCEPTOS.etiqueta}>
                   Precio (sin IVA)
                 </label>
                 <input
@@ -608,8 +620,8 @@ export function LineasOriginal({
                   className={`${campoBase} text-right`}
                 />
               </div>
-              <div className="md:col-span-2">
-                <label htmlFor={`fr-liva-${l.clave}`} className="mb-1 block text-xs font-medium text-slate-600">
+              <div>
+                <label htmlFor={`fr-liva-${l.clave}`} className={CONCEPTOS.etiqueta}>
                   IVA
                 </label>
                 <select id={`fr-liva-${l.clave}`} value={l.tipoIva} onChange={(ev) => cambiar(l.clave, { tipoIva: Number(ev.target.value) })} className={campoBase}>
@@ -620,8 +632,21 @@ export function LineasOriginal({
                   ))}
                 </select>
               </div>
-              <div className="flex justify-end md:col-span-1">
-                <BotonQuitar onClick={() => onCambio(lineas.length > 1 ? lineas.filter((x) => x.clave !== l.clave) : lineas)} texto={`Quitar la línea ${i + 1} de la original`} />
+              <div className={CONCEPTOS.pie}>
+                <span className={CONCEPTOS.base}>
+                  <span className={CONCEPTOS.palabraBase}>Base </span>
+                  {fmt(Number.isFinite(valores[i].cantidad) && Number.isFinite(valores[i].precioUnitario) ? calcularTotales([valores[i]]).base : 0)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onCambio(lineas.length > 1 ? lineas.filter((x) => x.clave !== l.clave) : lineas)}
+                  disabled={lineas.length === 1}
+                  aria-label={`Quitar la línea ${i + 1} de la original`}
+                  title={`Quitar la línea ${i + 1} de la original`}
+                  className={CONCEPTOS.papelera}
+                >
+                  <Trash size={18} />
+                </button>
               </div>
             </div>
           ))}
