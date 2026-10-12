@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { ArrowLeft, CheckCircle, FileArrowUp, WarningCircle } from '@phosphor-icons/react';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import PanelLectura from '@/components/lector/PanelLectura';
-import { anuncioLecturaTerminada, descartarLectura, descripcionNeutraTramo, ErrorLectura, esCancelada, euros, leerFactura, porcentaje, type InfoLectura, type TramoGasto } from '@/lib/lecturas';
+import { anuncioLecturaTerminada, descartarLectura, descripcionNeutraTramo, ErrorLectura, esCancelada, euros, leerFactura, porcentaje, type EstadoCampo, type InfoLectura, type TramoGasto } from '@/lib/lecturas';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { pareceNifIvaUe } from '@/lib/fiscal';
 import FormFacturaGasto, { type FormInicial } from '@/components/compras/FormFacturaGasto';
@@ -62,11 +62,11 @@ const tramosValidos = (g: GastoExtraido & { tramos?: TramoGasto[] }): TramoGasto
 const centimos = (n: number) => Math.round(n * 100);
 
 /**
- * El motivo de la comprobacion CUOTA_TIPO del servidor (validaciones.ts):
- * "El IVA del 21 % no corresponde a su base (sale ... y pone ...)." o, al 0 %,
- * "La base exenta no lleva IVA y pone ...".
+ * El IVA del tramo esta marcado por la comprobacion CUOTA_TIPO del servidor
+ * (validaciones.ts: «El IVA del 21 % no corresponde a su base...» o, al 0 %,
+ * «La base exenta no lleva IVA...»). Se reconoce por su codigo, no por el texto.
  */
-const esMotivoCuotaTipo = (m: string) => /^El IVA del .+ no corresponde a su base/.test(m) || /^La base exenta no lleva IVA/.test(m);
+const marcadoPorCuotaTipo = (c: EstadoCampo) => !!c.codigos?.includes('CUOTA_TIPO');
 
 /**
  * Tramos cuyo IVA leido no coincide al centimo con el de la linea que se
@@ -89,7 +89,7 @@ function cuotasDescuadradas(
 ): Array<{ tipoIva: number; leida: number; linea: number }> {
   const conTarjeta = new Set(
     Object.entries(campos)
-      .filter(([id, c]) => /^desglose\.\d+\.cuota$/.test(id) && c && c.estado !== 'ok' && typeof c.tipoIva === 'number' && c.motivos.some(esMotivoCuotaTipo))
+      .filter(([id, c]) => /^desglose\.\d+\.cuota$/.test(id) && c && c.estado !== 'ok' && typeof c.tipoIva === 'number' && marcadoPorCuotaTipo(c))
       .map(([, c]) => c!.tipoIva as number),
   );
   return tramosValidos(g).flatMap((t) => {
