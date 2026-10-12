@@ -138,9 +138,13 @@ export function FormularioRetenciones({ formulario: f, estado, onGuardado }: Pro
     <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-4 md:p-6">
       <div>
         <h2 className="font-semibold text-slate-900">{f.titulo}</h2>
-        <p className="mt-1 text-xs text-slate-500">
-          Borrador con las casillas del formulario de la AEAT. Diseño de registro: {f.fuente} ({f.version}).
-        </p>
+        <p className="mt-1 text-xs text-slate-500">Borrador con las casillas del formulario de la AEAT.</p>
+        <details className="mt-1 text-xs text-slate-500">
+          <summary className="cursor-pointer">Detalle técnico</summary>
+          <p className="mt-1">
+            Diseño de registro: {f.fuente} ({f.version}).
+          </p>
+        </details>
       </div>
 
       <Seccion titulo="Identificación">
