@@ -9,7 +9,7 @@ import { useCuentasLinea } from '@/lib/subcuentas';
 import { CuentaLinea } from '@/components/contabilidad/CuentaLinea';
 import { useAvisoPlanAnterior } from '@/components/contabilidad/AvisoPlanAnterior';
 import { formatoImporte, parseImporte } from '@/lib/moneda';
-import { PAISES, pareceNifIvaUe, useEmpresaEspanola } from '@/lib/fiscal';
+import { conDevengoFuera, PAISES, pareceNifIvaUe, useEmpresaEspanola } from '@/lib/fiscal';
 import {
   calcularTotales,
   conflictoGasto,
@@ -634,17 +634,26 @@ export default function FormFacturaGasto({
 
     setGuardando(true);
     try {
+      // Compra intracomunitaria con el IVA en un periodo cuyo 303 presenta la gestoría: se pregunta y se repite.
+      const conIvaFuera = <T,>(hacer: (extra: { confirmaDevengoFuera?: true }) => Promise<T>) => conDevengoFuera(hacer, '¿La registras igualmente?');
       if (modo === 'lector') {
         // El lector no da de alta al proveedor (eso se hace antes, desde su aviso): aquí no hay aviso del plan anterior.
-        onGuardado(await apiFetch<GastoRegistrado>(companyPath('/gastos-extractor/confirmar'), { method: 'POST', body: JSON.stringify(cuerpo) }));
-      } else if (modo === 'editar' && facturaId) {
-        const factura = await apiFetch<GastoDetalle>(companyPath(`/expense-invoices/${encodeURIComponent(facturaId)}`), { method: 'PUT', body: JSON.stringify(cuerpo) });
-        onGuardado({ factura });
-      } else {
-        const factura = await avisoPlan.intentar((extra) =>
-          apiFetch<GastoDetalle>(companyPath('/expense-invoices'), { method: 'POST', body: JSON.stringify({ ...cuerpo, ...extra }) }),
+        const r = await conIvaFuera((ex) =>
+          apiFetch<GastoRegistrado>(companyPath('/gastos-extractor/confirmar'), { method: 'POST', body: JSON.stringify({ ...cuerpo, ...ex }) }),
         );
-        if (factura) onGuardado({ factura });
+        if (r) onGuardado(r.r);
+      } else if (modo === 'editar' && facturaId) {
+        const r = await conIvaFuera((ex) =>
+          apiFetch<GastoDetalle>(companyPath(`/expense-invoices/${encodeURIComponent(facturaId)}`), { method: 'PUT', body: JSON.stringify({ ...cuerpo, ...ex }) }),
+        );
+        if (r) onGuardado({ factura: r.r });
+      } else {
+        const r = await conIvaFuera((ex) =>
+          avisoPlan.intentar((extra) =>
+            apiFetch<GastoDetalle>(companyPath('/expense-invoices'), { method: 'POST', body: JSON.stringify({ ...cuerpo, ...extra, ...ex }) }),
+          ),
+        );
+        if (r?.r) onGuardado({ factura: r.r });
       }
     } catch (err) {
       const c = conflictoGasto(err);
