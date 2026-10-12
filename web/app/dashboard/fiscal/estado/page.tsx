@@ -41,7 +41,7 @@ function EstadoFiscal() {
   const aniosEmpresa = useAniosEmpresa();
   const { listo, actual, primeroReal } = aniosEmpresa;
   // El ejercicio del último trimestre terminado (en enero, el anterior), nunca antes del primero de la empresa.
-  const [ejercicio, setEjercicio] = useElegido(anioDeTexto(sp?.get('ejercicio')), trimestreAPresentar(hoyIso(), primeroReal).ejercicio);
+  const [ejercicio, setEjercicio] = useElegido(anioDeTexto(sp?.get('ejercicio')), trimestreAPresentar(hoyIso(), primeroReal).ejercicio, 'ejercicio');
   const [pendientes, setPendientes] = useState<ModeloImpuestoResumen[]>([]);
   const [presentados, setPresentados] = useState<ModeloImpuestoResumen[]>([]);
   const [omitidos, setOmitidos] = useState<ModeloImpuestoResumen[]>([]);

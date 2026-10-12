@@ -66,8 +66,13 @@ function Modelo202() {
   const periodoUrl = PERIODOS.some(([k]) => k === sp?.get('periodo')) ? (sp?.get('periodo') as string) : null;
   // El pago cuyo plazo no ha vencido, nunca antes del primer año de la empresa.
   const queToca = pago202APresentar(hoyIso(), aniosEmpresa.primeroReal);
-  const [ejercicio, setEjercicio] = useElegido(anioDeTexto(sp?.get('ejercicio')), queToca.ejercicio);
-  const [periodo, setPeriodo] = useElegido(periodoUrl, queToca.periodo);
+  const [ejercicio, elegirEjercicio] = useElegido(anioDeTexto(sp?.get('ejercicio')), queToca.ejercicio, 'ejercicio');
+  const [periodo, setPeriodo, periodoElegido] = useElegido(periodoUrl, queToca.periodo, 'periodo');
+  // Al cambiar de año se queda el mismo pago.
+  const setEjercicio = (e: number) => {
+    if (!periodoElegido) setPeriodo(periodo);
+    elegirEjercicio(e);
+  };
   const anios = aniosEmpresa.aniosModelos([ejercicio, queToca.ejercicio]);
   const [b, setB] = useState<Borrador202 | null>(null);
   const [cargando, setCargando] = useState(true);

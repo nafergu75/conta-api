@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { apiFetch, companyPath } from './api';
 import { getCompanyId } from './auth';
 import { hoyIso, PRIMERO_RESPALDO, rangoAnios } from './anios';
+import { ponerEnUrl } from './urlEstado';
 
 /**
  * Años de la empresa activa para los desplegables (GET /anios). Se piden una
@@ -183,8 +184,18 @@ export function useAniosEmpresa(): UsoAniosEmpresa {
  * Valor que se abre por defecto hasta que la persona elige otro (o el que trae
  * la URL). El de por defecto se recalcula solo cuando se saben los años de la
  * empresa, sin una segunda petición con el valor provisional.
+ *
+ * Con `param`, lo elegido se escribe también en la URL (?ejercicio=2025): al
+ * volver atrás a la pantalla, se abre en lo mismo.
  */
-export function useElegido<T>(desdeUrl: T | null, porDefecto: T): [T, (v: T) => void, boolean] {
+export function useElegido<T extends string | number>(desdeUrl: T | null, porDefecto: T, param?: string): [T, (v: T) => void, boolean] {
   const [elegido, setElegido] = useState<T | null>(desdeUrl);
-  return [elegido ?? porDefecto, setElegido, elegido !== null];
+  const elegir = useCallback(
+    (v: T) => {
+      setElegido(v);
+      if (param) ponerEnUrl({ [param]: v });
+    },
+    [param],
+  );
+  return [elegido ?? porDefecto, elegir, elegido !== null];
 }

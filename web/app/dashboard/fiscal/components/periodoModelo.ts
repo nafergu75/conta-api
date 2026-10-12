@@ -15,6 +15,8 @@ import { normalizarPeriodo } from './SelectorPeriodoRetenciones';
  *  - si no, el que toca presentar, pero nunca antes del primer año de la
  *    empresa en la app.
  *
+ * Lo que se elige se escribe en la URL: al volver atrás se abre en lo mismo.
+ *
  * Los años van del primero de la empresa al actual. `listo` dice si ya se
  * conocen: hasta entonces no se pide el modelo, para no pedirlo dos veces.
  * Las pantallas que lo usan van dentro de un <Suspense> (useSearchParams).
@@ -31,7 +33,7 @@ export interface EjercicioModelo {
 export function useEjercicioAnual(): EjercicioModelo {
   const sp = useSearchParams();
   const a = useAniosEmpresa();
-  const [ejercicio, setEjercicio] = useElegido(anioDeTexto(sp?.get('ejercicio')), ejercicioAnualAPresentar(hoyIso(), a.primeroReal));
+  const [ejercicio, setEjercicio] = useElegido(anioDeTexto(sp?.get('ejercicio')), ejercicioAnualAPresentar(hoyIso(), a.primeroReal), 'ejercicio');
   return { ejercicio, setEjercicio, anios: a.aniosModelos([ejercicio]), listo: a.listo };
 }
 
@@ -48,10 +50,16 @@ export function usePeriodoTrimestral(): PeriodoModelo {
   const t = Number(sp?.get('trimestre'));
   const periodoUrl = normalizarPeriodo(sp?.get('periodo')) ?? (t >= 1 && t <= 4 ? `${t}T` : null);
   const ejercicioUrl = anioDeTexto(sp?.get('ejercicio'));
-  const [ejercicio, setEjercicio] = useElegido(ejercicioUrl, porDefecto.ejercicio);
+  const [ejercicio, elegirEjercicio] = useElegido(ejercicioUrl, porDefecto.ejercicio, 'ejercicio');
   // Con otro año en la URL pero sin periodo: el 4T de un año ya terminado o el 1T del año en curso.
   const periodoDefecto =
     ejercicioUrl === null || ejercicioUrl === porDefecto.ejercicio ? `${porDefecto.trimestre}T` : ejercicioUrl < a.actual ? '4T' : '1T';
-  const [periodo, setPeriodo] = useElegido(periodoUrl, periodoDefecto);
+  const [periodo, setPeriodo, periodoElegido] = useElegido(periodoUrl, periodoDefecto, 'periodo');
+  // Al cambiar de año se queda el mismo trimestre (el año va a la URL y, sin
+  // fijarlo, el de por defecto pasaría a ser otro).
+  const setEjercicio = (e: number) => {
+    if (!periodoElegido) setPeriodo(periodo);
+    elegirEjercicio(e);
+  };
   return { ejercicio, setEjercicio, periodo, setPeriodo, anios: a.aniosModelos([ejercicio]), listo: a.listo };
 }
