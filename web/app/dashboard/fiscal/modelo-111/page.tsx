@@ -11,6 +11,7 @@ import { FormularioRetenciones, type FormularioRetencionesDatos } from '../compo
 import { Declaraciones } from '../components/Declaraciones';
 import { Tooltip } from '../components/Tooltip';
 import { AvisosModelo } from '../components/AvisosModelo';
+import { type Traspaso4709, Traspaso4709Panel } from '../components/Traspaso4709';
 import { mesFinalPeriodo, SelectorPeriodoRetenciones } from '../components/SelectorPeriodoRetenciones';
 import { formatoImporte } from '@/lib/moneda';
 
@@ -30,6 +31,10 @@ interface Modelo111 {
   avisos?: string[];
   /** Formulario oficial: la misma declaracion que el fichero de la AEAT. */
   formulario: FormularioRetencionesDatos;
+  /** Retencion de abonos que no cabe en el modelo (se pasa de la 4751 a la 4709). null si no hay. */
+  excesoAbonos?: number | null;
+  /** Asiento de ese traspaso, si ya esta hecho. */
+  traspaso4709?: Traspaso4709 | null;
 }
 
 export default function Modelo111Page() {
@@ -102,7 +107,17 @@ function Modelo111Contenido() {
       {cabecera}
       {selectorPeriodo}
 
-      <AvisosModelo avisos={modelo.avisos} ejercicio={modelo.ejercicio} mes={mesFinalPeriodo(modelo.periodo ?? periodo)} />
+      {/* El descuadre del traspaso a la 4709 lo dice su panel, junto al botón. */}
+      <AvisosModelo avisos={modelo.avisos?.filter((a) => !a.startsWith('El traspaso a la 4709'))} ejercicio={modelo.ejercicio} mes={mesFinalPeriodo(modelo.periodo ?? periodo)} />
+
+      <Traspaso4709Panel
+        codigo="111"
+        ejercicio={modelo.ejercicio}
+        periodo={modelo.periodo ?? periodo}
+        exceso={modelo.excesoAbonos}
+        traspaso={modelo.traspaso4709}
+        onCambio={() => setRecarga((n) => n + 1)}
+      />
 
       {/* Formulario oficial (misma fuente que el fichero) */}
       <FormularioRetenciones formulario={modelo.formulario} estado={modelo.estado} onGuardado={() => setRecarga((n) => n + 1)} />

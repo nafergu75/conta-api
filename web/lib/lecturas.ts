@@ -1,5 +1,5 @@
 import { ApiError, apiFetch, companyPath } from './api';
-import type { GastoExtraido } from './compras';
+import type { CandidataOriginal, CausaRectificacion, GastoExtraido, TipoRectificativa } from './compras';
 
 /**
  * Lecturas de facturas con Azure (y Claude de respaldo) para los dos lectores.
@@ -120,8 +120,28 @@ export function descripcionNeutraTramo(tipoIva: number): string {
   return tipoIva === 0 ? 'Base exenta' : `Base al ${porcentaje(tipoIva)}`;
 }
 
+/**
+ * Lectura de una rectificativa o un abono de proveedor (V19 en «revisar»):
+ * la factura que rectifica propuesta por el servidor y lo que se deduce de lo
+ * leido. null si no es una rectificativa ni trae importes en negativo.
+ */
+export interface RectificativaLeida {
+  /** Numero de la factura que rectifica, tal como se leyo. */
+  numeroRectificada: string | null;
+  motivo: string | null;
+  /** Causa que sale del motivo leido; null: hay que elegirla. */
+  causaPropuesta: CausaRectificacion | null;
+  importesNegativos: boolean;
+  /** I con importes en negativo; S si en positivo pasa del 50 % de la original; null: hay que elegir. */
+  tipoPropuesto: TipoRectificativa | null;
+  /** 'REDUCE' con importes en negativo; null: hay que elegir si reduce o aumenta. */
+  sentido: 'REDUCE' | null;
+  /** null sin proveedor en la app (la original ira «de fuera», con el numero leido). */
+  propuesta: { coincidencia: 'EXACTA' | 'PARECIDA' | 'NINGUNA'; original: CandidataOriginal | null; candidatas: CandidataOriginal[] } | null;
+}
+
 /** Lo leido de una factura de gasto: lo del extractor clasico y, ademas, un tramo por tipo de IVA. */
-export type GastoLeido = GastoExtraido & { tramos?: TramoGasto[] };
+export type GastoLeido = GastoExtraido & { tramos?: TramoGasto[]; rectificativa?: RectificativaLeida | null };
 
 export interface LecturaGastoLista {
   lecturaId: string;

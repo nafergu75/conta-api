@@ -3,24 +3,29 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, PencilSimple, Prohibit, X } from '@phosphor-icons/react';
+import { ArrowLeft, ArrowUUpLeft, PencilSimple, Prohibit, X } from '@phosphor-icons/react';
 import { getCompanyId, getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { ApiError, apiFetch, campoDelError, companyPath, errorMessage } from '@/lib/api';
 import { formatoImporte } from '@/lib/moneda';
 import {
   claseEstadoGasto,
   claseEstadoPago,
+  claseInsigniaAbono,
   conflictoGasto,
   esTipoGasto,
   fechaCorta,
   hoyIso,
+  textoEstadoAbono,
   textoEstadoAsiento,
+  textoPeriodoModelo,
   TIPO_GASTO_INFO,
   type ConflictoGasto,
   type GastoDetalle,
 } from '@/lib/compras';
+import { leerAvisosGasto } from '@/lib/rectificativasGasto';
 import ContabilizarButton from '@/components/ContabilizarButton';
 import CobrosFactura from '@/components/CobrosFactura';
+import AplicacionesAbono from '@/components/compras/AplicacionesAbono';
 
 export default function GastoDetailPage() {
   const gastoId = useParams().id as string;
@@ -36,6 +41,9 @@ export default function GastoDetailPage() {
   const [error, setError] = useState('');
   const [noExiste, setNoExiste] = useState(false);
   const [aviso, setAviso] = useState('');
+  // Avisos del servidor al guardar (p. ej. preparar la rectificativa de un 303 presentado).
+  const [avisosGuardado, setAvisosGuardado] = useState<string[]>([]);
+  const [recienGuardada, setRecienGuardada] = useState(false);
   const [anulando, setAnulando] = useState(false);
 
   const loadGasto = useCallback(async () => {
@@ -58,9 +66,12 @@ export default function GastoDetailPage() {
   // Aviso tras guardar desde el alta o la modificacion (?guardada=1, ?modificada=1).
   useEffect(() => {
     const p = new URLSearchParams(window.location.search);
-    if (p.has('guardada')) setAviso('Factura guardada: ya está en la contabilidad y en el libro de IVA.');
+    if (p.has('guardada')) setRecienGuardada(true);
     else if (p.has('modificada')) setAviso('Cambios guardados.');
-  }, []);
+    // Solo si los hay: en desarrollo el efecto corre dos veces y la segunda lectura ya sale vacía.
+    const avisos = leerAvisosGasto(gastoId);
+    if (avisos.length) setAvisosGuardado(avisos);
+  }, [gastoId]);
 
   if (loading) {
     return (
@@ -83,9 +94,21 @@ export default function GastoDetailPage() {
 
   const fmt = (n: number) => formatoImporte(Number(n) || 0, gasto.monedaCuenta);
   const anulada = gasto.estado === 'ANULADA';
+  // Abono (total negativo) o rectificativa que aumenta.
+  const esAbono = gasto.totalFactura < 0;
+  const rect = gasto.rectificativa;
+  const queEs = gasto.esRectificativa ? (esAbono ? 'Abono' : 'Rectificativa') : 'Gasto';
+  const textoGuardada = gasto.esRectificativa
+    ? `${esAbono ? 'Abono guardado' : 'Rectificativa guardada'}: ya está en la contabilidad y en el libro de IVA${esAbono && gasto.estado === 'ACCOUNTED' && gasto.compensaciones.some((c) => c.origen === 'AUTO' && c.estado === 'ACTIVO') ? ', y descontado de lo pendiente de la factura que rectifica' : ''}.`
+    : 'Factura guardada: ya está en la contabilidad y en el libro de IVA.';
   const porPagos = (m?: string | null) => !!m && m.startsWith('La factura tiene pagos');
   const bloqueadaPorPagos =
     !gasto.acciones.editar.permitido && !gasto.acciones.anular.permitido && porPagos(gasto.acciones.editar.motivo) && porPagos(gasto.acciones.anular.motivo);
+  // Un abono con devoluciones y además aplicado a mano a otras facturas: los dos pasos de una vez.
+  const conAplicacionesManuales = esAbono && gasto.compensaciones.some((c) => c.abonoId === gasto.id && c.origen === 'MANUAL' && c.estado === 'ACTIVO');
+  // El recordatorio fijo del 303 ya lo dice: no se repite el aviso del guardado.
+  const avisosVisibles = gasto.rectificar303 ? avisosGuardado.filter((a) => !/^Registrada en .*ya está presentado/.test(a)) : avisosGuardado;
+  const unaDeFuera = !!rect && !rect.periodo && rect.originales.length === 1 && !rect.originales[0].id;
   // Sin cuenta en las lineas, el asiento usa la del tipo de gasto.
   const cuenta =
     gasto.cuentaGasto ?? (gasto.lineas.some((l) => l.accountCode) ? 'Varias (ver líneas)' : esTipoGasto(gasto.tipoGasto) ? TIPO_GASTO_INFO[gasto.tipoGasto].cuenta : null);
@@ -101,24 +124,57 @@ export default function GastoDetailPage() {
           <ArrowLeft size={20} />
         </Link>
         <div className="min-w-0 flex-1">
-          <h1 className="text-2xl font-bold text-slate-900 md:text-3xl">Gasto {gasto.numeroCompleto}</h1>
+          <h1 className="text-2xl font-bold text-slate-900 md:text-3xl">
+            {queEs} {gasto.numeroCompleto}
+          </h1>
           <p className="mt-1 break-words text-slate-600">
-            Factura {gasto.numeroFacturaProveedor ?? <span className="italic">sin número del proveedor</span>} de{' '}
+            {gasto.esRectificativa ? 'Rectificativa' : 'Factura'} {gasto.numeroFacturaProveedor ?? <span className="italic">sin número del proveedor</span>} de{' '}
             <Link href={`/dashboard/proveedores/${gasto.supplier.id}`} className="font-medium text-blue-600 hover:underline">
               {gasto.supplier.nombreFiscal}
             </Link>
           </p>
           <div className="mt-2 flex flex-wrap gap-1.5">
+            {gasto.esRectificativa && <span className={claseInsigniaAbono}>{esAbono ? 'Abono' : 'Rectificativa'}</span>}
             <span className={claseEstadoGasto(gasto.estado)}>{gasto.estadoTexto}</span>
-            {!anulada && <span className={claseEstadoPago(gasto.estadoPago, gasto.vencida)}>{gasto.estadoPagoTexto}</span>}
+            {!anulada && <span className={claseEstadoPago(gasto.estadoPago, gasto.vencida)}>{esAbono ? textoEstadoAbono(gasto.estadoPago, gasto.estado) : gasto.estadoPagoTexto}</span>}
           </div>
         </div>
       </div>
 
-      {aviso && (
+      {(aviso || recienGuardada) && (
         <div role="status" className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
-          <span>{aviso}</span>
-          <button type="button" onClick={() => setAviso('')} aria-label="Cerrar aviso" className="shrink-0">
+          <span>{aviso || textoGuardada}</span>
+          <button
+            type="button"
+            onClick={() => {
+              setAviso('');
+              setRecienGuardada(false);
+            }}
+            aria-label="Cerrar aviso"
+            className="shrink-0"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
+      {gasto.rectificar303 && !anulada && (
+        <div role="note" className="mb-4 flex flex-col gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          <p>{gasto.rectificar303.aviso}</p>
+          {gasto.rectificar303.enlace && (
+            <Link href={gasto.rectificar303.enlace} className="self-start font-semibold underline">
+              Ver el 303 del {textoPeriodoModelo(gasto.rectificar303.ejercicio, gasto.rectificar303.periodo)}
+            </Link>
+          )}
+        </div>
+      )}
+      {avisosVisibles.length > 0 && (
+        <div role="note" className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          <ul className="flex flex-col gap-1">
+            {avisosVisibles.map((a) => (
+              <li key={a}>{a}</li>
+            ))}
+          </ul>
+          <button type="button" onClick={() => setAvisosGuardado([])} aria-label="Cerrar los avisos" className="shrink-0">
             <X size={16} />
           </button>
         </div>
@@ -149,13 +205,35 @@ export default function GastoDetailPage() {
             >
               <Prohibit size={16} /> Anular
             </button>
+            {gasto.estado !== 'DRAFT' && !gasto.esRectificativa && (
+              <Link
+                href={`/dashboard/compras/nueva?tipo=rectificativa&original=${encodeURIComponent(gasto.id)}`}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                <ArrowUUpLeft size={16} /> Registrar abono o rectificativa
+              </Link>
+            )}
           </div>
-          {bloqueadaPorPagos ? (
+          {bloqueadaPorPagos && conAplicacionesManuales ? (
+            <p className="text-sm text-slate-600">
+              Tiene devoluciones y está aplicado a otras facturas: para modificarlo o anularlo, anula antes unas y otras (más abajo, en{' '}
+              <a href="#pagos" className="font-semibold text-blue-600 hover:underline">
+                Devoluciones recibidas
+              </a>{' '}
+              y en{' '}
+              <a href="#aplicaciones" className="font-semibold text-blue-600 hover:underline">
+                Aplicado a otras facturas
+              </a>
+              ).
+            </p>
+          ) : bloqueadaPorPagos ? (
             // Los dos motivos dicen casi lo mismo («...antes de modificarla» / «...antes de anularla»): uno solo, y dónde están los pagos.
             <p className="text-sm text-slate-600">
-              Tiene pagos registrados: para modificarla o anularla, anula antes sus pagos (más abajo, en{' '}
+              {esAbono
+                ? 'Tiene devoluciones registradas: para modificarlo o anularlo, anula antes sus devoluciones (más abajo, en '
+                : 'Tiene pagos registrados: para modificarla o anularla, anula antes sus pagos (más abajo, en '}
               <a href="#pagos" className="font-semibold text-blue-600 hover:underline">
-                Pagos
+                {esAbono ? 'Devoluciones recibidas' : 'Pagos'}
               </a>
               ).
             </p>
@@ -186,6 +264,45 @@ export default function GastoDetailPage() {
         </div>
       )}
 
+      {/* Que rectifica */}
+      {rect && (
+        <div className="mb-6 rounded-lg border border-violet-200 bg-violet-50 p-4 text-sm text-slate-800">
+          <p>
+            {rect.periodo ? (
+              <>
+                Rectifica las compras del {fechaCorta(rect.periodo.desde)} al {fechaCorta(rect.periodo.hasta)}
+              </>
+            ) : (
+              <>
+                Rectifica {rect.originales.length > 1 ? 'las facturas ' : 'la factura '}
+                {rect.originales.map((o, i) => (
+                  <span key={`${o.id ?? o.numero}-${i}`}>
+                    {i > 0 && ', '}
+                    {o.id ? (
+                      <Link href={`/dashboard/compras/${o.id}`} className="font-semibold text-blue-600 hover:underline">
+                        {o.numero ?? o.numeroCompleto}
+                      </Link>
+                    ) : (
+                      <span className="font-semibold">{o.numero ?? 'sin número'}</span>
+                    )}
+                    {o.fecha ? ` del ${fechaCorta(o.fecha)}` : ''}
+                    {!o.id && !unaDeFuera && ' (de fuera de la app)'}
+                  </span>
+                ))}
+              </>
+            )}{' '}
+            ({unaDeFuera ? 'de fuera de la app, ' : ''}
+            {rect.tipo === 'S' ? 'por sustitución' : 'por diferencias'}). Causa: {rect.causaTexto.charAt(0).toLowerCase() + rect.causaTexto.slice(1)}.
+          </p>
+          {rect.motivo && <p className="mt-1 break-words text-slate-600">Motivo: {rect.motivo}</p>}
+          {rect.imputacionIva.casillas === '28-29' && (
+            <p className="mt-1 text-slate-600">
+              Su IVA cuenta en el 303 del periodo de la factura que corrige (fecha {fechaCorta(rect.imputacionIva.fecha)}), no en el de su registro.
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Datos */}
       <div className="mb-6 rounded-lg border border-slate-200 bg-white p-4 md:p-6">
         <dl className="grid grid-cols-2 gap-4 md:grid-cols-3">
@@ -199,10 +316,13 @@ export default function GastoDetailPage() {
               <dd className="font-semibold text-slate-900">{fechaCorta(gasto.fechaRegistro)}</dd>
             </div>
           )}
-          <div>
-            <dt className="text-sm text-slate-600">Vencimiento</dt>
-            <dd className={`font-semibold ${gasto.vencida ? 'text-rose-700' : 'text-slate-900'}`}>{fechaCorta(gasto.fechaVencimiento) || '—'}</dd>
-          </div>
+          {/* Un abono no se paga ni vence: su vencimiento no significa nada. */}
+          {!esAbono && (
+            <div>
+              <dt className="text-sm text-slate-600">Vencimiento</dt>
+              <dd className={`font-semibold ${gasto.vencida ? 'text-rose-700' : 'text-slate-900'}`}>{fechaCorta(gasto.fechaVencimiento) || '—'}</dd>
+            </div>
+          )}
           <div>
             <dt className="text-sm text-slate-600">Tipo de gasto</dt>
             <dd className="font-semibold text-slate-900">{gasto.tipoGastoTexto}</dd>
@@ -286,20 +406,26 @@ export default function GastoDetailPage() {
             <dt>IVA soportado</dt>
             <dd className="font-mono font-semibold">{fmt(gasto.ivaTotal)}</dd>
           </div>
-          {gasto.retencionTotal > 0 && (
+          {gasto.retencionTotal !== 0 && (
             <div className="flex justify-between">
               <dt>Retención IRPF</dt>
-              <dd className="font-mono font-semibold">−{fmt(gasto.retencionTotal)}</dd>
+              <dd className="font-mono font-semibold">{fmt(-gasto.retencionTotal)}</dd>
             </div>
           )}
           <div className="flex justify-between border-t border-slate-300 pt-2 text-lg font-bold">
-            <dt>Total a pagar</dt>
-            <dd className="font-mono">{fmt(gasto.totalFactura)}</dd>
+            <dt>{esAbono ? 'Total del abono' : 'Total a pagar'}</dt>
+            <dd className={`font-mono ${esAbono ? 'text-rose-700' : ''}`}>{fmt(gasto.totalFactura)}</dd>
           </div>
-          {!anulada && gasto.importePagado > 0 && (
+          {!anulada && esAbono && (
             <div className="flex justify-between text-sm text-slate-600">
-              <dt>Pendiente de pago</dt>
-              <dd className="font-mono">{fmt(gasto.importePendiente)}</dd>
+              <dt>A tu favor (sin devolver ni aplicar)</dt>
+              <dd className="font-mono">{fmt(gasto.aFavor ?? 0)}</dd>
+            </div>
+          )}
+          {!anulada && !esAbono && (gasto.importePagado !== 0 || gasto.rectificativas.length > 0) && (
+            <div className="flex justify-between text-sm text-slate-600">
+              <dt>{gasto.rectificativas.length ? 'Pendiente de pago (ya descontados sus abonos)' : 'Pendiente de pago'}</dt>
+              <dd className="font-mono">{fmt(gasto.pendiente)}</dd>
             </div>
           )}
         </dl>
@@ -340,10 +466,38 @@ export default function GastoDetailPage() {
         )}
       </div>
 
-      {/* Pagos: no en borradores del lector ni en anuladas */}
-      {gasto.totalFactura > 0 && gasto.estado !== 'DRAFT' && !anulada && (
+      {/* Rectificativas de esta factura */}
+      {gasto.rectificativas.length > 0 && (
+        <div className="mb-6 rounded-lg border border-slate-200 bg-white p-4 md:p-6">
+          <h2 className="mb-3 font-semibold text-slate-900">Rectificativas</h2>
+          <ul className="divide-y divide-slate-100 text-sm">
+            {gasto.rectificativas.map((r) => (
+              <li key={r.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-2">
+                <Link href={`/dashboard/compras/${r.id}`} className="font-semibold text-blue-600 hover:underline">
+                  {r.numero ?? r.numeroCompleto}
+                </Link>
+                <span className="text-slate-600">
+                  {fechaCorta(r.fecha)} · registro {r.numeroCompleto} · {r.tipo === 'S' ? 'por sustitución' : 'por diferencias'}
+                </span>
+                <span className={`ml-auto font-mono font-semibold ${r.total < 0 ? 'text-rose-700' : 'text-slate-900'}`}>{fmt(r.total)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Pagos (o, en un abono, devoluciones): no en borradores del lector ni en anuladas.
+          La clave cambia con lo compensado: al aplicar o anular un abono, el resumen se vuelve a pedir. */}
+      {gasto.totalFactura !== 0 && gasto.estado !== 'DRAFT' && !anulada && (
         <div id="pagos" className="mb-6 scroll-mt-20">
-          <CobrosFactura tipo="GASTO" facturaId={gastoId} puedeEditar={puedePagar} fechaFactura={gasto.fechaEmision} onCambio={loadGasto} />
+          <CobrosFactura key={`pagos-${gasto.compensaciones.filter((c) => c.estado === 'ACTIVO').reduce((t, c) => t + c.importe, 0)}`} tipo="GASTO" abono={esAbono} facturaId={gastoId} puedeEditar={puedePagar} fechaFactura={gasto.fechaEmision} onCambio={loadGasto} />
+        </div>
+      )}
+
+      {/* Abonos: aplicaciones a otras facturas; facturas: abonos que le han restado */}
+      {!anulada && (
+        <div id="aplicaciones" className="mb-6 scroll-mt-20">
+          <AplicacionesAbono gasto={gasto} puedeEditar={puedePagar} onCambio={loadGasto} />
         </div>
       )}
 
@@ -362,6 +516,7 @@ export default function GastoDetailPage() {
           }}
           onAnulada={(contraasiento) => {
             setAnulando(false);
+            setRecienGuardada(false);
             setAviso(contraasiento ? 'Factura anulada con un contraasiento: el libro de IVA y los modelos la restan en el periodo de la anulación.' : 'Factura anulada: su asiento y su anotación en el libro de IVA quedan sin efecto.');
             loadGasto();
           }}

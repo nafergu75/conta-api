@@ -121,6 +121,9 @@ body {
 /* Iconos de las tarjetas de Modelos fiscales (347, 390, 190, 349 y 180). */
 .dark .zona-app .bg-violet-50 { background-color: rgba(139,92,246,.12); }
 .dark .zona-app .text-violet-600 { color: #a78bfa; }
+/* Abonos y rectificativas de proveedor (insignia, bloque «Rectificación» y diferencia de la sustitución). */
+.dark .zona-app .border-violet-200 { border-color: rgba(139,92,246,.35); }
+.dark .zona-app .text-violet-700 { color: #c4b5fd; }
 .dark .zona-app .bg-cyan-50 { background-color: rgba(6,182,212,.12); }
 .dark .zona-app .text-cyan-600 { color: #22d3ee; }
 .dark .zona-app .bg-fuchsia-50 { background-color: rgba(217,70,239,.12); }

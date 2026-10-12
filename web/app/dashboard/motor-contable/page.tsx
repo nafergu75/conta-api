@@ -6,7 +6,7 @@ import { ArrowRight, CheckCircle, Clock, Eye, XCircle, type Icon as IconoPhospho
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { formatoImporte } from '@/lib/moneda';
-import { conflictoGasto, enlaceRecibidaTarde, fechaCorta } from '@/lib/compras';
+import { conflictoGasto, enlaceRecibidaTarde, fechaCorta, type Rectificar303, textoPeriodoModelo } from '@/lib/compras';
 import { ConfirmationModal } from '@/components/dashboard/ConfirmationModal';
 import { ToastContainer, type ToastType } from '@/components/dashboard/Toast';
 
@@ -99,6 +99,8 @@ export default function MotorContablePage() {
   const [confirmar, setConfirmar] = useState<{ asiento: Asiento | null; cargando: boolean }>({ asiento: null, cargando: false });
   // Borrador de un gasto cuyo trimestre ya esta presentado: se corrige en la factura.
   const [recibidaTarde, setRecibidaTarde] = useState<{ mensaje: string; facturaId: string; numero: string } | null>(null);
+  // Abono que reduce el IVA de un 303 ya presentado: se aprueba si se confirma.
+  const [rectificar303, setRectificar303] = useState<{ mensaje: string; asiento: Asiento; datos: Rectificar303; facturaId: string | null } | null>(null);
   const [toasts, setToasts] = useState<Array<{ id: string; type: ToastType; title: string; message?: string }>>([]);
 
   const cargar = useCallback(async () => {
@@ -137,15 +139,20 @@ export default function MotorContablePage() {
     setToasts((prev) => [...prev, { id, type, title, message }]);
   };
 
-  const aprobar = async () => {
-    const a = confirmar.asiento;
+  const aprobar = async (confirmado?: Asiento) => {
+    const a = confirmado ?? confirmar.asiento;
     if (!a) return;
-    setConfirmar({ asiento: a, cargando: true });
+    if (!confirmado) setConfirmar({ asiento: a, cargando: true });
     setRecibidaTarde(null);
+    setRectificar303(null);
     try {
       await apiFetch(companyPath(`/accounting/journal-entries/${encodeURIComponent(a.id)}/approve`), {
         method: 'POST',
-        body: JSON.stringify({ observaciones: 'Aprobado desde el listado del Motor contable' }),
+        body: JSON.stringify({
+          observaciones: 'Aprobado desde el listado del Motor contable',
+          // «Registrar y avisarme de rectificar el 303»: el abono reduce el IVA de un 303 ya presentado.
+          ...(confirmado ? { confirmaRectificar303: true } : {}),
+        }),
       });
       addToast(
         'success',
@@ -156,6 +163,11 @@ export default function MotorContablePage() {
       await cargar();
     } catch (err) {
       const c = conflictoGasto(err);
+      if (c?.rectificar303) {
+        setRectificar303({ mensaje: errorMessage(err), asiento: a, datos: c.rectificar303, facturaId: c.facturaId });
+        setConfirmar({ asiento: null, cargando: false });
+        return;
+      }
       if (c?.fechaRegistro && c.facturaId) {
         // No es un fallo que se arregle reintentando: hay que poner la fecha en la factura.
         setRecibidaTarde({ mensaje: errorMessage(err), facturaId: c.facturaId, numero: a.numeroAsiento });
@@ -227,6 +239,35 @@ export default function MotorContablePage() {
           <input id="mc-hasta" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} className={campo} />
         </div>
       </div>
+
+      {rectificar303 && (
+        <div role="alert" className="mb-4 flex flex-col gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          <p>
+            <span className="font-semibold">No se ha aprobado el asiento {rectificar303.asiento.numeroAsiento}.</span> {rectificar303.mensaje}
+          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => aprobar(rectificar303.asiento)}
+              className="rounded-lg bg-rose-600 px-3 py-1.5 font-semibold text-white hover:bg-rose-700"
+            >
+              Aprobar y avisarme de rectificar el 303
+            </button>
+            {/* Por el art. 80 cuenta la fecha en que llegó: si llegó más tarde, se pone esa en la factura. */}
+            {rectificar303.datos.campo === 'fechaRegistro' && rectificar303.facturaId && (
+              <Link href={enlaceRecibidaTarde(rectificar303.facturaId)} className="font-semibold text-amber-900 underline">
+                Me llegó más tarde: poner la fecha de recepción
+              </Link>
+            )}
+            <Link href={rectificar303.datos.enlace} className="inline-flex items-center gap-1 font-semibold text-amber-900 underline">
+              Ver el 303{rectificar303.datos.periodo ? ` del ${textoPeriodoModelo(rectificar303.datos.ejercicio, rectificar303.datos.periodo)}` : ''} <ArrowRight size={14} />
+            </Link>
+            <button type="button" onClick={() => setRectificar303(null)} className="font-medium text-amber-800 hover:underline">
+              Cerrar
+            </button>
+          </div>
+        </div>
+      )}
 
       {recibidaTarde && (
         <div role="alert" className="mb-4 flex flex-col gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
@@ -376,7 +417,7 @@ export default function MotorContablePage() {
         confirmLabel="Aprobar"
         cancelLabel="Cancelar"
         isLoading={confirmar.cargando}
-        onConfirm={aprobar}
+        onConfirm={() => aprobar()}
         onCancel={() => setConfirmar({ asiento: null, cargando: false })}
       />
 

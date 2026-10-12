@@ -7,7 +7,7 @@ import { ArrowLeft, CheckCircle, Clock, WarningCircle, type Icon as IconoPhospho
 import { ApiError, apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { formatoImporte } from '@/lib/moneda';
-import { conflictoGasto, enlaceRecibidaTarde, fechaCorta } from '@/lib/compras';
+import { conflictoGasto, enlaceRecibidaTarde, fechaCorta, type Rectificar303, textoPeriodoModelo } from '@/lib/compras';
 
 interface JournalEntryLine {
   id: string;
@@ -73,6 +73,8 @@ export default function AsientoDetailPage() {
   const [aviso, setAviso] = useState('');
   // Al aprobar el borrador de un gasto de un trimestre presentado: la factura que hay que corregir.
   const [facturaRecibidaTarde, setFacturaRecibidaTarde] = useState<string | null>(null);
+  // Abono que reduce el IVA de un 303 ya presentado: se aprueba si se confirma.
+  const [rectificar303, setRectificar303] = useState<Rectificar303 | null>(null);
 
   const cargar = useCallback(async () => {
     try {
@@ -96,21 +98,24 @@ export default function AsientoDetailPage() {
     cargar();
   }, [cargar]);
 
-  const handleApprove = async () => {
-    if (!confirm('¿Aprobar este asiento? Quedará en firme.')) return;
+  const handleApprove = async (confirmaRectificar303 = false) => {
+    if (!confirmaRectificar303 && !confirm('¿Aprobar este asiento? Quedará en firme.')) return;
     try {
       setApproving(true);
       setError('');
+      setRectificar303(null);
       await apiFetch(companyPath(`/accounting/journal-entries/${encodeURIComponent(asientoId)}/approve`), {
         method: 'POST',
-        body: JSON.stringify({ observaciones: 'Aprobado desde el detalle del asiento' }),
+        body: JSON.stringify({ observaciones: 'Aprobado desde el detalle del asiento', ...(confirmaRectificar303 ? { confirmaRectificar303: true } : {}) }),
       });
       setAviso(asiento?.origen === 'FACTURA_GASTO' ? 'Aprobado: la factura ya cuenta en el IVA y en los modelos.' : 'Aprobado: el asiento está en firme.');
       await cargar();
     } catch (err) {
       setError(errorMessage(err));
       const c = conflictoGasto(err);
-      setFacturaRecibidaTarde(c?.fechaRegistro && c.facturaId ? c.facturaId : null);
+      // También con rectificar_303 por el art. 80: si llegó más tarde, se pone esa fecha en la factura.
+      setFacturaRecibidaTarde((c?.fechaRegistro || c?.rectificar303?.campo === 'fechaRegistro') && c.facturaId ? c.facturaId : null);
+      setRectificar303(c?.rectificar303 ?? null);
     } finally {
       setApproving(false);
     }
@@ -174,6 +179,21 @@ export default function AsientoDetailPage() {
             <Link href={enlaceRecibidaTarde(facturaRecibidaTarde)} className="mt-2 block font-semibold underline">
               Poner la fecha en que la recibiste
             </Link>
+          )}
+          {rectificar303 && (
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                disabled={approving}
+                onClick={() => handleApprove(true)}
+                className="rounded-lg bg-rose-600 px-3 py-1.5 font-semibold text-white hover:bg-rose-700 disabled:opacity-60"
+              >
+                Aprobar y avisarme de rectificar el 303
+              </button>
+              <Link href={rectificar303.enlace} className="font-semibold underline">
+                Ver el 303{rectificar303.periodo ? ` del ${textoPeriodoModelo(rectificar303.ejercicio, rectificar303.periodo)}` : ''}
+              </Link>
+            </div>
           )}
         </div>
       )}
@@ -288,7 +308,7 @@ export default function AsientoDetailPage() {
           </p>
           {puedeAprobar ? (
             <button
-              onClick={handleApprove}
+              onClick={() => handleApprove()}
               disabled={approving}
               className="bg-accent-600 hover:bg-accent-700 disabled:opacity-60 text-white font-semibold py-2 px-4 rounded-lg transition"
             >

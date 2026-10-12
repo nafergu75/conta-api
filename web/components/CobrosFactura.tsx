@@ -15,6 +15,10 @@ import { hoyIso } from '@/lib/anios';
  * moneda de la factura; el banco recibe lo cobrado al tipo del dia (el del BCE,
  * el indicado o lo que abona el banco) y la diferencia con el tipo de la
  * factura va a la 768 (ganancia) o a la 668 (perdida); la comision, a la 626.
+ *
+ * Abono de proveedor (factura de gasto en negativo): no se paga, el proveedor
+ * devuelve lo que queda a tu favor. Aqui se registra esa devolucion (el
+ * servidor la guarda en negativo; se escribe en positivo).
  */
 
 type Tipo = 'INGRESO' | 'GASTO';
@@ -47,6 +51,10 @@ interface Resumen {
   totalFactura: number;
   importeCobrado: number;
   importePendiente: number;
+  /** Gastos: lo compensado con abonos (incluido en importeCobrado). En un abono, en negativo. */
+  importeCompensado?: number;
+  /** Gastos: es un abono (total < 0): sus «pagos» son devoluciones recibidas. */
+  esAbono?: boolean;
   /** Lo mismo en la moneda de cuenta (cuadra con la 430). */
   totalFacturaCuenta?: number;
   importeCobradoCuenta?: number;
@@ -82,6 +90,17 @@ const TEXTOS = {
   INGRESO: { ruta: 'income-invoices', recurso: 'cobros', uno: 'cobro', titulo: 'Cobros', registrar: 'Registrar cobro', hecho: 'Cobro registrado.', nada: 'Todavía no hay cobros.', sinBancos: 'No hay cuentas bancarias activas: créalas en Tesorería para cobrar por banco.' },
   GASTO: { ruta: 'expense-invoices', recurso: 'pagos', uno: 'pago', titulo: 'Pagos', registrar: 'Registrar pago', hecho: 'Pago registrado.', nada: 'Todavía no hay pagos.', sinBancos: 'No hay cuentas bancarias activas: créalas en Tesorería para pagar desde el banco.' },
 } as const;
+/** Abono de proveedor: lo que se registra es la devolución recibida. */
+const TEXTOS_ABONO = {
+  ruta: 'expense-invoices',
+  recurso: 'pagos',
+  uno: 'devolución',
+  titulo: 'Devoluciones recibidas',
+  registrar: 'Registrar devolución recibida',
+  hecho: 'Devolución registrada.',
+  nada: 'Todavía no hay devoluciones.',
+  sinBancos: 'No hay cuentas bancarias activas: créalas en Tesorería para registrar lo recibido en el banco.',
+} as const;
 
 export default function CobrosFactura({
   tipo,
@@ -90,6 +109,7 @@ export default function CobrosFactura({
   fechaFactura,
   moneda: monedaProp = 'EUR',
   monedaCuenta: monedaCuentaProp = 'EUR',
+  abono = false,
   onCambio,
 }: {
   tipo: Tipo;
@@ -100,10 +120,13 @@ export default function CobrosFactura({
   /** Moneda de la factura y de la contabilidad (por defecto EUR: las compras van siempre en la de cuenta). */
   moneda?: string;
   monedaCuenta?: string;
+  /** Abono de proveedor (gasto en negativo): devoluciones recibidas en vez de pagos. */
+  abono?: boolean;
   /** Se llama tras registrar o anular (para recargar la factura). */
   onCambio?: () => void;
 }) {
-  const t = TEXTOS[tipo];
+  const esAbono = tipo === 'GASTO' && abono;
+  const t = esAbono ? TEXTOS_ABONO : TEXTOS[tipo];
   const base = companyPath(`/${t.ruta}/${facturaId}/${t.recurso}`);
   const [resumen, setResumen] = useState<Resumen | null>(null);
   const [error, setError] = useState('');
@@ -130,18 +153,15 @@ export default function CobrosFactura({
   const fmtCuenta = (n: number) => formatoImporte(n, monedaCuenta);
 
   const anular = async (c: Cobro) => {
-    if (!window.confirm(`¿Anular el ${t.uno} de ${fmt(c.importeDoc ?? c.importe)} del ${fecha(c.fecha)}?\n\nSu asiento (${c.asientoNumero ?? 'sin asiento'}) dejará de contar.`)) return;
+    if (!window.confirm(`¿Anular ${esAbono ? 'la' : 'el'} ${t.uno} de ${fmt(Math.abs(c.importeDoc ?? c.importe))} del ${fecha(c.fecha)}?\n\nSu asiento (${c.asientoNumero ?? 'sin asiento'}) dejará de contar.`)) return;
     setOcupado(true);
     setError('');
     setAviso('');
     try {
       const r = await apiFetch<{ resumen: Resumen; contraasiento: boolean }>(`${base}/${c.id}/anular`, { method: 'POST', body: '{}' });
       setResumen(r.resumen);
-      setAviso(
-        r.contraasiento
-          ? `${t.uno[0].toUpperCase()}${t.uno.slice(1)} anulado. Como su periodo ya está cerrado, se ha hecho un contraasiento con fecha de hoy.`
-          : `${t.uno[0].toUpperCase()}${t.uno.slice(1)} anulado.`,
-      );
+      const hecho = `${t.uno[0].toUpperCase()}${t.uno.slice(1)} ${esAbono ? 'anulada' : 'anulado'}.`;
+      setAviso(r.contraasiento ? `${hecho} Como su periodo ya está cerrado, se ha hecho un contraasiento con fecha de hoy.` : hecho);
       onCambio?.();
     } catch (e) {
       setError(errorMessage(e));
@@ -150,7 +170,9 @@ export default function CobrosFactura({
     }
   };
 
-  const pendiente = resumen?.importePendiente ?? 0;
+  // En un abono el pendiente llega en negativo: lo que queda a tu favor, en positivo.
+  const pendiente = esAbono ? -(resumen?.importePendiente ?? 0) : resumen?.importePendiente ?? 0;
+  const compensado = Math.abs(resumen?.importeCompensado ?? 0);
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-5">
@@ -159,8 +181,18 @@ export default function CobrosFactura({
           <h2 className="font-semibold text-slate-900">{t.titulo}</h2>
           {resumen && (
             <p className="mt-0.5 text-sm text-slate-600">
-              {tipo === 'INGRESO' ? 'Cobrado' : 'Pagado'} {fmt(resumen.importeCobrado)} de {fmt(resumen.totalFactura)} ·{' '}
-              <span className={`font-semibold ${pendiente > 0 ? 'text-amber-700' : 'text-green-700'}`}>Pendiente: {fmt(pendiente)}</span>
+              {esAbono ? (
+                <>
+                  Devuelto o aplicado {fmt(Math.abs(resumen.importeCobrado))} de {fmt(Math.abs(resumen.totalFactura))} ·{' '}
+                  <span className={`font-semibold ${pendiente > 0 ? 'text-amber-700' : 'text-green-700'}`}>A tu favor: {fmt(pendiente)}</span>
+                </>
+              ) : (
+                <>
+                  {tipo === 'INGRESO' ? 'Cobrado' : 'Pagado'} {fmt(Math.round((resumen.importeCobrado - compensado) * 100) / 100)}
+                  {compensado > 0 && ` y descontado con abonos ${fmt(compensado)}`} de {fmt(resumen.totalFactura)} ·{' '}
+                  <span className={`font-semibold ${pendiente > 0 ? 'text-amber-700' : 'text-green-700'}`}>Pendiente: {fmt(pendiente)}</span>
+                </>
+              )}
               {enDivisa && resumen.importePendienteCuenta !== undefined && (
                 <span className="text-slate-500"> ({fmtCuenta(resumen.importePendienteCuenta)} en la cuenta del cliente)</span>
               )}
@@ -189,13 +221,13 @@ export default function CobrosFactura({
             <li key={c.id} className={`flex flex-wrap items-center gap-x-4 gap-y-1 py-2 ${c.estado === 'ANULADO' ? 'text-slate-400' : ''}`}>
               <span className="w-24 tabular-nums">{fecha(c.fecha)}</span>
               <span className={`w-32 text-right font-mono tabular-nums ${c.estado === 'ANULADO' ? 'line-through' : 'font-semibold text-slate-900'}`}>
-                {fmt(c.importeDoc ?? c.importe)}
+                {fmt(Math.abs(c.importeDoc ?? c.importe))}
               </span>
               <span className="text-slate-600">{c.medio === 'CAJA' ? 'Caja (570)' : `Banco (${c.cuentaTesoreria})`}</span>
               {enDivisa && (
                 <span className="w-full text-xs text-slate-500 sm:w-auto">
                   {c.tipoCambio ? `${textoTipo(monedaCuenta, moneda, c.tipoCambio)} · ` : ''}
-                  {c.medio === 'CAJA' ? 'caja' : 'banco'} {fmtCuenta(c.importeTesoreria ?? c.importe)}
+                  {c.medio === 'CAJA' ? 'caja' : 'banco'} {fmtCuenta(Math.abs(c.importeTesoreria ?? c.importe))}
                   {c.comisionBancaria ? ` · comisión ${fmtCuenta(c.comisionBancaria)}` : ''}
                   {c.diferenciaCambio
                     ? ` · ${c.diferenciaCambio > 0 ? 'ganancia' : 'pérdida'} de cambio ${fmtCuenta(Math.abs(c.diferenciaCambio))} (${c.diferenciaCambio > 0 ? '768' : '668'})`
@@ -206,7 +238,7 @@ export default function CobrosFactura({
               {c.nota && <span className="min-w-0 flex-1 truncate text-slate-500" title={c.nota}>{c.nota}</span>}
               <span className="ml-auto">
                 {c.estado === 'ANULADO' ? (
-                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs">Anulado</span>
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs">{esAbono ? 'Anulada' : 'Anulado'}</span>
                 ) : (
                   puedeEditar && (
                     <button type="button" disabled={ocupado} onClick={() => anular(c)} className="text-xs font-medium text-red-700 hover:underline disabled:opacity-50">
@@ -223,9 +255,10 @@ export default function CobrosFactura({
       {abierto && resumen && (
         <ModalCobro
           tipo={tipo}
+          abono={esAbono}
           base={base}
           pendiente={pendiente}
-          pendienteCuenta={resumen.importePendienteCuenta ?? pendiente}
+          pendienteCuenta={esAbono ? (resumen.importePendienteCuenta !== undefined ? -resumen.importePendienteCuenta : pendiente) : resumen.importePendienteCuenta ?? pendiente}
           cuentaTercero={resumen.cuentaTercero ?? null}
           moneda={moneda}
           monedaCuenta={monedaCuenta}
@@ -246,6 +279,7 @@ export default function CobrosFactura({
 
 function ModalCobro({
   tipo,
+  abono = false,
   base,
   pendiente,
   pendienteCuenta,
@@ -257,6 +291,8 @@ function ModalCobro({
   onHecho,
 }: {
   tipo: Tipo;
+  /** Devolución recibida de un abono de proveedor (el pendiente es lo que queda a tu favor). */
+  abono?: boolean;
   base: string;
   /** Subcuenta del tercero (null si aun no tiene: la recibe al registrar). */
   cuentaTercero: string | null;
@@ -270,7 +306,7 @@ function ModalCobro({
   onCerrar: () => void;
   onHecho: (r: Resumen) => void;
 }) {
-  const t = TEXTOS[tipo];
+  const t = abono ? TEXTOS_ABONO : TEXTOS[tipo];
   const enDivisa = moneda !== monedaCuenta;
   const fmt = (n: number) => formatoImporte(n, moneda);
   const fmtCuenta = (n: number) => formatoImporte(n, monedaCuenta);
@@ -343,7 +379,9 @@ function ModalCobro({
 
   const guardar = async () => {
     if (!Number.isFinite(valor) || valor <= 0) return setError('Indica un importe mayor que cero.');
-    if (Math.round(valor * 100) > Math.round(pendiente * 100)) return setError(`El importe no puede superar lo pendiente (${fmt(pendiente)}).`);
+    if (Math.round(valor * 100) > Math.round(pendiente * 100)) {
+      return setError(abono ? `El importe no puede superar lo que queda a tu favor (${fmt(pendiente)}).` : `El importe no puede superar lo pendiente (${fmt(pendiente)}).`);
+    }
     if (!fechaCobro) return setError('Indica la fecha.');
     const divisa: Record<string, number> = {};
     if (enDivisa) {
@@ -393,8 +431,8 @@ function ModalCobro({
           </button>
         </div>
         <p className="text-sm text-slate-600">
-          Pendiente: <span className="font-semibold">{fmt(pendiente)}</span>. Puedes registrar una parte; se genera su asiento{' '}
-          {tipo === 'INGRESO' ? '(banco o caja contra la cuenta del cliente)' : '(cuenta del proveedor contra banco o caja)'}.
+          {abono ? 'A tu favor' : 'Pendiente'}: <span className="font-semibold">{fmt(pendiente)}</span>. Puedes registrar una parte; se genera su asiento{' '}
+          {tipo === 'INGRESO' ? '(banco o caja contra la cuenta del cliente)' : abono ? '(banco o caja contra la cuenta del proveedor)' : '(cuenta del proveedor contra banco o caja)'}.
         </p>
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -409,7 +447,7 @@ function ModalCobro({
           </div>
         </div>
         <div>
-          <label htmlFor="cobro-cuenta" className="mb-1 block text-sm font-medium text-slate-700">{tipo === 'INGRESO' ? 'Dónde se cobra' : 'Desde dónde se paga'}</label>
+          <label htmlFor="cobro-cuenta" className="mb-1 block text-sm font-medium text-slate-700">{tipo === 'INGRESO' ? 'Dónde se cobra' : abono ? 'Dónde lo recibes' : 'Desde dónde se paga'}</label>
           {cuentas === null ? (
             <p className="text-sm text-slate-500">Cargando cuentas…</p>
           ) : (

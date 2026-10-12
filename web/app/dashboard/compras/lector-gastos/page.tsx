@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, CheckCircle, FileArrowUp, WarningCircle } from '@phosphor-icons/react';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
@@ -8,8 +8,8 @@ import PanelLectura from '@/components/lector/PanelLectura';
 import { anuncioLecturaTerminada, descartarLectura, ErrorLectura, esCancelada, euros, leerFactura, porcentaje, type GastoLeido, type InfoLectura } from '@/lib/lecturas';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import FormFacturaGasto, { type FormInicial } from '@/components/compras/FormFacturaGasto';
-import { type GastoRegistrado } from '@/lib/compras';
-import { centimos, cuotasDescuadradas, inicialDe, marcasDelFormulario, marcasDireccion, retencionSinTipo } from '@/lib/lectorGastos';
+import { fechaCorta, type GastoRegistrado } from '@/lib/compras';
+import { centimos, cuotasDescuadradas, inicialComoAbono, inicialDe, marcasDelFormulario, marcasDireccion, retencionSinTipo } from '@/lib/lectorGastos';
 import SoltarFactura from '@/components/lector/SoltarFactura';
 import AvisoTerceroNuevo, { type TerceroEnlazado } from '@/components/lector/AvisoTerceroNuevo';
 
@@ -19,6 +19,11 @@ import AvisoTerceroNuevo, { type TerceroEnlazado } from '@/components/lector/Avi
  * usuario revisa y corrige todos los datos y, al registrarla, se crea la
  * factura de gasto con su asiento en borrador (se aprueba en el Motor
  * contable). El archivo se lee en el servidor; aqui solo se ve la vista previa.
+ *
+ * Una rectificativa o un abono (V19 en «revisar») se registra como abono: el
+ * formulario se abre con el bloque «Rectificación» y la factura original que
+ * propone el servidor. Si no lo es, «Registrarla como factura normal» manda
+ * noEsRectificativa (queda en el registro de auditoría).
  */
 
 const MAX_BYTES = 4 * 1024 * 1024;
@@ -72,6 +77,8 @@ export default function LectorGastosPage() {
   const [lectura, setLectura] = useState(0);
   const [info, setInfo] = useState<InfoLectura | null>(null);
   const [revisado, setRevisado] = useState(false);
+  // Rectificativa leida: se registra como abono salvo que la persona diga que no lo es.
+  const [comoAbono, setComoAbono] = useState(true);
   const [alternativa, setAlternativa] = useState<{ ruta: string; texto: string } | null>(null);
   const [segundos, setSegundos] = useState(0);
   // Proveedor dado de alta o elegido en esta lectura (el aviso pasa a verde).
@@ -156,6 +163,7 @@ export default function LectorGastosPage() {
     setInfo(null);
     setRevisado(false);
     setProveedorResuelto(null);
+    setComoAbono(true);
     setLeyendo(true);
     try {
       const r = await leerFactura('gastos', f, {
@@ -198,8 +206,11 @@ export default function LectorGastosPage() {
   const noEsFactura = tipoDocumento === 'nomina' || tipoDocumento === 'seguros_sociales';
   const leidaComoNoFactura = leido?.tipoDocumento === 'nomina' || leido?.tipoDocumento === 'seguros_sociales';
   const infoPanel = info && leidaComoNoFactura ? sinTipoDocumento(info) : info;
-  // Una rectificativa no se puede registrar como un gasto normal (sumaria en vez de restar).
-  const rectificativa = info?.campos.tipoDocumento?.estado === 'error';
+  // Rectificativa o abono: se registra como abono (con el bloque «Rectificación»).
+  const leidaRect = leido?.rectificativa ?? null;
+  const abono = !!leidaRect && comoAbono;
+  const inicialForm = useMemo(() => (inicial && leidaRect && comoAbono ? inicialComoAbono(inicial, leidaRect) : inicial), [inicial, leidaRect, comoAbono]);
+  const propuesta = leidaRect?.propuesta ?? null;
   const faltaRevision = !!infoPanel?.requiereRevision && !revisado;
   // Si lo unico marcado era el tipo de documento, "es una factura de gasto" ya es la revision.
   const revisadoEnviado = !!info?.requiereRevision && !infoPanel?.requiereRevision ? !noEsFactura : revisado;
@@ -255,10 +266,19 @@ export default function LectorGastosPage() {
             <p className="flex items-start gap-2 font-medium">
               <CheckCircle size={22} weight="fill" className="mt-0.5 shrink-0" />
               <span>
-                Factura registrada (registro {registrado.factura.numeroCompleto}). Su asiento está en borrador: revísalo y apruébalo en el Motor contable.
+                {registrado.factura.esRectificativa ? 'Abono registrado' : 'Factura registrada'} (registro {registrado.factura.numeroCompleto}). Su asiento está en borrador: revísalo y
+                apruébalo en el Motor contable.
+                {registrado.factura.esRectificativa && ' Al aprobarlo se descontará de la factura que rectifica.'}
                 {registrado.proveedorCreado && ' El proveedor se ha dado de alta.'}
               </span>
             </p>
+            {!!registrado.factura.avisos?.length && (
+              <ul className="flex flex-col gap-1 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                {registrado.factura.avisos.map((a) => (
+                  <li key={a}>{a}</li>
+                ))}
+              </ul>
+            )}
             <div className="flex flex-wrap gap-3 text-sm">
               <Link href={`/dashboard/compras/${registrado.factura.id}`} className="rounded-lg border border-emerald-200 bg-white px-4 py-2 font-semibold text-emerald-700 hover:bg-emerald-50">
                 Ver la factura
@@ -273,7 +293,7 @@ export default function LectorGastosPage() {
               </button>
             </div>
           </div>
-        ) : !leido || !inicial || !info || !infoPanel ? (
+        ) : !leido || !inicial || !inicialForm || !info || !infoPanel ? (
           <div className="mx-auto max-w-2xl">
             {/* Zona de subida (el archivo se puede soltar en toda la pagina: SoltarFactura); con el teclado, el boton "Seleccionar archivo". */}
             <div
@@ -364,9 +384,49 @@ export default function LectorGastosPage() {
                 lector="gastos"
                 revisado={revisado}
                 onRevisado={setRevisado}
-                conCasilla={!rectificativa && !leido.duplicada}
-                sinArreglo={[...(rectificativa ? ['tipoDocumento'] : []), ...(leido.duplicada ? ['numero'] : [])]}
+                conCasilla={!leido.duplicada}
+                sinArreglo={leido.duplicada ? ['numero'] : []}
               />
+              {/* Rectificativa o abono: que factura rectifica (la propuesta del servidor) y la salida si no lo es. */}
+              {leidaRect && (
+                <div className="space-y-2 rounded-lg border border-violet-200 bg-violet-50 p-4 text-sm text-slate-800">
+                  {abono ? (
+                    <>
+                      <p className="font-semibold">Es una rectificativa o un abono: se registrará como abono.</p>
+                      <p>
+                        {propuesta?.original ? (
+                          <>
+                            Rectifica la {propuesta.original.numero ?? propuesta.original.numeroCompleto} del {fechaCorta(propuesta.original.fecha)} (registro {propuesta.original.numeroCompleto}).{' '}
+                            {propuesta.coincidencia === 'EXACTA' ? 'Coincide con el número leído.' : 'El número se parece al leído: compruébalo.'}
+                          </>
+                        ) : !propuesta && leidaRect.numeroRectificada ? (
+                          <>El proveedor no está en la app: la factura que rectifica ({leidaRect.numeroRectificada}) se registra como «de fuera». Pon su fecha.</>
+                        ) : (
+                          <>
+                            Elige la factura que rectifica en «Rectificación»
+                            {leidaRect.numeroRectificada ? ` (se ha leído el número ${leidaRect.numeroRectificada})` : ''}.
+                          </>
+                        )}
+                      </p>
+                      {!leidaRect.tipoPropuesto && (
+                        <p className="text-amber-800">
+                          Los importes vienen en positivo: elige si la rectificativa es por diferencias (trae solo lo que cambia) o por sustitución (trae la factura corregida entera).
+                        </p>
+                      )}
+                      <button type="button" onClick={() => setComoAbono(false)} className="text-left font-semibold text-blue-600 hover:underline">
+                        No es una rectificativa: registrarla como factura normal
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <p>Se registrará como una factura normal, no como abono. Queda anotado que lo has indicado tú.</p>
+                      <button type="button" onClick={() => setComoAbono(true)} className="text-left font-semibold text-blue-600 hover:underline">
+                        Volver a registrarla como abono
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
               {/* De donde sale la cuenta de la factura (inicialDe): la habitual del proveedor o la sugerida por el concepto. */}
               {leido.cuentaHabitual && inicial.cuentaGasto === leido.cuentaHabitual.codigo ? (
                 <p className="text-sm text-slate-600">
@@ -436,15 +496,21 @@ export default function LectorGastosPage() {
               )}
 
               <FormFacturaGasto
-                key={lectura}
+                key={`${lectura}-${abono ? 'abono' : 'factura'}`}
                 modo="lector"
-                inicial={inicial}
-                marcas={{ ...marcasDireccion(leido, inicial), ...marcasDelFormulario(infoPanel.campos, inicial) }}
-                extra={{ tipoDocumento, confianza: leido.confianza, lecturaId: info.lecturaId, revisado: revisadoEnviado }}
+                inicial={inicialForm}
+                marcas={{ ...marcasDireccion(leido, inicialForm), ...marcasDelFormulario(infoPanel.campos, inicialForm) }}
+                numeroRectificadaLeida={leidaRect?.numeroRectificada ?? null}
+                extra={{
+                  tipoDocumento,
+                  confianza: leido.confianza,
+                  lecturaId: info.lecturaId,
+                  revisado: revisadoEnviado,
+                  // Leida como rectificativa y registrada como factura normal: lo ha dicho la persona.
+                  ...(leidaRect && !abono ? { noEsRectificativa: true } : {}),
+                }}
                 bloqueado={
-                  rectificativa
-                    ? 'Las facturas rectificativas todavía no se pueden registrar con el lector: no la registres como un gasto normal.'
-                    : leido.duplicada
+                  leido.duplicada
                     ? `Ya registraste esta factura (${leido.duplicada.numeroCompleto}): no se registra dos veces.`
                     : noEsFactura
                       ? 'Confirma antes si es una factura de gasto (aviso de arriba).'

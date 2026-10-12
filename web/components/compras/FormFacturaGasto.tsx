@@ -14,15 +14,20 @@ import {
   conflictoGasto,
   type ConflictoGasto,
   CUENTAS_GASTO_HABITUALES,
+  cuentaPropuesta,
+  type DatosParaRectificar,
   type GastoDetalle,
   type GastoRegistrado,
   paisDelPrefijo,
   sumarDias,
+  textoPeriodoModelo,
   TIPO_GASTO_INFO,
   TIPOS_GASTO,
   TIPOS_IVA_GASTO,
   type TipoGasto,
 } from '@/lib/compras';
+import { bloqueParaEnviar, type EstadoRectificacion, faltaEnBloque, type LineaCuerpo, signoDe } from '@/lib/rectificativasGasto';
+import BloqueRectificacion, { LineasOriginal } from './BloqueRectificacion';
 
 /**
  * Formulario de una factura de gasto: alta (Compras > Nueva factura de gasto),
@@ -35,6 +40,11 @@ import {
  *
  * Los totales se calculan con el mismo redondeo que el servidor. Los errores
  * del servidor marcan el campo (details.campo).
+ *
+ * Con `inicial.rectificativa` es un abono o una rectificativa del proveedor:
+ * añade el bloque «Rectificación» y las líneas se escriben en positivo (el
+ * signo lo pone «Reduce el importe»). Por sustitución, las líneas son las de
+ * la factura corregida y se enseña la diferencia que se registra.
  */
 
 export type ProveedorElegido =
@@ -58,6 +68,8 @@ export interface LineaInicial {
   tipoIva: number;
   tipoRetencion: number;
   cuenta?: string | null;
+  /** Abono: cuenta de la línea de la factura original (de ahí sale la que se propone por causa). */
+  cuentaOriginal?: string | null;
 }
 
 export interface FormInicial {
@@ -74,6 +86,10 @@ export interface FormInicial {
   observaciones?: string;
   /** Lector: total que pone la factura (se cruza con el calculado). */
   totalDocumento?: number;
+  /** Abono o rectificativa: el bloque «Rectificación» ya rellenado. Sin él, una factura normal. */
+  rectificativa?: EstadoRectificacion;
+  /** Abono de una factura de la app: sus datos (GET /:id/rectificar), si ya se han pedido. */
+  datosOriginal?: DatosParaRectificar | null;
 }
 
 /**
@@ -123,6 +139,8 @@ interface Props {
     motivo: string;
     aviso: (proveedor: ProveedorElegido | null, enlazar: (p: ProveedorElegido) => void) => React.ReactNode;
   };
+  /** lector: número de la factura que rectifica, tal como se leyó (para buscarla). */
+  numeroRectificadaLeida?: string | null;
   onGuardado: (r: GastoRegistrado) => void;
   onCancelar?: () => void;
 }
@@ -137,6 +155,8 @@ interface LineaForm {
   tipoRetencion: number;
   /** Cuenta propia de la linea («Cambiar cuenta»); sin ella, la de la factura o la del tipo de gasto. */
   cuenta?: string;
+  /** Abono: cuenta de la línea original (la propuesta por causa sale de ella). */
+  cuentaOriginal?: string;
 }
 
 interface ProveedorBuscado {
@@ -261,9 +281,13 @@ export default function FormFacturaGasto({
   avisoInicial,
   marcas,
   proveedorDeAlta,
+  numeroRectificadaLeida,
   onGuardado,
   onCancelar,
 }: Props) {
+  // Abono o rectificativa del proveedor: el bloque «Rectificación» y los datos de la original de la app.
+  const [rect, setRect] = useState<EstadoRectificacion | null>(inicial?.rectificativa ?? null);
+  const [datosOriginal, setDatosOriginal] = useState<DatosParaRectificar | null>(inicial?.datosOriginal ?? null);
   const [proveedor, setProveedor] = useState<ProveedorElegido | null>(inicial?.proveedor ?? null);
   const [numero, setNumero] = useState(inicial?.numeroFacturaProveedor ?? '');
   const [fechaEmision, setFechaEmision] = useState(inicial?.fechaEmision ?? '');
@@ -272,7 +296,8 @@ export default function FormFacturaGasto({
   const [vencTocado, setVencTocado] = useState(modo === 'editar' || !!inicial?.fechaVencimiento);
   const [mostrarRegistro, setMostrarRegistro] = useState(!!inicial?.fechaRegistro || campoInicial === 'fechaRegistro');
   const [fechaRegistro, setFechaRegistro] = useState(inicial?.fechaRegistro ?? '');
-  const [tipoGasto, setTipoGasto] = useState<TipoGasto>(inicial?.tipoGasto ?? 'SUMINISTROS');
+  // Un abono sin factura de la app suele ser de compras de mercaderías (devolución, descuento, rappel).
+  const [tipoGasto, setTipoGasto] = useState<TipoGasto>(inicial?.tipoGasto ?? (inicial?.rectificativa ? 'COMPRA' : 'SUMINISTROS'));
   const [cuenta, setCuenta] = useState(inicial?.cuentaGasto ?? '');
   const [mostrarCuenta, setMostrarCuenta] = useState(!!inicial?.cuentaGasto && inicial.cuentaGasto !== TIPO_GASTO_INFO[inicial?.tipoGasto ?? 'SUMINISTROS'].cuenta);
   const [lineas, setLineas] = useState<LineaForm[]>(() =>
@@ -286,6 +311,7 @@ export default function FormFacturaGasto({
           tipoIva: l.tipoIva,
           tipoRetencion: l.tipoRetencion,
           cuenta: l.cuenta ?? undefined,
+          cuentaOriginal: l.cuentaOriginal ?? undefined,
         }))
       : [lineaVacia()],
   );
@@ -382,18 +408,53 @@ export default function FormFacturaGasto({
     setLineas((ls) => (ls.some((l) => !retenciones.includes(l.tipoRetencion)) ? ls.map((l) => (retenciones.includes(l.tipoRetencion) ? l : { ...l, tipoRetencion: 0 })) : ls));
   }, [tipoGasto, retenciones]);
 
+  // En un abono por diferencias las lineas se escriben en positivo y «Reduce el importe» les pone el signo menos.
+  const signo = rect ? signoDe(rect) : 1;
+  const sustitucion = rect?.tipo === 'S';
   const valores = useMemo(
     () =>
       lineas.map((l) => ({
         cantidad: parseImporte(l.cantidad),
-        precioUnitario: parseImporte(l.precio),
+        // NaN si el precio no se lee (se avisa al guardar); 0 sin signo menos.
+        precioUnitario: signo * parseImporte(l.precio) + 0,
         descuentoPorcentaje: l.descuento,
         tipoIva: l.tipoIva,
         tipoRetencion: conRetencion ? l.tipoRetencion : 0,
       })),
-    [lineas, conRetencion],
+    [lineas, conRetencion, signo],
   );
   const totales = useMemo(() => calcularTotales(valores), [valores]);
+  // Sustitucion: la diferencia entre la corregida (las lineas) y la original.
+  const totalesOriginal = useMemo(() => {
+    if (!sustitucion || !rect) return null;
+    const vs = rect.lineasOriginal.map((l) => ({ cantidad: parseImporte(l.cantidad), precioUnitario: parseImporte(l.precio), tipoIva: l.tipoIva, tipoRetencion: l.tipoRetencion }));
+    return vs.length && vs.every((v) => Number.isFinite(v.cantidad) && Number.isFinite(v.precioUnitario)) ? calcularTotales(vs) : null;
+  }, [sustitucion, rect]);
+  const diferencia = totalesOriginal
+    ? {
+        base: (Math.round(totales.base * 100) - Math.round(totalesOriginal.base * 100)) / 100,
+        iva: (Math.round(totales.iva * 100) - Math.round(totalesOriginal.iva * 100)) / 100,
+        retencion: (Math.round(totales.retencion * 100) - Math.round(totalesOriginal.retencion * 100)) / 100,
+        total: (Math.round(totales.total * 100) - Math.round(totalesOriginal.total * 100)) / 100,
+      }
+    : null;
+  /** Lo que se registra resta (abono): por diferencias, el total; por sustitucion, la diferencia. */
+  const esAbono = !!rect && (sustitucion ? (diferencia?.total ?? 0) < 0 : totales.total < 0);
+  /** Lector con importes en positivo: aún no se ha dicho si es por diferencias (y si resta o suma) o por sustitución. */
+  const sinSentido = !!rect && (!rect.tipo || (rect.tipo === 'I' && !rect.sentido));
+  /** Cuenta de una linea si no tiene una propia: en un abono, la que toca por la causa. */
+  const cuentaPorDefecto = (l: LineaForm): { codigo: string; texto: string } => {
+    const base = l.cuentaOriginal || cuenta.trim() || TIPO_GASTO_INFO[tipoGasto].cuenta;
+    // Por sustitución, la corregida va a las cuentas de la original: el servidor resta línea a línea
+    // por cuenta, y con otra cuenta saldrían dos líneas (una que abona la 600 y otra que carga la 608).
+    if (sustitucion) return l.cuentaOriginal ? { codigo: l.cuentaOriginal, texto: 'la de la factura original' } : { codigo: cuenta.trim() || TIPO_GASTO_INFO[tipoGasto].cuenta, texto: cuenta.trim() ? 'la de la factura' : 'la del tipo de gasto' };
+    if (rect?.causa) {
+      const propuesta = cuentaPropuesta(rect.causa, base, rect.que === 'periodo');
+      if (propuesta && propuesta !== base) return { codigo: propuesta, texto: 'la que corresponde a la causa' };
+      if (l.cuentaOriginal) return { codigo: l.cuentaOriginal, texto: 'la de la factura original' };
+    }
+    return { codigo: cuenta.trim() || TIPO_GASTO_INFO[tipoGasto].cuenta, texto: cuenta.trim() ? 'la de la factura' : 'la del tipo de gasto' };
+  };
   const totalDoc = parseImporte(totalDocumento);
   const totalNoCuadra = modo === 'lector' && Number.isFinite(totalDoc) && Math.abs(totalDoc - totales.total) > 0.02;
   const marcaTotal = marcaLeida('totalDocumento', totalDocumento);
@@ -418,7 +479,7 @@ export default function FormFacturaGasto({
   // el aviso queda junto al boton y el campo, muy arriba). Si no se sabe cual es, el aviso.
   useEffect(() => {
     if (!intentoFallido) return;
-    const id = idDelCampo(campoError, lineas);
+    const id = idDelCampo(campoError, lineas, rect);
     const el = (id && document.getElementById(id)) || document.getElementById('fg-error');
     if (!el) return;
     el.scrollIntoView({ block: 'center', behavior: 'smooth' });
@@ -446,8 +507,91 @@ export default function FormFacturaGasto({
     if (!vencTocado) setFechaVencimiento(v ? sumarDias(v, 30) : '');
   };
 
-  const guardar = async (e: React.FormEvent) => {
-    e.preventDefault();
+  /**
+   * Abono de una factura de la app elegida en el bloque: hereda su tipo de
+   * gasto y, si aún no hay líneas escritas, se rellenan con las suyas (en
+   * positivo, con su cuenta para proponer la de la causa).
+   */
+  const alLlegarDatosOriginal = (d: DatosParaRectificar | null) => {
+    setDatosOriginal(d);
+    if (!d) return;
+    setTipoGasto(d.tipoGasto);
+    // Lector: la cuenta que sugirio (la habitual del proveedor) no es la de la original.
+    if (modo === 'lector') {
+      setCuenta('');
+      setMostrarCuenta(false);
+    }
+    setLineas((ls) => {
+      const enBlanco = ls.every((l) => !l.descripcion.trim() && !l.precio.trim());
+      if (!enBlanco) {
+        // Lineas ya escritas (o leidas): cada una toma la cuenta de la original (la unica, o la de
+        // la linea con su mismo IVA), para proponer la de la causa o restar cuenta a cuenta.
+        const cuentas = Array.from(new Set(d.lineas.map((x) => x.cuenta).filter((c): c is string => !!c)));
+        const cuentaDe = (tipoIva: number) => (cuentas.length === 1 ? cuentas[0] : (d.lineas.find((x) => x.tipoIva === tipoIva)?.cuenta ?? d.lineas[0]?.cuenta ?? undefined));
+        return ls.map((l) => ({ ...l, cuentaOriginal: cuentaDe(l.tipoIva) ?? undefined, ...(modo === 'lector' ? { cuenta: undefined } : {}) }));
+      }
+      return d.lineas.map((l) => ({
+        clave: siguienteClave++,
+        descripcion: l.descripcion,
+        cantidad: numeroATexto(l.cantidad),
+        precio: numeroATexto(Math.abs(l.precioUnitario)),
+        descuento: l.descuentoPorcentaje ?? 0,
+        tipoIva: l.tipoIva,
+        tipoRetencion: l.tipoRetencion,
+        cuentaOriginal: l.cuenta,
+      }));
+    });
+  };
+
+  // Descuento, rappel o pronto pago de una factura de la app: el proveedor manda un solo importe.
+  // Si las líneas siguen siendo la copia de la original, se cambian por una por tipo de IVA (cantidad 1,
+  // precio vacío): con la cantidad copiada, el importe escrito se multiplicaba.
+  const causaAnterior = useRef(rect?.causa ?? '');
+  useEffect(() => {
+    const causa = rect?.causa ?? '';
+    if (causaAnterior.current === causa) return;
+    causaAnterior.current = causa;
+    const d = datosOriginal;
+    if (!rect || rect.tipo !== 'I' || !d || !(causa === 'DESCUENTO' || causa === 'RAPPEL' || causa === 'PRONTO_PAGO')) return;
+    setLineas((ls) => {
+      const copia =
+        ls.length === d.lineas.length &&
+        ls.every((l, i) => l.descripcion === d.lineas[i].descripcion && parseImporte(l.cantidad) === d.lineas[i].cantidad && parseImporte(l.precio) === Math.abs(d.lineas[i].precioUnitario));
+      if (!copia) return ls;
+      const que = causa === 'RAPPEL' ? 'Rappel' : causa === 'PRONTO_PAGO' ? 'Descuento por pronto pago' : 'Descuento';
+      const numeroOriginal = d.original.numero ?? d.original.numeroCompleto;
+      const grupos = new Map<string, (typeof d.lineas)[number]>();
+      for (const l of d.lineas) {
+        const k = `${l.tipoIva}|${l.tipoRetencion}|${l.cuenta}`;
+        if (!grupos.has(k)) grupos.set(k, l);
+      }
+      const varios = grupos.size > 1;
+      return Array.from(grupos.values()).map((l) => ({
+        clave: siguienteClave++,
+        descripcion: `${que} sobre la ${numeroOriginal}${varios ? ` (IVA ${l.tipoIva} %)` : ''}`,
+        cantidad: '1',
+        precio: '',
+        descuento: 0,
+        tipoIva: l.tipoIva,
+        tipoRetencion: l.tipoRetencion,
+        cuentaOriginal: l.cuenta,
+      }));
+    });
+    // Solo al cambiar la causa.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rect?.causa]);
+
+  // Al cambiar a otro proveedor, las facturas de la app elegidas (del anterior) ya no valen.
+  const proveedorIdActual = proveedor?.tipo === 'existente' ? proveedor.id : null;
+  const proveedorPrevio = useRef(proveedorIdActual);
+  useEffect(() => {
+    if (proveedorPrevio.current === proveedorIdActual) return;
+    proveedorPrevio.current = proveedorIdActual;
+    setRect((r) => (r && r.originales.some((o) => o.origen === 'app') ? { ...r, originales: r.originales.filter((o) => o.origen !== 'app'), lineasOriginal: r.lineasOriginalDeApp ? [] : r.lineasOriginal, lineasOriginalDeApp: false } : r));
+  }, [proveedorIdActual]);
+
+  const guardar = async (e?: React.FormEvent, opciones: { confirmar303?: boolean } = {}) => {
+    e?.preventDefault();
     setError('');
     setCampoError(undefined);
     setFacturaRepetidaId(null);
@@ -465,13 +609,44 @@ export default function FormFacturaGasto({
     if (proveedor.tipo === 'nuevo' && !proveedor.nifCif.trim()) return falta('Escribe el NIF del proveedor.', 'proveedor.nifCif');
     if (!numero.trim()) return falta('Escribe el número que puso el proveedor en su factura.', 'numeroFacturaProveedor');
     if (!fechaEmision) return falta('Falta la fecha de la factura.', 'fechaEmision');
+    if (rect) {
+      const f = faltaEnBloque(rect, esAbono);
+      if (f) return falta(f.mensaje, f.campo);
+    }
     for (let i = 0; i < lineas.length; i++) {
       if (!lineas[i].descripcion.trim()) return falta(`Falta la descripción de la línea ${i + 1}.`, `lineas.${i}.descripcion`);
       if (!Number.isFinite(valores[i].cantidad) || valores[i].cantidad <= 0) return falta(`Revisa la cantidad de la línea ${i + 1}.`, `lineas.${i}.cantidad`);
       if (!Number.isFinite(valores[i].precioUnitario)) return falta(`Revisa el precio de la línea ${i + 1}.`, `lineas.${i}.precioUnitario`);
     }
+    if (rect && sustitucion) {
+      const i = rect.lineasOriginal.findIndex((l) => !Number.isFinite(parseImporte(l.precio)) || !(parseImporte(l.cantidad) > 0));
+      if (i >= 0) return falta(`Revisa la línea ${i + 1} de la factura original.`, `rectificativa.importesOriginales.lineas.${i}.precioUnitario`);
+    }
+    // Un aumento de más de la mitad de la original suele ser una sustitución tomada por diferencias.
+    const totalOriginal = rect?.originales.length === 1 ? rect.originales[0].total : undefined;
+    if (rect?.tipo === 'I' && rect.sentido === 'AUMENTA' && totalOriginal && totalOriginal > 0 && totales.total > totalOriginal * 0.5 && !opciones.confirmar303) {
+      const ok = window.confirm(
+        `¿Seguro que es un aumento de ${fmt(totales.total)} sobre una factura de ${fmt(totalOriginal)}?\n\nSi la rectificativa trae la factura corregida entera, elige «Por sustitución».`,
+      );
+      if (!ok) return;
+    }
 
     const cuentaGlobal = cuenta.trim();
+    // Lineas con su signo y, en un abono, la cuenta que toca por la causa.
+    const lineasCuerpo: LineaCuerpo[] = lineas.map((l, i) => {
+      const porDefecto = rect ? cuentaPorDefecto(l).codigo : null;
+      const cuentaLinea = l.cuenta ?? (porDefecto && porDefecto !== (cuentaGlobal || TIPO_GASTO_INFO[tipoGasto].cuenta) ? porDefecto : undefined);
+      return {
+        descripcion: l.descripcion.trim(),
+        cantidad: valores[i].cantidad,
+        precioUnitario: valores[i].precioUnitario,
+        descuentoPorcentaje: l.descuento,
+        tipoIva: l.tipoIva,
+        tipoRetencion: valores[i].tipoRetencion,
+        // La cuenta propia de la linea manda sobre la de la factura.
+        ...(cuentaLinea ? { cuenta: cuentaLinea } : {}),
+      };
+    });
     const cuerpo: Record<string, unknown> = {
       proveedor:
         proveedor.tipo === 'existente'
@@ -493,19 +668,12 @@ export default function FormFacturaGasto({
       ...(mostrarRegistro && fechaRegistro ? { fechaRegistro } : {}),
       tipoGasto,
       ...(cuentaGlobal ? { cuentaGasto: cuentaGlobal } : {}),
-      lineas: lineas.map((l, i) => ({
-        descripcion: l.descripcion.trim(),
-        cantidad: valores[i].cantidad,
-        precioUnitario: valores[i].precioUnitario,
-        descuentoPorcentaje: l.descuento,
-        tipoIva: l.tipoIva,
-        tipoRetencion: valores[i].tipoRetencion,
-        // La cuenta propia de la linea manda sobre la de la factura.
-        ...(l.cuenta ? { cuenta: l.cuenta } : {}),
-      })),
+      lineas: lineasCuerpo,
       ...(observaciones.trim() ? { observaciones: observaciones.trim() } : {}),
       ...(modo === 'lector' && Number.isFinite(totalDoc) ? { totalDocumento: totalDoc } : {}),
       ...(extra ?? {}),
+      // Por sustitucion, las lineas son las de la factura corregida (el servidor calcula la diferencia).
+      ...(rect ? { rectificativa: bloqueParaEnviar(rect, { lineasCorregidas: sustitucion ? lineasCuerpo : undefined, abono: esAbono, confirmaRectificar303: opciones.confirmar303 }) } : {}),
     };
 
     setGuardando(true);
@@ -520,10 +688,12 @@ export default function FormFacturaGasto({
         onGuardado({ factura });
       }
     } catch (err) {
-      const campo = normalizarCampo(campoDelError(err));
+      const c = conflictoGasto(err);
+      // Con rectificar_303 no hay nada que corregir: se lleva la vista al aviso y a su botón, no a un campo.
+      const campo = c?.rectificar303 ? undefined : normalizarCampo(campoDelError(err));
       setError(errorMessage(err));
       setCampoError(campo);
-      setConflicto(conflictoGasto(err));
+      setConflicto(c);
       // Campos plegados: se despliegan para poder marcarlos.
       if (campo === 'fechaRegistro') setMostrarRegistro(true);
       if (campo === 'cuentaGasto') setMostrarCuenta(true);
@@ -557,7 +727,7 @@ export default function FormFacturaGasto({
     }
   };
 
-  const textoBoton = modo === 'editar' ? 'Guardar cambios' : modo === 'lector' ? 'Registrar factura' : 'Guardar factura';
+  const textoBoton = modo === 'editar' ? 'Guardar cambios' : rect ? (modo === 'lector' ? 'Registrar abono' : 'Guardar abono') : modo === 'lector' ? 'Registrar factura' : 'Guardar factura';
   /**
    * Rejillas de los datos de la factura. En el lector el formulario ocupa media
    * pantalla, pero estas rejillas cambian con el ancho de la ventana: a 1280 px
@@ -570,6 +740,14 @@ export default function FormFacturaGasto({
       ? { datos: 'grid grid-cols-1 gap-4 sm:grid-cols-2', datosAncho: 'sm:col-span-2' }
       : { datos: 'grid grid-cols-1 gap-4 lg:grid-cols-3', datosAncho: 'lg:col-span-3' };
   const L = conRetencion ? CONCEPTOS.conIrpf : CONCEPTOS.sinIrpf;
+  /** Explicacion bajo «Conceptos» en un abono (en una factura normal no hace falta). */
+  const textoConceptos = sustitucion
+    ? 'Las líneas de la factura corregida que manda el proveedor, con sus importes completos y en positivo.'
+    : rect && sinSentido
+      ? 'Elige arriba cómo viene la rectificativa: según eso, estos importes restan o sustituyen a los de la original.'
+      : rect
+        ? `Lo que rectifica, en positivo: ${signo < 0 ? 'se registra restando' : 'se registra sumando'}. Las cuentas se proponen según la causa.`
+        : '';
   const nota =
     modo === 'lector'
       ? 'Quedará pendiente de revisar: su asiento se aprueba en el Motor contable.'
@@ -611,9 +789,24 @@ export default function FormFacturaGasto({
         )}
       </section>
 
+      {/* 1b. Rectificacion (abono o rectificativa) */}
+      {rect && (
+        <BloqueRectificacion
+          valor={rect}
+          onCambio={setRect}
+          proveedorId={proveedorIdActual}
+          esAbono={esAbono}
+          datos={datosOriginal}
+          onDatos={alLlegarDatosOriginal}
+          marca={marca}
+          monedaCuenta={monedaCuenta}
+          numeroLeido={numeroRectificadaLeida}
+        />
+      )}
+
       {/* 2. Datos de la factura */}
       <section className="rounded-xl border border-slate-200 bg-white p-4 md:p-6">
-        <h2 className="mb-4 text-base font-semibold text-slate-900">Datos de la factura</h2>
+        <h2 className="mb-4 text-base font-semibold text-slate-900">{rect ? 'Datos de la rectificativa' : 'Datos de la factura'}</h2>
         <div className={R.datos}>
           <div className={R.datosAncho}>
             <label htmlFor="fg-numero" className={etiqueta}>
@@ -636,7 +829,8 @@ export default function FormFacturaGasto({
             </label>
             <input id="fg-fecha" type="date" value={fechaEmision} onChange={(e) => cambiarFecha(e.target.value)} {...marcaCon(marcaLeida('fechaEmision', fechaEmision), 'fechaEmision')} className={campoBase} />
           </div>
-          <div>
+          {/* Un abono no se paga ni vence: no se pregunta el vencimiento (se guarda el de por defecto). */}
+          <div className={esAbono ? 'hidden' : ''}>
             <label htmlFor="fg-venc" className={etiqueta}>
               Vencimiento
             </label>
@@ -757,9 +951,22 @@ export default function FormFacturaGasto({
         </div>
       </section>
 
+      {/* 2b. Sustitucion: la factura original (de la app, de solo lectura; de fuera, se escribe) */}
+      {rect && sustitucion && rect.originales.length === 1 && (
+        <LineasOriginal
+          lineas={rect.lineasOriginal}
+          deApp={rect.lineasOriginalDeApp}
+          onCambio={(ls) => setRect({ ...rect, lineasOriginal: ls })}
+          marca={marca}
+          monedaCuenta={monedaCuenta}
+          numero={rect.originales[0].numero || rect.originales[0].numeroCompleto || ''}
+        />
+      )}
+
       {/* 3. Lineas */}
       <section className="rounded-xl border border-slate-200 bg-white p-4 md:p-6">
-        <h2 className="mb-4 text-base font-semibold text-slate-900">Conceptos</h2>
+        <h2 className={`${textoConceptos ? 'mb-1' : 'mb-4'} text-base font-semibold text-slate-900`}>{sustitucion ? 'Factura corregida' : 'Conceptos'}</h2>
+        {textoConceptos && <p className="mb-4 text-sm text-slate-600">{textoConceptos}</p>}
         <div className={L.contenedor}>
           {/* Cabeceras de la tabla (solo en ancho y sin IRPF). Cada campo lleva ademas su etiqueta para el lector de pantalla. */}
           <div aria-hidden="true" className={`${L.cabecera} items-end gap-x-3`}>
@@ -877,10 +1084,7 @@ export default function FormFacturaGasto({
                     catalogo={catalogo}
                     valor={l.cuenta}
                     onCambiar={(codigo) => cambiarLinea(l.clave, { cuenta: codigo ?? undefined })}
-                    porDefecto={{
-                      codigo: cuenta.trim() || TIPO_GASTO_INFO[tipoGasto].cuenta,
-                      texto: cuenta.trim() ? 'la de la factura' : 'la del tipo de gasto',
-                    }}
+                    porDefecto={cuentaPorDefecto(l)}
                     linea={i + 1}
                     id={`fg-lcuenta-${l.clave}`}
                     puedeCrear={puedeCrearCuenta}
@@ -912,17 +1116,48 @@ export default function FormFacturaGasto({
               <dd className="font-mono text-slate-900">{fmt(t.cuota)}</dd>
             </div>
           ))}
-          {totales.retencion > 0 && (
+          {totales.retencion !== 0 && (
             <div className="flex justify-between">
               <dt className="text-slate-600">Retención IRPF</dt>
-              <dd className="font-mono text-slate-900">−{fmt(totales.retencion)}</dd>
+              <dd className="font-mono text-slate-900">{fmt(-totales.retencion)}</dd>
             </div>
           )}
           <div className="flex justify-between border-t border-slate-200 pt-2 text-base font-semibold">
-            <dt className="text-slate-900">Total a pagar</dt>
-            <dd className="font-mono text-slate-900">{fmt(totales.total)}</dd>
+            <dt className="text-slate-900">{sustitucion ? 'Total de la corregida' : rect && sinSentido ? 'Total leído' : rect && totales.total < 0 ? 'Total del abono' : 'Total a pagar'}</dt>
+            <dd className={`font-mono ${rect && totales.total < 0 ? 'text-rose-700' : 'text-slate-900'}`}>{fmt(totales.total)}</dd>
           </div>
+          {rect && !sustitucion && totales.total < 0 && <p className="text-xs text-slate-500">En negativo: resta de lo que le debes al proveedor y del IVA soportado.</p>}
         </dl>
+
+        {/* Sustitucion: lo que se registra es la diferencia con la original. */}
+        {sustitucion && (
+          <div className="mt-4 ml-auto w-full max-w-sm rounded-lg border border-violet-200 bg-violet-50 p-3 text-sm">
+            <p className="mb-2 font-semibold text-slate-900">Diferencia que se registra</p>
+            {diferencia ? (
+              <dl className="flex flex-col gap-1">
+                {(
+                  [
+                    ['Base imponible', diferencia.base],
+                    ['IVA', diferencia.iva],
+                    ...(diferencia.retencion ? ([['Retención IRPF', -diferencia.retencion]] as Array<[string, number]>) : []),
+                  ] as Array<[string, number]>
+                ).map(([t, v]) => (
+                  <div key={t} className="flex justify-between">
+                    <dt className="text-slate-600">{t}</dt>
+                    <dd className={`font-mono ${v < 0 ? 'text-rose-700' : 'text-slate-900'}`}>{fmt(v)}</dd>
+                  </div>
+                ))}
+                <div className="flex justify-between border-t border-violet-200 pt-1 font-semibold">
+                  <dt className="text-slate-900">Total</dt>
+                  <dd className={`font-mono ${diferencia.total < 0 ? 'text-rose-700' : 'text-slate-900'}`}>{fmt(diferencia.total)}</dd>
+                </div>
+              </dl>
+            ) : (
+              <p className="text-slate-600">Se calcula cuando estén las líneas de la factura original.</p>
+            )}
+            <p className="mt-2 text-xs text-slate-500">El IVA de la diferencia se calcula por tipo con los totales de las dos facturas.</p>
+          </div>
+        )}
 
         {modo === 'lector' && (
           <div className="mt-4 max-w-sm ml-auto">
@@ -973,6 +1208,41 @@ export default function FormFacturaGasto({
             <button type="button" onClick={usarProveedorExistente} className="self-start font-semibold underline">
               Usar el existente
             </button>
+          )}
+          {conflicto?.rectificar303 && (
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+              <button
+                type="button"
+                disabled={guardando}
+                onClick={() => guardar(undefined, { confirmar303: true })}
+                className="self-start rounded-lg bg-rose-600 px-3 py-2 font-semibold text-white hover:bg-rose-700 disabled:opacity-60"
+              >
+                Registrar y avisarme de rectificar el 303
+              </button>
+              {/* Por el art. 80 cuenta la fecha en que llegó: si llegó más tarde, se pone esa (está plegada en «¿La recibiste más tarde?»). */}
+              {conflicto.rectificar303.campo === 'fechaRegistro' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMostrarRegistro(true);
+                    setConflicto(null);
+                    setError('');
+                    // El campo aparece al desplegarse: se enfoca en el siguiente pintado.
+                    window.setTimeout(() => {
+                      const el = document.getElementById('fg-registro');
+                      el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                      el?.focus({ preventScroll: true });
+                    }, 0);
+                  }}
+                  className="self-start rounded-lg border border-rose-300 bg-white px-3 py-2 font-semibold text-rose-700 hover:bg-rose-50"
+                >
+                  Me llegó más tarde: poner la fecha de recepción
+                </button>
+              )}
+              <Link href={conflicto.rectificar303.enlace} className="self-start font-semibold underline">
+                Ver el 303{conflicto.rectificar303.periodo ? ` del ${textoPeriodoModelo(conflicto.rectificar303.ejercicio, conflicto.rectificar303.periodo)}` : ''}
+              </Link>
+            </div>
           )}
           {conflicto?.contabilizar && facturaId && (
             <Link href={`/dashboard/compras/${encodeURIComponent(facturaId)}`} className="self-start font-semibold underline">
@@ -1290,10 +1560,44 @@ const ID_LINEA: Record<string, string> = {
   tipoRetencion: 'fg-irpf',
 };
 
+/** Bloque «Rectificación»: del campo del error al control (las facturas que rectifica, por su clave). */
+function idCampoRectificativa(campo: string, rect: EstadoRectificacion | null): string {
+  const o = /^rectificativa\.originales\.(\d+)\.(\w+)/.exec(campo);
+  if (o) {
+    const original = rect?.originales[Number(o[1])];
+    if (!original) return 'fr-que';
+    if (o[2] === 'numero') return `fr-onum-${original.clave}`;
+    if (o[2] === 'fecha') return `fr-ofecha-${original.clave}`;
+    if (o[2] === 'base') return `fr-obase-${original.clave}`;
+    if (o[2] === 'cuota') return `fr-ocuota-${original.clave}`;
+    return 'fr-que';
+  }
+  const l = /^rectificativa\.importesOriginales\.lineas\.(\d+)/.exec(campo);
+  if (l) {
+    const linea = rect?.lineasOriginal[Number(l[1])];
+    return linea && !rect?.lineasOriginalDeApp ? `fr-lprecio-${linea.clave}` : 'fr-lorig';
+  }
+  if (campo.startsWith('rectificativa.tipo')) return 'fr-tipo-I';
+  if (campo.startsWith('rectificativa.causa')) return 'fr-causa';
+  if (campo.startsWith('rectificativa.motivo')) return 'fr-motivo';
+  if (campo.startsWith('rectificativa.sentido')) return 'fr-sentido';
+  if (campo === 'rectificativa.periodo.hasta') return 'fr-hasta';
+  if (campo.startsWith('rectificativa.periodo')) return rect?.que === 'periodo' ? 'fr-desde' : 'fr-que';
+  if (campo.startsWith('rectificativa.originales')) return 'fr-que';
+  if (campo.startsWith('rectificativa.yaPagada')) return 'fr-yapagada';
+  if (campo.startsWith('rectificativa.importesOriginales')) return 'fr-lorig';
+  return 'fr-bloque';
+}
+
 /** Id del control que corresponde a un campo de error (lineas.N.x usa la clave de la linea N). */
-function idDelCampo(campo: string | undefined, lineas: Array<{ clave: number }>): string | undefined {
+function idDelCampo(campo: string | undefined, lineas: Array<{ clave: number }>, rect: EstadoRectificacion | null = null): string | undefined {
   if (!campo) return undefined;
   if (ID_CAMPO[campo]) return ID_CAMPO[campo];
+  if (campo === 'rectificativa' || campo.startsWith('rectificativa.')) {
+    // Por sustitucion, las lineas de la corregida son las del formulario.
+    if (campo.startsWith('rectificativa.corregida')) return lineas[0] ? `fg-precio-${lineas[0].clave}` : undefined;
+    return idCampoRectificativa(campo, rect);
+  }
   if (campo === 'lineas') return lineas[0] ? `fg-precio-${lineas[0].clave}` : undefined;
   const m = /^lineas\.(\d+)\.(\w+)/.exec(campo);
   if (m) {

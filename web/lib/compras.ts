@@ -43,10 +43,27 @@ export function tipoGastoParaRetencion(tipoRetencion: number): TipoGasto | null 
 
 export const esTipoGasto = (v: unknown): v is TipoGasto => typeof v === 'string' && (TIPOS_GASTO as readonly string[]).includes(v);
 
+/**
+ * 409 `rectificar_303`: un abono que reduce el IVA deducido cae en un 303 ya
+ * presentado. Se puede registrar igualmente si la persona lo confirma
+ * (confirmaRectificar303) y despues presenta una autoliquidacion rectificativa.
+ */
+export interface Rectificar303 {
+  /** 'fechaRegistro' (periodo de recepcion) o 'rectificativa' (periodo de la original, en un error de IVA). */
+  campo: string | null;
+  ejercicio: number | null;
+  /** '1T'..'4T' o '01'..'12'. */
+  periodo: string | null;
+  /** Pantalla del 303 ('/dashboard/fiscal/modelo-303'). */
+  enlace: string;
+}
+
 /** Lo que pide hacer un 409 del servidor con una factura de gasto (segun sus details). */
 export interface ConflictoGasto {
   /** Su trimestre ya esta presentado: hay que poner la fecha en que se recibio («¿La recibiste más tarde?»). */
   fechaRegistro: boolean;
+  /** Abono que reduce el IVA de un 303 presentado: se ofrece «Registrar y avisarme de rectificar el 303». */
+  rectificar303: Rectificar303 | null;
   /** La factura afectada (llega al aprobar su asiento en el Motor contable). */
   facturaId: string | null;
   /** Factura anterior de un trimestre declarado: primero hay que contabilizarla. */
@@ -59,8 +76,19 @@ export interface ConflictoGasto {
 export function conflictoGasto(err: unknown): ConflictoGasto | null {
   if (!(err instanceof ApiError) || err.status !== 409) return null;
   const d = (err.detalles && typeof err.detalles === 'object' ? err.detalles : {}) as Record<string, unknown>;
+  const rectificar303: Rectificar303 | null =
+    d.motivo === 'rectificar_303'
+      ? {
+          campo: typeof d.campo === 'string' ? d.campo : null,
+          ejercicio: typeof d.ejercicio === 'number' ? d.ejercicio : Number(d.ejercicio) || null,
+          periodo: typeof d.periodo === 'string' ? d.periodo : null,
+          enlace: typeof d.enlace === 'string' && d.enlace.startsWith('/dashboard/') ? d.enlace : '/dashboard/fiscal/modelo-303',
+        }
+      : null;
   return {
-    fechaRegistro: d.campo === 'fechaRegistro',
+    // Con rectificar_303 no hace falta cambiar la fecha: se confirma (aunque details.campo sea fechaRegistro).
+    fechaRegistro: d.campo === 'fechaRegistro' && !rectificar303,
+    rectificar303,
     facturaId: typeof d.facturaId === 'string' ? d.facturaId : null,
     contabilizar: d.accion === 'contabilizar',
     cambiada: d.motivo === 'factura_cambiada' || /^La factura ha cambiado mientras/.test(err.message),
@@ -86,6 +114,176 @@ export const CUENTAS_GASTO_HABITUALES: Array<[string, string]> = [
   ['628', 'Suministros'],
   ['629', 'Otros servicios'],
 ];
+
+// ---------------------------------------------------------------------------
+// Abonos y facturas rectificativas de proveedor
+// (backend: domain/rectificativa-gasto.model.ts; los textos son los mismos)
+// ---------------------------------------------------------------------------
+
+export const CAUSAS_RECTIFICACION = ['DEVOLUCION', 'DESCUENTO', 'RAPPEL', 'PRONTO_PAGO', 'ANULACION_PRECIO', 'ERROR_IVA', 'ERROR_DERECHO'] as const;
+export type CausaRectificacion = (typeof CAUSAS_RECTIFICACION)[number];
+export const esCausaRectificacion = (v: unknown): v is CausaRectificacion => typeof v === 'string' && (CAUSAS_RECTIFICACION as readonly string[]).includes(v);
+
+/** I = por diferencias (los importes son lo que cambia); S = por sustitucion (trae la factura corregida entera). */
+export type TipoRectificativa = 'I' | 'S';
+
+export const CAUSA_INFO: Record<
+  CausaRectificacion,
+  {
+    texto: string;
+    /** Cuenta que se propone si la linea original es de compras (subgrupo 60). */
+    cuentaCompra: '606' | '608' | '609' | null;
+    /** Admite un periodo en vez de facturas (rappel o descuento por volumen). */
+    admitePeriodo: boolean;
+    /** Solo puede bajar el importe (un descuento o una devolucion resta). */
+    soloBaja: boolean;
+  }
+> = {
+  DEVOLUCION: { texto: 'Devolución de mercancías o envases', cuentaCompra: '608', admitePeriodo: false, soloBaja: true },
+  DESCUENTO: { texto: 'Descuento o bonificación después de la factura', cuentaCompra: '608', admitePeriodo: true, soloBaja: true },
+  RAPPEL: { texto: 'Rappel por volumen de compras', cuentaCompra: '609', admitePeriodo: true, soloBaja: true },
+  PRONTO_PAGO: { texto: 'Descuento por pronto pago', cuentaCompra: '606', admitePeriodo: false, soloBaja: true },
+  ANULACION_PRECIO: { texto: 'Operación anulada en todo o en parte, o precio rebajado', cuentaCompra: '608', admitePeriodo: false, soloBaja: true },
+  ERROR_IVA: { texto: 'El proveedor se equivocó en el IVA (tipo o cuota)', cuentaCompra: null, admitePeriodo: false, soloBaja: false },
+  ERROR_DERECHO: { texto: 'Error fundado de derecho', cuentaCompra: null, admitePeriodo: false, soloBaja: false },
+};
+
+/**
+ * Cuenta que se propone para una linea del abono (la misma regla que el
+ * servidor): 606, 608 y 609 solo corrigen compras del subgrupo 60; en otra
+ * cuenta (servicios 62x...) se queda la de la original. Un descuento con
+ * periodo (por volumen) va a la 609, como un rappel.
+ */
+export function cuentaPropuesta(causa: CausaRectificacion, cuentaOriginal: string | null, conPeriodo: boolean): string | null {
+  if (!cuentaOriginal || !cuentaOriginal.startsWith('60')) return cuentaOriginal;
+  if (causa === 'DESCUENTO' && conPeriodo) return '609';
+  return CAUSA_INFO[causa].cuentaCompra ?? cuentaOriginal;
+}
+
+/** Estado de pago de un abono: lo que queda a tu favor se devuelve o se aplica a otra factura. */
+export function textoEstadoAbono(estadoPago: string, estado?: string): string {
+  // Borrador del lector: al aprobar su asiento se descuenta solo de la factura que rectifica.
+  if (estado === 'DRAFT') return 'Se aplicará al aprobarlo';
+  if (estadoPago === 'PAGADA') return 'Devuelto o aplicado';
+  if (estadoPago === 'PARCIAL') return 'Devuelto o aplicado en parte';
+  return 'Pendiente de devolver';
+}
+
+/** Clases de la insignia «Abono» del listado y la ficha. */
+export const claseInsigniaAbono = 'inline-block rounded-full border border-violet-200 bg-violet-50 px-2.5 py-0.5 text-xs font-medium text-violet-700';
+
+/** Periodo de un modelo en palabras: '1T' -> '1T de 2027'; '04' -> 'abril de 2027'. */
+export function textoPeriodoModelo(ejercicio: number | null, periodo: string | null): string {
+  const meses = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+  const p = String(periodo ?? '');
+  const que = /^\d{2}$/.test(p) ? meses[Number(p) - 1] ?? p : p;
+  return ejercicio ? `${que} de ${ejercicio}` : que;
+}
+
+/** Una factura que rectifica (en la ficha de la rectificativa). id null: de fuera de la app. */
+export interface OriginalDeRectificativa {
+  id: string | null;
+  numeroCompleto: string | null;
+  numero: string | null;
+  fecha: string | null;
+  /** Parte de la rectificacion que le toca (con signo); null si es toda. */
+  base: number | null;
+  cuota: number | null;
+}
+
+/** Bloque `rectificativa` de GET /expense-invoices/:id (solo en las rectificativas). */
+export interface RectificativaDeFicha {
+  tipo: TipoRectificativa | null;
+  causa: CausaRectificacion;
+  causaTexto: string;
+  motivo: string | null;
+  originales: OriginalDeRectificativa[];
+  periodo: { desde: string; hasta: string } | null;
+  /** Donde cuenta su IVA: '40-41' (rectificacion de deducciones) o '28-29' (periodo de la original). */
+  imputacionIva: { fecha: string; casillas: '40-41' | '28-29' };
+}
+
+/** Una rectificativa vigente de la factura (en la ficha de la original). */
+export interface RectificativaResumen {
+  id: string;
+  numeroCompleto: string;
+  numero: string | null;
+  fecha: string;
+  total: number;
+  tipo: TipoRectificativa | null;
+}
+
+/** Aplicacion de un abono a una factura (CompensacionGasto). */
+export interface CompensacionGasto {
+  id: string;
+  abonoId: string;
+  facturaId: string | null;
+  /** La otra parte: la factura que recibe el abono (en el abono) o el abono que se aplica (en la factura). */
+  otra: { id: string | null; numeroCompleto: string | null; numero: string | null; fecha: string | null; fuera: boolean };
+  fecha: string;
+  /** En positivo. */
+  importe: number;
+  /** AUTO (al contabilizar el abono, contra su original) o MANUAL. */
+  origen: string;
+  /** ACTIVO o ANULADO. */
+  estado: string;
+  asientoId: string | null;
+  anuladaEn: string | null;
+}
+
+/** Candidata a factura original (GET /expense-invoices/originales). */
+export interface CandidataOriginal {
+  id: string;
+  numeroCompleto: string;
+  numero: string | null;
+  fecha: string;
+  total: number;
+  exacta: boolean;
+}
+
+export interface OriginalesBuscadas {
+  coincidencia: 'EXACTA' | 'PARECIDA' | 'NINGUNA';
+  candidatas: CandidataOriginal[];
+}
+
+/** GET /expense-invoices/:id/rectificar: datos para prellenar un abono de esa factura. */
+export interface DatosParaRectificar {
+  original: {
+    id: string;
+    numeroCompleto: string;
+    numero: string | null;
+    fechaEmision: string;
+    fechaRegistro: string | null;
+    baseTotal: number;
+    ivaTotal: number;
+    retencionTotal: number;
+    totalFactura: number;
+    esRectificativa: boolean;
+  };
+  proveedor: { id: string; nombreFiscal: string; nifCif: string; pais: string };
+  tipoGasto: TipoGasto;
+  tipoGastoTexto: string;
+  lineas: Array<{
+    descripcion: string;
+    cantidad: number;
+    precioUnitario: number;
+    descuentoPorcentaje: number;
+    tipoIva: number;
+    tipoRetencion: number;
+    baseLine: number;
+    ivaImporte: number;
+    cuenta: string;
+    cuentaPropuesta: Record<CausaRectificacion, string | null>;
+    cuentaPropuestaConPeriodo: string | null;
+  }>;
+  rectificativas: RectificativaResumen[];
+  /** Suma con signo de sus rectificativas vigentes. */
+  yaRectificado: number;
+  pendiente: number;
+  /** Lo que se puede abonar como mucho (en positivo). */
+  abonoMaximo: number;
+  causas: Array<{ causa: CausaRectificacion; texto: string; admitePeriodo: boolean; soloBaja: boolean }>;
+}
 
 // ---------------------------------------------------------------------------
 // Respuestas de la API
@@ -143,6 +341,27 @@ export interface GastoDetalle {
     anular: { permitido: boolean; motivo?: string; conContraasiento: boolean };
     contabilizar: boolean;
   };
+  /** Abono o rectificativa de proveedor (importes con signo). */
+  esRectificativa: boolean;
+  /** En una rectificativa: que rectifica, tipo, causa y donde va su IVA. */
+  rectificativa: RectificativaDeFicha | null;
+  /** En una original: sus rectificativas vigentes. */
+  rectificativas: RectificativaResumen[];
+  /** La original, si es una sola de la app. */
+  facturaOriginalId: string | null;
+  /** Avisos del alta o la correccion que no la impiden. */
+  avisos?: string[];
+  /** Aplicaciones del abono a otras facturas, o de abonos a esta factura. */
+  compensaciones: CompensacionGasto[];
+  /** Pendiente con signo (total - pagos - compensaciones): en un abono, lo que queda a tu favor en negativo. */
+  pendiente: number;
+  /** Solo en los abonos: lo que queda a favor de la empresa (en positivo). */
+  aFavor?: number;
+  /**
+   * Abono registrado despues de presentar el 303 de su IVA: recordatorio de
+   * preparar la autoliquidacion rectificativa (enlace null si ese 303 se llevo fuera de la app).
+   */
+  rectificar303?: { ejercicio: number; periodo: string; confirmadoEn: string; aviso: string; enlace: string | null } | null;
 }
 
 export interface GastoListado {
@@ -166,6 +385,9 @@ export interface GastoListado {
   retencionTotal: number;
   totalFactura: number;
   importePendiente: number;
+  esRectificativa: boolean;
+  /** Abono (total < 0). */
+  esAbono: boolean;
 }
 
 /** GET /expense-invoices */
@@ -183,8 +405,11 @@ export interface ListadoGastos {
     anuladas: number;
     pendientesPago: number;
     vencidas: number;
+    /** Cuantos abonos tienen algo a favor de la empresa. */
+    abonosAFavor: number;
   };
-  totales: { base: number; iva: number; retencion: number; total: number; pendiente: number };
+  /** pendiente: de las facturas (sin los abonos); aFavor: lo que queda a favor en los abonos (en positivo). */
+  totales: { base: number; iva: number; retencion: number; total: number; pendiente: number; aFavor: number };
   monedaCuenta: string;
 }
 
@@ -281,7 +506,12 @@ export function sumarDias(iso: string, dias: number): string {
 // Calculo de la factura (el mismo redondeo que el servidor: por linea y despues la suma)
 // ---------------------------------------------------------------------------
 
-const r2 = (v: number) => Math.round(v * 100) / 100;
+/**
+ * Redondeo a centimos sobre el valor absoluto y con el signo despues, como el
+ * servidor en los abonos (-10,125 da -10,13, igual que 10,125 da 10,13). En
+ * positivo es el Math.round de siempre: las facturas normales no cambian.
+ */
+const r2 = (v: number) => (v < 0 ? -Math.round(-v * 100) / 100 : Math.round(v * 100) / 100) || 0;
 const centimos = (v: number) => Math.round(v * 100);
 
 export interface LineaParaCalculo {
