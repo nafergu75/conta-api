@@ -7,6 +7,7 @@ import { CaretLeft, CaretRight, CheckCircle, LockKey, X, XCircle } from '@phosph
 import { apiFetch, companyPath } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { hoyIso } from '@/lib/anios';
+import { useAniosEmpresa } from '@/lib/useAniosEmpresa';
 
 /**
  * Piezas comunes de las pantallas de nominas: tipos de la API, formatos,
@@ -355,8 +356,8 @@ export function Modal({ titulo, onCerrar, children, ancho = 'max-w-lg' }: { titu
 // ---------------------------------------------------------------------------
 
 export function SelectorMes({ ejercicio, mes, onCambiar }: { ejercicio: number; mes: number; onCambiar: (ejercicio: number, mes: number) => void }) {
-  const anio = new Date().getFullYear();
-  const anios = Array.from(new Set([anio + 1, anio, anio - 1, anio - 2, anio - 3, ejercicio])).sort((a, b) => b - a);
+  // Del primer año de la empresa al siguiente al actual (hora de España), con el elegido siempre.
+  const anios = useAniosEmpresa().anios([ejercicio]);
   const mover = (d: number) => {
     const t = ejercicio * 12 + (mes - 1) + d;
     onCambiar(Math.floor(t / 12), (t % 12) + 1);
