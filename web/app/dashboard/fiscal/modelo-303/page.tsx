@@ -170,7 +170,10 @@ export default function Modelo303Page() {
 
   const tipo = modelo.tipoDeclaracion;
   const aIngresar = tipo === 'I' || tipo === 'U';
-  const conCuenta = tipo === 'U' || tipo === 'D';
+  // Rectificativa con importe en [111]: la sede pide la cuenta donde devolver lo
+  // ingresado de más con la anterior, aunque el tipo no sea de devolución.
+  const importe111 = modelo.rectificativa ? modelo.casillas303.find((c) => c.numero === '111')?.valor ?? 0 : 0;
+  const conCuenta = tipo === 'U' || tipo === 'D' || importe111 > 0;
   const presentado = modelo.estado === 'presentado';
   const verMeses = modelo.mensual || !esTrimestre(periodo);
   const origenCompensar =
@@ -294,7 +297,7 @@ export default function Modelo303Page() {
         {conCuenta && (
           <div>
             <label htmlFor="cuenta-303" className="block text-sm font-medium text-slate-700">
-              {tipo === 'U' ? 'Cuenta para domiciliar' : 'Cuenta para la devolución'}
+              {tipo === 'U' ? 'Cuenta para domiciliar' : tipo === 'D' ? 'Cuenta para la devolución' : 'Cuenta donde la AEAT devuelve lo ingresado de más ([111])'}
             </label>
             {modelo.cuentas.length ? (
               <select
