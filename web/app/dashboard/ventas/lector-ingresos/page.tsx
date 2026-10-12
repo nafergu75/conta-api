@@ -37,6 +37,11 @@ interface Registrada {
   facturaId: string;
   numeroCompleto: string;
   total: number;
+  /** Lo que ha pasado con su asiento (el servidor la contabiliza al registrarla). */
+  contabilizada?: boolean;
+  asientoId?: string;
+  asientoEnBorrador?: boolean;
+  motivoSinAsiento?: string | null;
 }
 
 function Dato({ etiqueta, children, mono }: { etiqueta: string; children: React.ReactNode; mono?: boolean }) {
@@ -257,12 +262,29 @@ export default function LectorIngresosPage() {
               <CheckCircle size={22} weight="fill" className="mt-0.5 shrink-0" />
               <span>
                 Factura {registrada.numeroCompleto} registrada por {euros(registrada.total)}.
+                {registrada.contabilizada === true &&
+                  (registrada.asientoEnBorrador
+                    ? ' Su asiento está en borrador: revísalo y apruébalo en el Motor contable. Hasta entonces no cuenta en el saldo del cliente ni en los informes.'
+                    : ' Ya está contabilizada.')}
               </span>
             </p>
+            {registrada.contabilizada === false && (
+              <p className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                <WarningCircle size={18} className="mt-0.5 shrink-0" />
+                <span>
+                  No se ha podido crear su asiento{registrada.motivoSinAsiento ? `: ${registrada.motivoSinAsiento}` : '.'} Puedes contabilizarla desde la ficha de la factura.
+                </span>
+              </p>
+            )}
             <div className="flex flex-wrap gap-3 text-sm">
               <Link href={`/dashboard/facturas/${registrada.facturaId}`} className="rounded-lg border border-emerald-200 bg-white px-4 py-2 font-semibold text-emerald-700 hover:bg-emerald-50">
                 Ver la factura
               </Link>
+              {registrada.asientoId && tieneAlgunPermiso(getUser(), ['contabilidad:read', 'contabilidad:write']) && (
+                <Link href={`/dashboard/motor-contable/${registrada.asientoId}`} className="rounded-lg border border-emerald-200 bg-white px-4 py-2 font-semibold text-emerald-700 hover:bg-emerald-50">
+                  Ver el asiento
+                </Link>
+              )}
               <button type="button" onClick={reiniciar} className="rounded-lg bg-accent-600 px-4 py-2 font-semibold text-white hover:bg-accent-700">
                 Leer otra
               </button>
