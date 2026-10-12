@@ -8,6 +8,7 @@ import { ApiError, apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { proximosVencimientos } from '@/lib/aeatCalendar';
 import { AlertCard } from '@/components/dashboard/AlertCard';
 import { AvisoArranque } from '@/components/contabilidad/AvisoArranque';
+import { arranqueApi } from '@/lib/arranque';
 import { CobrosClientes } from '@/components/dashboard/CobrosClientes';
 import { getQuartersForYear, getCurrentQuarter, isDateInQuarter } from '@/lib/quarters';
 import NewMovementModal from '@/components/dashboard/NewMovementModal';
@@ -103,6 +104,8 @@ export default function DashboardPage() {
   const [incomeExpenseViewType, setIncomeExpenseViewType] = useState<'income-expense' | 'result'>('income-expense');
   const [selectedAnalysisPeriod, setSelectedAnalysisPeriod] = useState<string>(''); // Período único para análisis
   const [vencimientosAeat] = useState(() => proximosVencimientos());
+  // Año que llevó la gestoría (traído con «Traer la contabilidad»): sus modelos los presenta ella.
+  const [anioGestoria, setAnioGestoria] = useState<number | null>(null);
   // Lo que deja ver su acceso en la empresa activa (se lee al montar: la sesion vive en el navegador).
   const [acceso, setAcceso] = useState<{ cobros: boolean; aeat: boolean; nuevoMovimiento: boolean; arranque: boolean } | null>(null);
 
@@ -199,6 +202,14 @@ export default function DashboardPage() {
     });
     loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    if (!acceso?.aeat || !acceso.arranque) return;
+    arranqueApi
+      .estado()
+      .then((e) => setAnioGestoria(e.llevanzaAnterior === 'EXTERNA' ? e.ejercicio - 1 : null))
+      .catch(() => setAnioGestoria(null));
+  }, [acceso]);
 
   // Filtrar datos por período seleccionado
   const getFilteredData = () => {
@@ -429,7 +440,7 @@ export default function DashboardPage() {
           </div>
           <div className="grid gap-3 md:grid-cols-2">
             {vencimientosAeat.map((alerta) => (
-              <AlertCard key={alerta.id} alert={alerta} />
+              <AlertCard key={alerta.id} alert={alerta} gestoria={anioGestoria !== null && alerta.periodo.endsWith(` ${anioGestoria}`)} />
             ))}
           </div>
         </section>
