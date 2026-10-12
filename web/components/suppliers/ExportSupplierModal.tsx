@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Download, X } from '@phosphor-icons/react';
 import { getToken } from '@/lib/auth';
 import { errorDeRespuesta } from '@/lib/api';
+import { hoyIso } from '@/lib/anios';
 
 const API = '/api/conta';
 
@@ -56,7 +57,7 @@ export function ExportSupplierModal({
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${nombreFiscal}_${new Date().toISOString().split('T')[0]}.${formato}`;
+      a.download = `${nombreFiscal}_${hoyIso()}.${formato}`;
       a.click();
       window.URL.revokeObjectURL(url);
 
