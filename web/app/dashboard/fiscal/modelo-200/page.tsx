@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { apiFetch, errorMessage } from '@/lib/api';
 import { ejercicioAnualAPresentar } from '@/lib/aeatCalendar';
 import { Declaraciones } from '../components/Declaraciones';
+import { importeParaEnviar } from '@/lib/moneda';
 import {
   CabeceraBorrador,
   Cargando,
@@ -59,7 +60,7 @@ interface Datos {
 const VACIO: Datos = { incnAnterior: '', bins: '', pf1: '', pf2: '', pf3: '', retenciones: '', nuevaCreacion: false };
 
 /** "1.234,56" -> "1234.56" (el backend espera el punto decimal). */
-const cifra = (s: string) => (s.includes(',') ? s.replace(/\./g, '').replace(',', '.') : s).trim();
+const cifra = importeParaEnviar;
 const parametrosDe = (d: Datos) => ({
   incnAnterior: cifra(d.incnAnterior),
   bins: cifra(d.bins),
