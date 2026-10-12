@@ -7,6 +7,7 @@ import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { enlaceLibroMayor, enlaceMayorTerceros, type TipoFicha } from '@/lib/subcuentas';
 import { importe } from '@/app/dashboard/informes/TablaInforme';
+import { hoyIso } from '@/lib/anios';
 
 /**
  * Bloque «Contabilidad» de la ficha de un cliente o proveedor: su subcuenta
@@ -29,10 +30,6 @@ interface Detalle {
   totalPendiente: number;
 }
 
-const hoyIso = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-};
 
 export function BloqueContabilidadTercero({ tipo, id, subcuentas, subcuentasEnPlan }: Props) {
   const [veContabilidad, setVeContabilidad] = useState(false);
