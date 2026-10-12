@@ -76,3 +76,8 @@ export function rangoFechas(anio: number, trimestre?: number | null): { desde: s
   const inicio = ['01-01', '04-01', '07-01', '10-01'][trimestre - 1];
   return { desde: `${anio}-${inicio}`, hasta: `${anio}-${fin}` };
 }
+
+/** Nombre de un trimestre (1-4) en todas las pantallas: «1.er trimestre», «2.º trimestre»... */
+export function nombreTrimestre(t: number): string {
+  return `${t}.${t === 1 || t === 3 ? 'er' : 'º'} trimestre`;
+}

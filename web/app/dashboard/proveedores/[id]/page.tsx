@@ -7,6 +7,8 @@ import { getToken, getCompanyId } from '@/lib/auth';
 import { ApiError, apiFetch, companyPath } from '@/lib/api';
 import { mensajeSinAcceso, PantallaSinAcceso } from '@/components/dashboard/SinAcceso';
 import { BloqueContabilidadTercero } from '@/components/contabilidad/BloqueContabilidadTercero';
+import { anioEspana } from '@/lib/anios';
+import { anioOTodosDeUrl, anioParaUrl, ponerEnUrl } from '@/lib/urlEstado';
 
 import { SupplierTabs } from '@/components/suppliers/SupplierTabs';
 import { SupplierDatosTab } from '@/components/suppliers/SupplierDatosTab';
@@ -48,6 +50,16 @@ export default function DetalleProveedorPage() {
   const [showExportModal, setShowExportModal] = useState(false);
   // Texto del 403 si su acceso no incluye proveedores (antes salia «Proveedor no encontrado»).
   const [sinAcceso, setSinAcceso] = useState<string | null>(null);
+  // Año de emisión de la pestaña Facturas (null = todos): el actual, como en la ficha de cliente,
+  // o el de la URL. Se guarda en la URL y abre el mayor del proveedor en ese año.
+  const [anio, setAnio] = useState<number | null>(() => {
+    const url = anioOTodosDeUrl();
+    return url === undefined ? anioEspana() : url;
+  });
+  const elegirAnio = (a: number | null) => {
+    setAnio(a);
+    ponerEnUrl({ ejercicio: anioParaUrl(a) });
+  };
 
   useEffect(() => {
     loadProveedor();
@@ -123,6 +135,7 @@ export default function DetalleProveedorPage() {
               { codigo: proveedor.subcuenta410, etiqueta: 'servicios' },
             ]}
             subcuentasEnPlan={proveedor.subcuentasEnPlan}
+            ejercicio={anio}
           />
           <SupplierDatosTab proveedor={proveedor} companyId={companyId} onUpdate={setProveedor} />
         </>
@@ -132,7 +145,7 @@ export default function DetalleProveedorPage() {
       id: 'facturas',
       label: 'Facturas',
       icon: '📄',
-      component: <SupplierFacturasTab supplierId={proveedorId} companyId={companyId} />,
+      component: <SupplierFacturasTab supplierId={proveedorId} companyId={companyId} anio={anio} onAnio={elegirAnio} />,
     },
     {
       id: 'contactos',

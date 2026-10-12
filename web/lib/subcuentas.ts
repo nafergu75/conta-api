@@ -188,13 +188,19 @@ export function buscarTerceros(q: string, tipo?: TipoFicha): Promise<TerceroEnco
   return apiFetch<TerceroEncontrado[]>(companyPath(`/informes-contables/buscar-tercero?${p}`));
 }
 
-/** Enlaces al mayor de un cliente o proveedor (Libro mayor y Mayor de clientes/proveedores). */
-export function enlaceLibroMayor(tipo: TipoFicha, id: string): string {
-  return `/dashboard/informes?tipo=mayor&tercero=${encodeURIComponent(id)}&tipoTercero=${tipo}`;
+/**
+ * Enlaces al mayor de un cliente o proveedor (Libro mayor y Mayor de
+ * clientes/proveedores), abiertos en `ejercicio` si se da (el año elegido en
+ * la ficha; con «Todos los años», sin año: el mayor abre el actual).
+ */
+export function enlaceLibroMayor(tipo: TipoFicha, id: string, ejercicio?: number | null): string {
+  const anio = ejercicio ? `&ejercicio=${ejercicio}` : '';
+  return `/dashboard/informes?tipo=mayor&tercero=${encodeURIComponent(id)}&tipoTercero=${tipo}${anio}`;
 }
 
-export function enlaceMayorTerceros(tipo: TipoFicha, id: string): string {
-  return `/dashboard/mayor-terceros?tipo=${tipo === 'cliente' ? 'clientes' : 'proveedores'}&tercero=${encodeURIComponent(id)}`;
+export function enlaceMayorTerceros(tipo: TipoFicha, id: string, ejercicio?: number | null): string {
+  const anio = ejercicio ? `&ejercicio=${ejercicio}` : '';
+  return `/dashboard/mayor-terceros?tipo=${tipo === 'cliente' ? 'clientes' : 'proveedores'}&tercero=${encodeURIComponent(id)}${anio}`;
 }
 
 /** Que es cada subcuenta de tercero, para leerla: 43000012 -> «clientes». */

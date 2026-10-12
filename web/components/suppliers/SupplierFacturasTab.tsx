@@ -30,6 +30,9 @@ interface Factura {
 interface SupplierFacturasTabProps {
   supplierId: string;
   companyId: string;
+  /** Año de emisión elegido (null = todos). Lo guarda la ficha: también abre el mayor en ese año. */
+  anio: number | null;
+  onAnio: (anio: number | null) => void;
 }
 
 type FiltroPago = '' | 'PENDIENTE' | 'PARCIAL' | 'PAGADA' | 'VENCIDA';
@@ -42,14 +45,12 @@ const pasaFiltro = (f: Factura, filtro: FiltroPago) => {
 };
 
 /** Facturas de gasto del proveedor, con su estado, su pago y lo pendiente. Cada fila abre la factura. */
-export function SupplierFacturasTab({ supplierId, companyId }: SupplierFacturasTabProps) {
+export function SupplierFacturasTab({ supplierId, companyId, anio, onAnio }: SupplierFacturasTabProps) {
   const [facturas, setFacturas] = useState<Factura[]>([]);
   const [moneda, setMoneda] = useState('EUR');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filtro, setFiltro] = useState<FiltroPago>('');
-  // Año de emisión (null = todos).
-  const [anio, setAnio] = useState<number | null>(null);
   const aniosEmpresa = useAniosEmpresa();
 
   useEffect(() => {
@@ -137,7 +138,7 @@ export function SupplierFacturasTab({ supplierId, companyId }: SupplierFacturasT
         todos="Todos los años"
         valor={anio}
         anios={aniosEmpresa.anios([...aniosConFacturas, anio])}
-        onChange={setAnio}
+        onChange={onAnio}
         className="mt-2 block rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-accent-600"
       />
       <div>

@@ -5,7 +5,8 @@ import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft } from '@phosphor-icons/react';
 import { getToken } from '@/lib/auth';
 import { ApiError, apiFetch, companyPath } from '@/lib/api';
-import { anioEspana, rangoFechas } from '@/lib/anios';
+import { anioEspana, nombreTrimestre, rangoFechas } from '@/lib/anios';
+import { anioOTodosDeUrl, anioParaUrl, ponerEnUrl, trimestreDeUrl } from '@/lib/urlEstado';
 import { useAniosEmpresa } from '@/lib/useAniosEmpresa';
 import SelectorAnio from '@/components/SelectorAnio';
 import { BloqueContabilidadTercero } from '@/components/contabilidad/BloqueContabilidadTercero';
@@ -52,9 +53,16 @@ export default function ClienteDetailPage() {
   const [facturas, setFacturas] = useState<Factura[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // Año (null = todos) y trimestre: filtran de verdad las facturas que se piden.
-  const [selectedYear, setSelectedYear] = useState<number | null>(() => anioEspana());
-  const [selectedPeriod, setSelectedPeriod] = useState<'year' | 'q1' | 'q2' | 'q3' | 'q4'>('year');
+  // Año (null = todos) y trimestre: filtran de verdad las facturas que se piden. Se guardan
+  // en la URL: al volver de una factura o del mayor, la ficha sigue en el mismo año.
+  const [selectedYear, setSelectedYear] = useState<number | null>(() => {
+    const url = anioOTodosDeUrl();
+    return url === undefined ? anioEspana() : url;
+  });
+  const [selectedPeriod, setSelectedPeriod] = useState<'year' | 'q1' | 'q2' | 'q3' | 'q4'>(() => {
+    const t = trimestreDeUrl();
+    return t ? (`q${t}` as 'q1' | 'q2' | 'q3' | 'q4') : 'year';
+  });
   const [cargandoFacturas, setCargandoFacturas] = useState(false);
   const aniosEmpresa = useAniosEmpresa();
 
@@ -178,7 +186,7 @@ export default function ClienteDetailPage() {
 
         <DatosFiscalesCliente cliente={cliente} onGuardado={(c) => setCliente((x) => (x ? { ...x, ...c } : x))} />
 
-        <BloqueContabilidadTercero tipo="cliente" id={clienteId} subcuentas={[{ codigo: cliente.subcuenta430 }]} subcuentasEnPlan={cliente.subcuentasEnPlan} />
+        <BloqueContabilidadTercero tipo="cliente" id={clienteId} subcuentas={[{ codigo: cliente.subcuenta430 }]} subcuentasEnPlan={cliente.subcuentasEnPlan} ejercicio={selectedYear} />
 
         {/* Tabs */}
         <div className="flex gap-4 border-b border-slate-200 mb-6">
@@ -198,6 +206,7 @@ export default function ClienteDetailPage() {
             onChange={(a) => {
               setSelectedYear(a);
               if (a === null) setSelectedPeriod('year');
+              ponerEnUrl({ ejercicio: anioParaUrl(a), trimestre: a === null || selectedPeriod === 'year' ? null : selectedPeriod.slice(1) });
             }}
             className="mt-1 block px-4 py-2 border border-slate-300 rounded-lg text-sm bg-white"
           />
@@ -208,14 +217,19 @@ export default function ClienteDetailPage() {
               id="cliente-periodo"
               value={selectedPeriod}
               disabled={selectedYear === null}
-              onChange={(e) => setSelectedPeriod(e.target.value as typeof selectedPeriod)}
+              onChange={(e) => {
+                const p = e.target.value as typeof selectedPeriod;
+                setSelectedPeriod(p);
+                ponerEnUrl({ ejercicio: anioParaUrl(selectedYear), trimestre: p === 'year' ? null : p.slice(1) });
+              }}
               className="mt-1 block px-4 py-2 border border-slate-300 rounded-lg text-sm bg-white disabled:opacity-60"
             >
               <option value="year">Todo el año</option>
-              <option value="q1">Trimestre 1</option>
-              <option value="q2">Trimestre 2</option>
-              <option value="q3">Trimestre 3</option>
-              <option value="q4">Trimestre 4</option>
+              {[1, 2, 3, 4].map((t) => (
+                <option key={t} value={`q${t}`}>
+                  {nombreTrimestre(t)}
+                </option>
+              ))}
             </select>
           </div>
         </div>
