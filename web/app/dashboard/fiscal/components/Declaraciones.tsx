@@ -49,7 +49,18 @@ export interface Historial {
   rectificaciones: Array<'C' | 'S'>;
   presentadoSinHistorial: boolean;
   declaraciones: DeclaracionHistorial[];
-  enCurso: { tipo: Tipo; tipoTexto: string; numero: string | null; justificanteAnterior: string | null; resultadoAnterior: number | null; registros: string[] | null } | null;
+  enCurso: {
+    tipo: Tipo;
+    tipoTexto: string;
+    numero: string | null;
+    justificanteAnterior: string | null;
+    resultadoAnterior: number | null;
+    registros: string[] | null;
+    /** Sustitutiva de una informativa: números que hay que dar de baja en la sede antes de presentarla. */
+    bajas?: string[];
+    /** Lo que hay que hacer en la sede antes de presentar (o null). */
+    aviso?: string | null;
+  } | null;
   registros: RegistroDeclaracion[] | null;
 }
 
@@ -281,6 +292,11 @@ export function Declaraciones({ codigo, ejercicio, periodo, opcionesPresentar, o
             )}
             {h.enCurso.resultadoAnterior !== null && h.enCurso.tipo !== 'N' && <li>Ya ingresado con las anteriores: {eur(h.enCurso.resultadoAnterior)}</li>}
           </ul>
+          {h.enCurso.aviso && (
+            <p role="note" className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-900">
+              <WarningCircle size={18} className="mt-0.5 shrink-0" aria-hidden /> {h.enCurso.aviso}
+            </p>
+          )}
           {h.enCurso.tipo !== 'N' && (
             <button
               type="button"
@@ -344,7 +360,9 @@ export function Declaraciones({ codigo, ejercicio, periodo, opcionesPresentar, o
         <div className="space-y-3 rounded-lg border border-slate-200 p-3">
           <p className="text-sm text-slate-700">
             {preparando === 'S'
-              ? 'La sustitutiva reemplaza a la declaración anterior y lleva todo de nuevo.'
+              ? h.clase === 'informativa'
+                ? 'La sustitutiva reemplaza a la declaración anterior y lleva todo de nuevo. Antes de presentarla hay que dar de baja la anterior en la sede de la AEAT: la app te dirá qué números.'
+                : 'La sustitutiva reemplaza a la declaración anterior y lleva todo de nuevo.'
               : h.clase === 'informativa'
                 ? 'La complementaria solo lleva los registros que faltaron en la anterior.'
                 : 'La app toma el justificante de la anterior y lo ya ingresado, y el borrador lo descuenta.'}
@@ -364,7 +382,7 @@ export function Declaraciones({ codigo, ejercicio, periodo, opcionesPresentar, o
                   placeholder="13 caracteres"
                 />
               </div>
-              {h.clase === 'autoliquidacion' && codigo !== '390' && codigo !== '200' && (
+              {h.clase === 'autoliquidacion' && codigo !== '390' && (
                 <div>
                   <label htmlFor="decl-ingresado" className="block text-sm font-medium text-slate-700">
                     {codigo === '303' ? 'Resultado [69] de la anterior' : 'Lo que se ingresó con la anterior'}
@@ -381,10 +399,10 @@ export function Declaraciones({ codigo, ejercicio, periodo, opcionesPresentar, o
               )}
             </div>
           )}
-          {codigo === '303' && (
+          {(codigo === '303' || codigo === '200') && (
             <div className="sm:w-1/2">
               <label htmlFor="decl-devolucion" className="block text-sm font-medium text-slate-700">
-                Devolución ya acordada por la AEAT [109] (si la hubo)
+                Devolución ya acordada por la AEAT {codigo === '303' ? '[109]' : '[01584]'} (si la hubo)
               </label>
               <input
                 id="decl-devolucion"
