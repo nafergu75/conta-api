@@ -13,6 +13,7 @@ import {
   fechaCorta,
   type OriginalesBuscadas,
   TIPOS_IVA_GASTO,
+  textoTipoIva,
 } from '@/lib/compras';
 import {
   conOriginalDeFuera,
@@ -547,6 +548,7 @@ export function LineasOriginal({
   onCambio,
   marca,
   monedaCuenta,
+  extranjero = false,
   numero,
 }: {
   lineas: LineaOriginal[];
@@ -554,6 +556,8 @@ export function LineasOriginal({
   onCambio: (ls: LineaOriginal[]) => void;
   marca: Marca;
   monedaCuenta: string;
+  /** Proveedor o empresa extranjeros: el 0 % se llama «Sin IVA» en vez de «Exento», como en Conceptos. */
+  extranjero?: boolean;
   numero: string;
 }) {
   const fmt = (n: number) => formatoImporte(n, monedaCuenta);
@@ -575,7 +579,7 @@ export function LineasOriginal({
             <li key={l.clave} className="flex flex-wrap justify-between gap-x-3 py-1.5">
               <span className="min-w-0 break-words text-slate-900">{l.descripcion}</span>
               <span className="font-mono text-slate-600">
-                {l.cantidad} × {fmt(parseImporte(l.precio))} · IVA {l.tipoIva} %{l.tipoRetencion ? ` · IRPF ${l.tipoRetencion} %` : ''}
+                {l.cantidad} × {fmt(parseImporte(l.precio))} · {l.tipoIva !== 0 ? `IVA ${l.tipoIva} %` : textoTipoIva(0, extranjero)}{l.tipoRetencion ? ` · IRPF ${l.tipoRetencion} %` : ''}
               </span>
             </li>
           ))}
@@ -627,7 +631,7 @@ export function LineasOriginal({
                 <select id={`fr-liva-${l.clave}`} value={l.tipoIva} onChange={(ev) => cambiar(l.clave, { tipoIva: Number(ev.target.value) })} className={campoBase}>
                   {TIPOS_IVA_GASTO.map((t) => (
                     <option key={t} value={t}>
-                      {t} %
+                      {textoTipoIva(t, extranjero)}
                     </option>
                   ))}
                 </select>
