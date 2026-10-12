@@ -47,7 +47,22 @@ interface ResultadoPlan {
   fichasEnlazadas: number;
   fichasCreadas: number;
   pendientes: number;
+  /** Las que no se han podido enlazar solas (su ficha ya va con otra): tambien salen en «Subcuentas sin enlazar». */
+  noSeEnlazan?: number;
   longitudFijada: number | null;
+}
+
+/**
+ * Lo que queda por enlazar tras traer el plan: las pendientes y las que no se
+ * han podido enlazar solas, que son las que salen en «Subcuentas sin enlazar».
+ */
+function textoSinEnlazar(pendientes: number, noSeEnlazan: number): string {
+  const total = pendientes + noSeEnlazan;
+  if (!total) return '';
+  let t = `${cuantas(total, 'subcuenta queda', 'subcuentas quedan')} por enlazar`;
+  if (noSeEnlazan && pendientes) t += `, ${noSeEnlazan} de ellas porque no se ${segun(noSeEnlazan, 'ha podido enlazar sola', 'han podido enlazar solas')}`;
+  else if (noSeEnlazan) t += ` porque no se ${segun(noSeEnlazan, 'ha podido enlazar sola', 'han podido enlazar solas')}`;
+  return `${t} (abajo, en «Subcuentas sin enlazar»)`;
 }
 
 const TEXTO_ACCION: Record<Accion, { texto: string; color: string }> = {
@@ -195,7 +210,7 @@ export function PlanAnterior({ onHecho }: { onHecho: (t: string) => void }) {
           res.fichasEnlazadas ? cuantas(res.fichasEnlazadas, 'subcuenta enlazada a su ficha', 'subcuentas enlazadas a sus fichas') : '',
           res.fichasCreadas ? cuantas(res.fichasCreadas, 'ficha nueva', 'fichas nuevas') : '',
           res.longitudFijada ? `las subcuentas de clientes y proveedores tendrán ${res.longitudFijada} dígitos` : '',
-          res.pendientes ? `${cuantas(res.pendientes, 'subcuenta queda', 'subcuentas quedan')} por enlazar (abajo, en «Subcuentas sin enlazar»)` : '',
+          textoSinEnlazar(res.pendientes, res.noSeEnlazan ?? 0),
         ]
           .filter(Boolean)
           .join('; ') + '.',
