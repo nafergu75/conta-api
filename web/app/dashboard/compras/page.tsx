@@ -6,7 +6,7 @@ import { ArrowRight, MagnifyingGlass, Plus, Sparkle, X } from '@phosphor-icons/r
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { formatoImporte } from '@/lib/moneda';
-import { claseEstadoGasto, claseEstadoPago, fechaCorta, type ListadoGastos } from '@/lib/compras';
+import { claseEstadoGasto, claseEstadoPago, claseInsigniaAbono, fechaCorta, type GastoListado, type ListadoGastos, textoEstadoAbono } from '@/lib/compras';
 import { mensajeSinAcceso, PantallaSinAcceso } from '@/components/dashboard/SinAcceso';
 
 /**
@@ -17,7 +17,11 @@ import { mensajeSinAcceso, PantallaSinAcceso } from '@/components/dashboard/SinA
 const POR_PAGINA = 25;
 
 type Estado = '' | 'sin_contabilizar' | 'pendiente_revision' | 'contabilizada' | 'anulada';
-type Pago = '' | 'pendiente' | 'parcial' | 'por_pagar' | 'pagada' | 'vencida';
+type Pago = '' | 'pendiente' | 'parcial' | 'por_pagar' | 'pagada' | 'vencida' | 'a_favor';
+type Tipo = '' | 'facturas' | 'abonos';
+
+/** Estado de pago de la fila: en un abono, si está devuelto o aplicado. */
+const textoPagoDe = (f: GastoListado) => (f.esAbono ? textoEstadoAbono(f.estadoPago) : f.estadoPagoTexto);
 
 const campo =
   'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-accent-600 focus:border-accent-600';
@@ -35,6 +39,7 @@ export default function ComprasPage() {
   const [q, setQ] = useState('');
   const [estado, setEstado] = useState<Estado>('');
   const [pago, setPago] = useState<Pago>('');
+  const [tipo, setTipo] = useState<Tipo>('');
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
   const [pagina, setPagina] = useState(1);
@@ -54,6 +59,7 @@ export default function ComprasPage() {
     if (q) params.set('q', q);
     if (estado) params.set('estado', estado);
     if (pago) params.set('pago', pago);
+    if (tipo) params.set('tipo', tipo);
     if (desde) params.set('desde', desde);
     if (hasta) params.set('hasta', hasta);
     setCargando(true);
@@ -73,12 +79,12 @@ export default function ComprasPage() {
     return () => {
       vivo = false;
     };
-  }, [q, estado, pago, desde, hasta, pagina]);
+  }, [q, estado, pago, tipo, desde, hasta, pagina]);
 
   const moneda = datos?.monedaCuenta ?? 'EUR';
   const fmt = (n: number) => formatoImporte(Number(n) || 0, moneda);
   const c = datos?.contadores;
-  const hayFiltros = !!(q || estado || pago || desde || hasta);
+  const hayFiltros = !!(q || estado || pago || tipo || desde || hasta);
 
   const filtrar = (e: Estado, p: Pago) => {
     setEstado(e);
@@ -90,6 +96,7 @@ export default function ComprasPage() {
     setQ('');
     setDesde('');
     setHasta('');
+    setTipo('');
     filtrar('', '');
   };
 
@@ -99,6 +106,7 @@ export default function ComprasPage() {
     { texto: 'Contabilizadas', valor: c?.contabilizadas, activo: estado === 'contabilizada', onClick: () => filtrar('contabilizada', ''), color: 'text-emerald-700' },
     { texto: 'Pendientes de pago', valor: c?.pendientesPago, activo: pago === 'por_pagar', onClick: () => filtrar('', 'por_pagar'), color: 'text-blue-700' },
     { texto: 'Vencidas', valor: c?.vencidas, activo: pago === 'vencida', onClick: () => filtrar('', 'vencida'), color: 'text-rose-700' },
+    { texto: 'Abonos a tu favor', valor: c?.abonosAFavor, activo: pago === 'a_favor', onClick: () => filtrar('', 'a_favor'), color: 'text-violet-600' },
     { texto: 'Anuladas', valor: c?.anuladas, activo: estado === 'anulada', onClick: () => filtrar('anulada', ''), color: 'text-slate-600' },
   ];
   if (c && c.sinContabilizar > 0) {
@@ -139,7 +147,7 @@ export default function ComprasPage() {
 
       <main className="mx-auto flex max-w-6xl flex-col gap-6 px-4 pt-6 pb-24 md:px-8 md:py-8">
         {/* Contadores (tambien filtran) */}
-        <section className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-7">
+        <section className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
           {contadores.map((k) => (
             <button
               key={k.texto}
@@ -199,9 +207,28 @@ export default function ComprasPage() {
               <option value="parcial">Pagada en parte</option>
               <option value="pagada">Pagada</option>
               <option value="vencida">Vencida</option>
+              <option value="a_favor">Abonos con algo a tu favor</option>
             </select>
           </div>
-          <div>
+          <div className="col-span-2 md:col-span-2">
+            <label htmlFor="co-tipo" className="mb-1 block text-sm font-medium text-slate-700">
+              Tipo
+            </label>
+            <select
+              id="co-tipo"
+              value={tipo}
+              onChange={(e) => {
+                setTipo(e.target.value as Tipo);
+                setPagina(1);
+              }}
+              className={campo}
+            >
+              <option value="">Facturas y abonos</option>
+              <option value="facturas">Solo facturas</option>
+              <option value="abonos">Abonos y rectificativas</option>
+            </select>
+          </div>
+          <div className="md:col-span-3">
             <label htmlFor="co-desde" className="mb-1 block text-sm font-medium text-slate-700">
               Desde
             </label>
@@ -216,7 +243,7 @@ export default function ComprasPage() {
               className={campo}
             />
           </div>
-          <div>
+          <div className="md:col-span-3">
             <label htmlFor="co-hasta" className="mb-1 block text-sm font-medium text-slate-700">
               Hasta
             </label>
@@ -240,7 +267,7 @@ export default function ComprasPage() {
 
         {/* Totales del filtro */}
         {datos && datos.total > 0 && (
-          <section className="grid grid-cols-2 gap-2 rounded-lg border border-slate-200 bg-white p-4 text-sm sm:grid-cols-5">
+          <section className={`grid grid-cols-2 gap-2 rounded-lg border border-slate-200 bg-white p-4 text-sm ${datos.totales.aFavor > 0 ? 'sm:grid-cols-6' : 'sm:grid-cols-5'}`}>
             <div>
               <p className="text-slate-600">Base</p>
               <p className="font-mono font-semibold text-slate-900">{fmt(datos.totales.base)}</p>
@@ -261,7 +288,15 @@ export default function ComprasPage() {
               <p className="text-slate-600">Pendiente de pago</p>
               <p className="font-mono font-semibold text-amber-700">{fmt(datos.totales.pendiente)}</p>
             </div>
-            <p className="col-span-2 text-xs text-slate-500 sm:col-span-5">Totales de las facturas que cumplen el filtro (todas las páginas), sin las anuladas.</p>
+            {datos.totales.aFavor > 0 && (
+              <div className="col-span-2 sm:col-span-1">
+                <p className="text-slate-600">A tu favor (abonos)</p>
+                <p className="font-mono font-semibold text-violet-600">{fmt(datos.totales.aFavor)}</p>
+              </div>
+            )}
+            <p className={`col-span-2 text-xs text-slate-500 ${datos.totales.aFavor > 0 ? 'sm:col-span-6' : 'sm:col-span-5'}`}>
+              Totales de las facturas que cumplen el filtro (todas las páginas), sin las anuladas. Los abonos restan en el total; lo pendiente de pago no los incluye.
+            </p>
           </section>
         )}
 
@@ -316,6 +351,7 @@ export default function ComprasPage() {
                           <Link href={`/dashboard/compras/${f.id}`} className={anulada ? '' : 'text-blue-600 hover:underline'}>
                             {f.numeroCompleto}
                           </Link>
+                          {f.esRectificativa && <span className={`ml-1.5 font-sans ${claseInsigniaAbono}`}>{f.esAbono ? 'Abono' : 'Rectif.'}</span>}
                         </td>
                         <td className="max-w-[7rem] truncate px-2.5 py-3 font-mono text-slate-700" title={f.numeroFacturaProveedor ?? ''}>
                           {f.numeroFacturaProveedor ?? '—'}
@@ -326,11 +362,11 @@ export default function ComprasPage() {
                         <td className="whitespace-nowrap px-2.5 py-3 text-slate-600">{fechaCorta(f.fechaEmision)}</td>
                         <td className="whitespace-nowrap px-2.5 py-3 text-right tabular-nums">{fmt(f.baseTotal)}</td>
                         <td className="whitespace-nowrap px-2.5 py-3 text-right tabular-nums">{fmt(f.ivaTotal)}</td>
-                        <td className="whitespace-nowrap px-2.5 py-3 text-right tabular-nums font-semibold">{fmt(f.totalFactura)}</td>
+                        <td className={`whitespace-nowrap px-2.5 py-3 text-right tabular-nums font-semibold ${f.esAbono && !anulada ? 'text-rose-700' : ''}`}>{fmt(f.totalFactura)}</td>
                         <td className="px-2.5 py-3">
                           <span className={claseEstadoGasto(f.estado)}>{f.estadoTexto}</span>
                         </td>
-                        <td className="px-2.5 py-3">{!anulada && <span className={claseEstadoPago(f.estadoPago, f.vencida)}>{f.estadoPagoTexto}</span>}</td>
+                        <td className="px-2.5 py-3">{!anulada && <span className={claseEstadoPago(f.estadoPago, f.vencida)}>{textoPagoDe(f)}</span>}</td>
                         <td className="px-2.5 py-3 text-right">
                           <Link href={`/dashboard/compras/${f.id}`} className="inline-flex items-center gap-1 font-medium text-blue-600 hover:underline">
                             <span className="sr-only">Ver</span>
@@ -353,7 +389,7 @@ export default function ComprasPage() {
                       <Link href={`/dashboard/compras/${f.id}`} className="flex flex-col gap-1.5 px-4 py-3 hover:bg-slate-50">
                         <div className="flex items-baseline justify-between gap-2">
                           <span className={`min-w-0 truncate font-medium ${anulada ? 'text-slate-400 line-through' : 'text-slate-900'}`}>{f.supplierNombre}</span>
-                          <span className={`shrink-0 font-mono font-semibold ${anulada ? 'text-slate-400 line-through' : 'text-slate-900'}`}>{fmt(f.totalFactura)}</span>
+                          <span className={`shrink-0 font-mono font-semibold ${anulada ? 'text-slate-400 line-through' : f.esAbono ? 'text-rose-700' : 'text-slate-900'}`}>{fmt(f.totalFactura)}</span>
                         </div>
                         <div className="flex flex-wrap items-center gap-x-2 text-xs text-slate-500">
                           <span className="font-mono">{f.numeroCompleto}</span>
@@ -361,8 +397,9 @@ export default function ComprasPage() {
                           <span>· {fechaCorta(f.fechaEmision)}</span>
                         </div>
                         <div className="flex flex-wrap gap-1.5">
+                          {f.esRectificativa && <span className={claseInsigniaAbono}>{f.esAbono ? 'Abono' : 'Rectificativa'}</span>}
                           <span className={claseEstadoGasto(f.estado)}>{f.estadoTexto}</span>
-                          {!anulada && <span className={claseEstadoPago(f.estadoPago, f.vencida)}>{f.estadoPagoTexto}</span>}
+                          {!anulada && <span className={claseEstadoPago(f.estadoPago, f.vencida)}>{textoPagoDe(f)}</span>}
                         </div>
                       </Link>
                     </li>
