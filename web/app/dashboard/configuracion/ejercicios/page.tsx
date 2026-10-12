@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { ArrowRight, CalendarCheck, LockKey, LockKeyOpen, Plus } from '@phosphor-icons/react';
 import { ConfirmationModal } from '@/components/dashboard/ConfirmationModal';
 import { ApiError, apiFetch, companyPath, errorMessage } from '@/lib/api';
+import { anioEspana } from '@/lib/anios';
+import { refrescarAniosEmpresa } from '@/lib/useAniosEmpresa';
 import {
   claseBoton,
   claseBotonSecundario,
@@ -68,7 +70,7 @@ export default function EjerciciosPage() {
   const cargarEjercicios = useCallback(async (seleccionar?: string) => {
     const lista = await apiFetch<EjercicioConfig[]>(companyPath('/fiscal-years'));
     setEjercicios(lista);
-    const hoy = String(new Date().getFullYear());
+    const hoy = String(anioEspana());
     setAnioSel((actual) => {
       if (seleccionar) return seleccionar;
       if (lista.some((e) => e.label === actual)) return actual;
@@ -101,7 +103,7 @@ export default function EjerciciosPage() {
     cargarPeriodos(anioSel).catch((e) => setMensaje({ ok: false, texto: errorMessage(e) }));
   }, [anioSel, cargarPeriodos]);
 
-  const anioActual = new Date().getFullYear();
+  const anioActual = anioEspana();
   // Años que se pueden crear: de 1990 al que viene, sin los que ya existen.
   const aniosLibres = useMemo(() => {
     const usados = new Set((ejercicios ?? []).map((e) => e.label));
@@ -144,6 +146,8 @@ export default function EjerciciosPage() {
     setMensaje(null);
     try {
       await apiFetch(companyPath('/fiscal-years'), { method: 'POST', body: JSON.stringify({ anio: Number(nuevoAnio) }) });
+      // Los desplegables de años de las otras pantallas lo tienen que ver.
+      refrescarAniosEmpresa();
       await cargarEjercicios(nuevoAnio);
       setMensaje({ ok: true, texto: `Ejercicio ${nuevoAnio} creado: va del 1 de enero al 31 de diciembre.` });
     } catch (e) {
@@ -159,6 +163,7 @@ export default function EjerciciosPage() {
     setMensaje(null);
     try {
       await apiFetch(companyPath(`/fiscal-years/${encodeURIComponent(reabrir.id)}/reabrir`), { method: 'POST', body: '{}' });
+      refrescarAniosEmpresa();
       await cargarEjercicios(reabrir.label);
       await cargarPeriodos(reabrir.label);
       setMensaje({
