@@ -1194,9 +1194,11 @@ export default function FormFacturaGasto({
                   Me llegó más tarde: poner la fecha de recepción
                 </button>
               )}
-              <Link href={conflicto.rectificar303.enlace} className="self-start font-semibold underline">
-                Ver el 303{conflicto.rectificar303.periodo ? ` del ${textoPeriodoModelo(conflicto.rectificar303.ejercicio, conflicto.rectificar303.periodo)}` : ''}
-              </Link>
+              {conflicto.rectificar303.enlace && (
+                <Link href={conflicto.rectificar303.enlace} className="self-start font-semibold underline">
+                  Ver el 303{conflicto.rectificar303.periodo ? ` del ${textoPeriodoModelo(conflicto.rectificar303.ejercicio, conflicto.rectificar303.periodo)}` : ''}
+                </Link>
+              )}
             </div>
           )}
           {conflicto?.contabilizar && facturaId && (
