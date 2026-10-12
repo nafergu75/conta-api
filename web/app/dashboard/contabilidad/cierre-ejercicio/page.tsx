@@ -7,6 +7,9 @@ import { Tooltip } from '@/app/dashboard/components/Tooltip';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { boton, botonSecundario, campo, Dato, eur, fechaEs, Mensajes, num } from '../importacion';
+import SelectorAnio from '@/components/SelectorAnio';
+import { anioDeTexto, anioEspana, rangoAnios } from '@/lib/anios';
+import { useAniosEmpresa } from '@/lib/useAniosEmpresa';
 
 /**
  * Cierre del ejercicio y traspaso de saldos: regularizacion (6/7 a la 129),
@@ -53,19 +56,20 @@ const NOMBRE_TIPO: Record<string, string> = {
   APERTURA: 'Apertura',
 };
 
-const anioActual = new Date().getFullYear();
-
 export default function CierreEjercicioPage() {
   const puedeEditar = tieneAlgunPermiso(getUser(), ['contabilidad:write']);
+  // Año en curso en España, calculado al abrir la pantalla (no al cargar el módulo).
+  const anioActual = anioEspana();
+  const aniosEmpresa = useAniosEmpresa();
   const [ejercicio, setEjercicio] = useState(anioActual - 1);
   // Desde Configuración o Registro Mercantil se llega con ?ejercicio=AAAA. Hasta
   // leerlo no se carga nada (si no, llegarían dos vistas y podría quedar la otra).
   const [urlLeida, setUrlLeida] = useState(false);
   useEffect(() => {
-    const pedido = Number(new URLSearchParams(window.location.search).get('ejercicio'));
-    if (Number.isInteger(pedido) && pedido >= 1990 && pedido <= anioActual + 1) setEjercicio(pedido);
+    const pedido = anioDeTexto(new URLSearchParams(window.location.search).get('ejercicio'));
+    if (pedido !== null && pedido <= anioActual + 1) setEjercicio(pedido);
     setUrlLeida(true);
-  }, []);
+  }, [anioActual]);
   const [reemplazarApertura, setReemplazarApertura] = useState(false);
   const [vista, setVista] = useState<VistaCierre | null>(null);
   const [cargando, setCargando] = useState(false);
@@ -106,6 +110,7 @@ export default function CierreEjercicioPage() {
       );
       setConfirmando(false);
       setReemplazarApertura(false);
+      aniosEmpresa.recargar();
       await cargar();
     } catch (e) {
       setError(errorMessage(e));
@@ -121,6 +126,7 @@ export default function CierreEjercicioPage() {
     try {
       const r = await apiFetch<{ anulados: number }>(companyPath(`/periodos/cierre?ejercicio=${ejercicio}`), { method: 'DELETE' });
       setAviso(`Cierre del ${ejercicio} deshecho: ${r.anulados} asientos anulados. El ejercicio vuelve a estar abierto.`);
+      aniosEmpresa.recargar();
       await cargar();
     } catch (e) {
       setError(errorMessage(e));
@@ -129,8 +135,14 @@ export default function CierreEjercicioPage() {
     }
   };
 
-  const anios = Array.from({ length: 8 }, (_, i) => anioActual + 1 - i);
-  if (!anios.includes(ejercicio)) anios.push(ejercicio);
+  // Del primer ejercicio dado de alta (o el primer año con datos) al siguiente al actual, con su estado.
+  const estadoDe = new Map(aniosEmpresa.ejercicios.map((e) => [e.anio, e.estado]));
+  const primerEjercicio = aniosEmpresa.ejercicios.length ? Math.min(...aniosEmpresa.ejercicios.map((e) => e.anio)) : aniosEmpresa.primero;
+  const anios = rangoAnios({ primero: Math.min(primerEjercicio, anioActual - 1), actual: anioActual, extra: 1, incluir: [ejercicio] });
+  const sufijo = (a: number) => {
+    const e = estadoDe.get(a);
+    return e === 'ABIERTO' ? '(abierto)' : e ? '(cerrado)' : '';
+  };
 
   return (
     <div className="space-y-6">
@@ -143,25 +155,20 @@ export default function CierreEjercicioPage() {
       </div>
 
       <div className="flex flex-wrap items-end gap-3">
-        <label className="block text-sm font-medium text-slate-700">
-          Ejercicio
-          <select
-            className={`${campo} w-40`}
-            value={ejercicio}
-            onChange={(e) => {
-              setEjercicio(Number(e.target.value));
-              setAviso('');
-              setConfirmando(false);
-              setReemplazarApertura(false);
-            }}
-          >
-            {anios.map((a) => (
-              <option key={a} value={a}>
-                {a}
-              </option>
-            ))}
-          </select>
-        </label>
+        <SelectorAnio
+          id="cierre-ejercicio"
+          valor={ejercicio}
+          anios={anios}
+          sufijo={sufijo}
+          onChange={(a) => {
+            if (a === null) return;
+            setEjercicio(a);
+            setAviso('');
+            setConfirmando(false);
+            setReemplazarApertura(false);
+          }}
+          className={`${campo} w-44`}
+        />
         {vista && (
           <span
             className={`mb-1 inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm font-medium ${
