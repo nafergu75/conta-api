@@ -132,10 +132,21 @@ function DatosEmpresa() {
     try {
       // La moneda de la contabilidad solo se envia mientras se puede cambiar.
       // Con facturas emitidas, cambiar el NIF pide confirmacion (guardarDatosEmpresa).
-      const cfg = await guardarDatosEmpresa<{ completo: boolean; pendientes: string[]; monedaCuenta?: string; monedaCuentaEditable?: boolean }>(
-        monedaEditable ? datos : { ...datos, monedaCuenta: undefined },
-      );
+      const cfg = await guardarDatosEmpresa<{
+        completo: boolean;
+        pendientes: string[];
+        monedaCuenta?: string;
+        monedaCuentaEditable?: boolean;
+        claveActividad?: string | null;
+        epigrafeIae?: string | null;
+      }>(monedaEditable ? datos : { ...datos, monedaCuenta: undefined });
       if (cfg.monedaCuenta) setDatos((d) => ({ ...d, monedaCuenta: cfg.monedaCuenta as string }));
+      // La clave y el epígrafe se guardan normalizados (a03 -> A03, 615.1 -> 6151): se enseña lo guardado.
+      setDatos((d) => ({
+        ...d,
+        ...(cfg.claveActividad !== undefined ? { claveActividad: cfg.claveActividad ?? '' } : {}),
+        ...(cfg.epigrafeIae !== undefined ? { epigrafeIae: cfg.epigrafeIae ?? '' } : {}),
+      }));
       setMonedaEditable(cfg.monedaCuentaEditable !== false);
       setMonedaCorregida(null);
       setPendientes(cfg.pendientes ?? []);
