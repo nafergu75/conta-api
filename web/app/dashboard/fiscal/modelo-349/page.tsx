@@ -41,6 +41,8 @@ interface Borrador349 {
   ejercicio: number;
   periodo: string;
   estado: string;
+  /** «Presentado · complementaria en preparación» cuando hay una presentada y otra en curso (el estado de la fila dice 'vigente'). */
+  estadoTexto?: string | null;
   /** Tipo y anterior los pone el historial de declaraciones; cambioPeriodicidad, la persona. */
   opciones: { tipoDeclaracion: 'C' | 'S' | null; declaracionAnterior: string | null; cambioPeriodicidad: boolean };
   /** Número identificativo; null hasta la primera descarga o la presentación. */
@@ -194,7 +196,7 @@ export default function Modelo349Page() {
               <>
                 <Seccion
                   titulo={`Declarante – ${etiquetaPeriodo(b.periodo)} de ${b.ejercicio}`}
-                  extra={<span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-medium text-slate-700">{ESTADO_MODELO[b.estado] ?? b.estado}</span>}
+                  extra={<span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-medium text-slate-700">{b.estadoTexto ?? ESTADO_MODELO[b.estado] ?? b.estado}</span>}
                 >
                   <CamposRegistro campos={b.pantalla.declarante} />
                 </Seccion>
