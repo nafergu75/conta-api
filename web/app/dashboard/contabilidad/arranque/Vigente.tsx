@@ -257,8 +257,13 @@ export function Vigente({
             puedeEditar={puedeBancos}
             ocupado={ocupado}
             onGuardar={async (b) => {
-              setComp(await arranqueApi.bancos(b));
-              setHecho('Bancos guardados.');
+              setOcupado(true);
+              try {
+                setComp(await arranqueApi.bancos(b));
+                setHecho('Bancos guardados.');
+              } finally {
+                setOcupado(false);
+              }
             }}
           />
         </div>
@@ -272,8 +277,13 @@ export function Vigente({
             puedeEditar={puedeFiscales}
             ocupado={ocupado}
             onGuardar={async ({ datosFiscales, resultadoDeclarado }) => {
-              setComp(await arranqueApi.datosFiscales({ ...datosFiscales, ...(resultadoDeclarado !== undefined ? { resultadoDeclarado } : {}) }));
-              setHecho('Cifras guardadas.');
+              setOcupado(true);
+              try {
+                setComp(await arranqueApi.datosFiscales({ ...datosFiscales, ...(resultadoDeclarado !== undefined ? { resultadoDeclarado } : {}) }));
+                setHecho('Cifras guardadas.');
+              } finally {
+                setOcupado(false);
+              }
             }}
           />
         </div>
