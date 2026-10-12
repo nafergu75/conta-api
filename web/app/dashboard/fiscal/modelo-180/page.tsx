@@ -466,7 +466,7 @@ export default function Modelo180Page() {
               onDescargado={() => setRecarga((n) => n + 1)}
             />
             <p className="text-xs text-slate-500">
-              {b.numeroDeclaracion ? `Número identificativo de la declaración: ${b.numeroDeclaracion}. ` : ''}La persona de contacto y el teléfono se cambian en Registro Mercantil &gt; Datos.
+              {b.numeroDeclaracion ? `Número identificativo de la declaración: ${b.numeroDeclaracion}. ` : ''}La persona de contacto y el teléfono se cambian en Más &gt; Datos de la empresa, apartado Contacto.
             </p>
             <Declaraciones codigo="180" ejercicio={ejercicio} recarga={recarga} onCambio={() => setRecarga((n) => n + 1)} />
           </div>

@@ -88,7 +88,7 @@ export default function Modelo347Page() {
 
       <div className="flex flex-wrap items-end gap-4 rounded-lg border border-slate-200 bg-white p-4">
         <SelectorEjercicio ejercicio={ejercicio} onChange={setEjercicio} />
-        <p className="text-sm text-slate-600">La persona de contacto y el teléfono son los de Registro Mercantil &gt; Datos.</p>
+        <p className="text-sm text-slate-600">La persona de contacto y el teléfono son los de Más &gt; Datos de la empresa, apartado Contacto.</p>
       </div>
 
       <ErroresYAvisos errores={b.errores} advertencias={b.advertencias} ejercicio={ejercicio} />

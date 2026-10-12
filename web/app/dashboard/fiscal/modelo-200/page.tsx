@@ -212,7 +212,7 @@ export default function Modelo200Page() {
 
       <div className="space-y-4">
         <DescargarFichero ruta={rutaBorrador('200', ejercicio, parametros, true)} nombre={`200_${ejercicio}.txt`} bloqueado={b.errores.length > 0} texto="Descargar borrador para Sociedades WEB" />
-        <p className="text-xs text-slate-500">La persona de contacto y el teléfono para incidencias son los de Registro Mercantil &gt; Datos.</p>
+        <p className="text-xs text-slate-500">La persona de contacto y el teléfono para incidencias son los de Más &gt; Datos de la empresa, apartado Contacto.</p>
         <Declaraciones codigo="200" ejercicio={ejercicio} opcionesPresentar={opcionesDe(aplicados)} recarga={recarga} onCambio={() => setRecarga((n) => n + 1)} />
       </div>
     </div>

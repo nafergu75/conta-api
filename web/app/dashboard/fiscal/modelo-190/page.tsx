@@ -520,7 +520,7 @@ export default function Modelo190Page() {
         )}
         <p className="text-xs text-slate-500">
           {declaracion?.numero ? `Número identificativo de la declaración: ${declaracion.numero}. ` : 'La app le pone a la declaración su número identificativo al descargar el fichero, y ya no cambia. '}
-          La persona de contacto y el teléfono son los de Registro Mercantil &gt; Datos.
+          La persona de contacto y el teléfono son los de Más &gt; Datos de la empresa, apartado Contacto.
         </p>
         {avisoDescarga && (
           <p role="status" className="mt-2 text-sm text-amber-700">{avisoDescarga}</p>
