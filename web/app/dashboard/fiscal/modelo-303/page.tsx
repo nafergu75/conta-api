@@ -6,6 +6,7 @@ import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { CaretLeft, Download, WarningCircle } from '@phosphor-icons/react';
 import SelectorAnio from '@/components/SelectorAnio';
 import { usePeriodoTrimestral } from '../components/periodoModelo';
+import { useAniosEmpresa } from '@/lib/useAniosEmpresa';
 import { CargandoModelo, ErrorModelo } from '../components/BorradorAeat';
 import { Casillas303, type Casilla303 } from '../components/Casillas303';
 import { AvisosModelo } from '../components/AvisosModelo';
@@ -39,6 +40,8 @@ interface Modelo303 {
   sinActividad: boolean;
   /** Autoliquidación rectificativa en preparación o presentada. */
   rectificativa: { justificanteAnterior: string } | null;
+  /** Año que llevó la gestoría: el aviso del servidor (sus 303 no se descargan ni se presentan desde aquí). */
+  avisoGestoria?: string;
   errores: string[];
   advertencias: string[];
 }
@@ -105,6 +108,7 @@ function Modelo303() {
   // Se abre en el periodo de la URL o en el trimestre que toca presentar (en octubre, el 3T),
   // nunca antes del primer año de la empresa en la app.
   const { ejercicio, setEjercicio, periodo, setPeriodo, anios, listo } = usePeriodoTrimestral();
+  const { aniosGestoria } = useAniosEmpresa();
   const [opciones, setOpciones] = useState<Opciones>(SIN_OPCIONES);
   const [compensarEscrito, setCompensarEscrito] = useState('');
   const [recarga, setRecarga] = useState(0);
@@ -220,6 +224,8 @@ function Modelo303() {
   const importe111 = modelo.rectificativa ? modelo.casillas303.find((c) => c.numero === '111')?.valor ?? 0 : 0;
   const conCuenta = tipo === 'U' || tipo === 'D' || importe111 > 0;
   const presentado = modelo.estado === 'presentado';
+  // Año de la gestoría (lo dice el servidor con el aviso, o los años de la empresa).
+  const gestoria = !!modelo.avisoGestoria || aniosGestoria.includes(modelo.ejercicio);
   const origenCompensar =
     modelo.aCompensar.origen === 'presentado'
       ? 'Es el importe que se presentó.'
@@ -346,12 +352,15 @@ function Modelo303() {
         <div className={`rounded-lg border-2 p-6 ${aIngresar ? 'border-amber-200 bg-amber-50' : 'border-green-200 bg-green-50'}`}>
           <div className="flex items-center gap-2">
             <p className={`text-sm ${aIngresar ? 'text-amber-700' : 'text-green-700'}`}>
-              {TITULO_RESULTADO[tipo]} · resultado [71]
+              {TITULO_RESULTADO[tipo]}
+              {modelo.resultado >= 0 ? ' · resultado [71]' : ''}
             </p>
           </div>
           <p className={`mt-2 text-2xl font-bold ${aIngresar ? 'text-amber-900' : 'text-green-900'}`}>
             {eur.format(Math.abs(modelo.resultado))}
           </p>
+          {/* La tarjeta enseña el importe en positivo; la casilla [71] lo lleva con su signo, como en la sede. */}
+          {modelo.resultado < 0 && <p className="mt-1 text-xs text-slate-600">En la casilla [71] va en negativo: {eur.format(modelo.resultado)}.</p>}
           {modelo.sinActividad && <p className="mt-1 text-xs text-slate-600">Se marca «Declaración sin actividad».</p>}
         </div>
       </div>
@@ -440,8 +449,16 @@ function Modelo303() {
 
       {/* Acciones Finales */}
       <div className="space-y-4">
+        {/* Un año que llevó la gestoría: su 303 lo presentó ella. Ni fichero ni «Marcar como presentado». */}
+        {gestoria && (
+          <p className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+            Este 303 lo presentó tu gestoría: desde aquí no se descarga el fichero ni se marca como presentado. Lo que ves sale solo de lo que hay en la app de{' '}
+            {ejercicio}. Para el año que llevas en la app, elige {ejercicio + 1} arriba.
+          </p>
+        )}
+
         {/* Botón de Descarga AEAT (presentado: el fichero de las casillas que se presentaron) */}
-        {(modelo.estado === 'vigente' || presentado) && (
+        {!gestoria && (modelo.estado === 'vigente' || presentado) && (
           <>
             <button
               onClick={descargarAEAT}
@@ -465,7 +482,9 @@ function Modelo303() {
         )}
 
         {/* Presentar, rectificativa e historial (se presenta con las opciones elegidas arriba) */}
-        <Declaraciones codigo="303" ejercicio={ejercicio} periodo={periodo} opcionesPresentar={opcionesPresentar(opciones)} onCambio={() => setRecarga((n) => n + 1)} />
+        {!gestoria && (
+          <Declaraciones codigo="303" ejercicio={ejercicio} periodo={periodo} opcionesPresentar={opcionesPresentar(opciones)} onCambio={() => setRecarga((n) => n + 1)} />
+        )}
       </div>
     </div>
   );
