@@ -527,10 +527,12 @@ export default function FormFacturaGasto({
         onGuardado({ factura });
       }
     } catch (err) {
-      const campo = normalizarCampo(campoDelError(err));
+      const c = conflictoGasto(err);
+      // Con rectificar_303 no hay nada que corregir: se lleva la vista al aviso y a su botón, no a un campo.
+      const campo = c?.rectificar303 ? undefined : normalizarCampo(campoDelError(err));
       setError(errorMessage(err));
       setCampoError(campo);
-      setConflicto(conflictoGasto(err));
+      setConflicto(c);
       // Campos plegados: se despliegan para poder marcarlos.
       if (campo === 'fechaRegistro') setMostrarRegistro(true);
       if (campo === 'cuentaGasto') setMostrarCuenta(true);
