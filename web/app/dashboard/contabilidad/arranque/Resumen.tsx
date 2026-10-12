@@ -563,6 +563,12 @@ export function Resumen({
           <p className="text-sm text-slate-700">
             Después de traerla, {A} se consulta pero no se cambia: no se podrá apuntar nada con fecha de {A}, ni cerrarlo en la app. Las facturas de {A} siguen en sus listados.
           </p>
+          {vista.fijaInicioEnApp && (
+            <p className="mt-2 text-sm text-slate-700">
+              Los impuestos se llevarán en la app desde el 1-1-{vista.ejercicio}: los modelos de {A} los presentó la gestoría y no saldrán como pendientes. Lo puedes cambiar en
+              Configuración &gt; Impuestos.
+            </p>
+          )}
           {retirados.length > 0 && (
             <p className="mt-2 text-sm text-slate-700">
               Se retiran {varios(retirados.reduce((s, [, n]) => s + n, 0), 'asiento', 'asientos')} de {A} hechos en la app ({retirados.map(([o, n]) => `${n} de ${TEXTO_ORIGEN[o] ?? o.toLowerCase()}`).join(', ')}). Si deshaces la carga, pueden volver.
