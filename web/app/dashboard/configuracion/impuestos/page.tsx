@@ -110,6 +110,8 @@ function nombrePeriodo(m: ModeloPrevisto): string {
   if (m.periodo === '0A') return 'Anual';
   const t = /^([1-4])T$/.exec(m.periodo);
   if (t) return `${t[1]}.${t[1] === '1' || t[1] === '3' ? 'er' : 'º'} trimestre`;
+  const pago = /^([1-3])P$/.exec(m.periodo);
+  if (pago) return `${pago[1]}.${pago[1] === '2' ? 'º' : 'er'} pago`;
   const mes = /^(0[1-9]|1[0-2])$/.test(m.periodo) ? MESES[Number(m.periodo) - 1] : null;
   return mes ?? m.periodoEtiqueta;
 }
