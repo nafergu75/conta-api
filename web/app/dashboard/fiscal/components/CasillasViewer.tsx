@@ -1,6 +1,7 @@
 'use client';
 
 import { CheckCircle, Clock } from '@phosphor-icons/react';
+import { formatoImporte } from '@/lib/moneda';
 
 interface CasillasViewerProps {
   casillas: Record<string, any>;
@@ -18,11 +19,7 @@ export function CasillasViewer({
   estado = 'vigente',
   casillasConteo = [],
 }: CasillasViewerProps) {
-  const eur = new Intl.NumberFormat('es-ES', {
-    style: 'currency',
-    currency: 'EUR',
-    minimumFractionDigits: 2,
-  });
+  const eur = { format: (n: number) => formatoImporte(n, 'EUR') };
 
   // Filtrar casillas numéricas (excluir metadata)
   const casillasNumericas = Object.entries(casillas)
