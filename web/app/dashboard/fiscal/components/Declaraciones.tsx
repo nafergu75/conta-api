@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ArrowCounterClockwise, ClockCounterClockwise, FilePlus, WarningCircle } from '@phosphor-icons/react';
 import { ApiError, apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { formatoImporte } from '@/lib/moneda';
+import { fechaCorta } from '@/lib/compras';
 import { FormPresentar } from './FormPresentar';
 
 /**
@@ -29,6 +30,8 @@ interface DeclaracionHistorial {
   resultadoAnterior: number | null;
   resultado: number | null;
   numeroRegistros: number | null;
+  /** Email de quien la marcó como presentada. */
+  presentadoPorNombre?: string | null;
 }
 
 interface RegistroDeclaracion {
@@ -62,6 +65,8 @@ export interface Historial {
     aviso?: string | null;
   } | null;
   registros: RegistroDeclaracion[] | null;
+  /** 190 sin permiso de Nóminas: por qué no sale la lista de perceptores. */
+  avisoRegistros?: string;
 }
 
 const eur = (n: number) => formatoImporte(Number(n) || 0, 'EUR');
@@ -223,6 +228,8 @@ export function Declaraciones({ codigo, ejercicio, periodo, opcionesPresentar, o
   }
 
   const visibles = h.declaraciones.filter((d) => d.estado !== 'preparada');
+  // El 390 es un resumen anual: con él no se ingresa nada.
+  const conIngresado = h.clase === 'autoliquidacion' && codigo !== '390';
   const sinAnteriorEnApp = h.presentadoSinHistorial || !h.declaraciones.some((d) => d.estado === 'presentada');
 
   return (
@@ -236,7 +243,7 @@ export function Declaraciones({ codigo, ejercicio, periodo, opcionesPresentar, o
 
       {visibles.length > 0 ? (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[34rem] text-sm">
+          <table className="w-full min-w-[40rem] text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
                 <th className="py-2 pr-3 font-medium">Nº</th>
@@ -244,7 +251,10 @@ export function Declaraciones({ codigo, ejercicio, periodo, opcionesPresentar, o
                 {h.clase === 'informativa' && <th className="py-2 pr-3 font-medium">Número identificativo</th>}
                 <th className="py-2 pr-3 font-medium">Justificante</th>
                 <th className="py-2 pr-3 font-medium">Fecha</th>
-                <th className="py-2 pr-3 text-right font-medium">{h.clase === 'informativa' ? 'Registros' : 'Ingresado'}</th>
+                <th className="py-2 pr-3 font-medium">Presentada por</th>
+                {(h.clase === 'informativa' || conIngresado) && (
+                  <th className="py-2 pr-3 text-right font-medium">{h.clase === 'informativa' ? 'Registros' : 'Ingresado'}</th>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -257,10 +267,15 @@ export function Declaraciones({ codigo, ejercicio, periodo, opcionesPresentar, o
                   </td>
                   {h.clase === 'informativa' && <td className="py-2 pr-3 font-mono">{d.numero ?? '—'}</td>}
                   <td className="py-2 pr-3 font-mono">{d.justificante ?? '—'}</td>
-                  <td className="py-2 pr-3">{d.fechaPresentacion ?? '—'}</td>
-                  <td className="py-2 pr-3 text-right font-mono">
-                    {h.clase === 'informativa' ? (d.numeroRegistros ?? '—') : d.resultado !== null ? eur(d.resultado) : '—'}
+                  <td className="py-2 pr-3">{fechaCorta(d.fechaPresentacion) || '—'}</td>
+                  <td className="max-w-[12rem] truncate py-2 pr-3" title={d.presentadoPorNombre ?? undefined}>
+                    {d.presentadoPorNombre ?? '—'}
                   </td>
+                  {(h.clase === 'informativa' || conIngresado) && (
+                    <td className="py-2 pr-3 text-right font-mono">
+                      {h.clase === 'informativa' ? (d.numeroRegistros ?? '—') : d.resultado !== null ? eur(d.resultado) : '—'}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -290,7 +305,7 @@ export function Declaraciones({ codigo, ejercicio, periodo, opcionesPresentar, o
                 Declaración anterior: <span className="font-mono">{h.enCurso.justificanteAnterior}</span>
               </li>
             )}
-            {h.enCurso.resultadoAnterior !== null && h.enCurso.tipo !== 'N' && <li>Ya ingresado con las anteriores: {eur(h.enCurso.resultadoAnterior)}</li>}
+            {conIngresado && h.enCurso.resultadoAnterior !== null && h.enCurso.tipo !== 'N' && <li>Ya ingresado con las anteriores: {eur(h.enCurso.resultadoAnterior)}</li>}
           </ul>
           {h.enCurso.aviso && (
             <p role="note" className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-900">
@@ -308,6 +323,12 @@ export function Declaraciones({ codigo, ejercicio, periodo, opcionesPresentar, o
             </button>
           )}
         </div>
+      )}
+
+      {!h.registros && h.avisoRegistros && h.enCurso?.tipo === 'C' && (
+        <p role="note" className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+          {h.avisoRegistros}
+        </p>
       )}
 
       {h.registros && (
