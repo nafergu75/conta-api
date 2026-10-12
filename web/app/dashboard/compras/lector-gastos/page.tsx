@@ -9,7 +9,7 @@ import { anuncioLecturaTerminada, descartarLectura, ErrorLectura, esCancelada, e
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import FormFacturaGasto, { type FormInicial } from '@/components/compras/FormFacturaGasto';
 import { type GastoRegistrado } from '@/lib/compras';
-import { centimos, cuotasDescuadradas, inicialDe, marcasDelFormulario, retencionSinTipo } from '@/lib/lectorGastos';
+import { centimos, cuotasDescuadradas, inicialDe, marcasDelFormulario, marcasDireccion, retencionSinTipo } from '@/lib/lectorGastos';
 
 /**
  * Lector de gastos: se sube el PDF o la foto de una factura de proveedor, el
@@ -334,8 +334,8 @@ export default function LectorGastosPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-            {/* Vista previa */}
-            <section className="flex flex-col gap-3">
+            {/* Vista previa: a partir de lg se queda fija al bajar por el formulario, para comparar cada campo con la factura. */}
+            <section className="flex flex-col gap-3 lg:sticky lg:top-4 lg:self-start">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="min-w-0 break-all text-sm text-slate-600">{archivo?.name}</p>
                 <button type="button" onClick={reiniciar} className="text-sm font-semibold text-blue-600 hover:underline">
@@ -345,9 +345,9 @@ export default function LectorGastosPage() {
               {vista &&
                 (esImagen ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={vista} alt="Factura subida" className="max-h-[70vh] w-full rounded-lg border border-slate-200 bg-white object-contain" />
+                  <img src={vista} alt="Factura subida" className="max-h-[70vh] w-full rounded-lg border border-slate-200 bg-white object-contain lg:max-h-[calc(100dvh-6rem)]" />
                 ) : (
-                  <iframe src={vista} title="Factura subida" className="h-[50vh] w-full rounded-lg border border-slate-200 bg-white lg:h-[75vh]" />
+                  <iframe src={vista} title="Factura subida" className="h-[50vh] w-full rounded-lg border border-slate-200 bg-white lg:h-[calc(100dvh-6rem)]" />
                 ))}
             </section>
 
@@ -433,7 +433,7 @@ export default function LectorGastosPage() {
                 key={lectura}
                 modo="lector"
                 inicial={inicial}
-                marcas={marcasDelFormulario(infoPanel.campos, inicial)}
+                marcas={{ ...marcasDireccion(leido, inicial), ...marcasDelFormulario(infoPanel.campos, inicial) }}
                 extra={{ tipoDocumento, confianza: leido.confianza, lecturaId: info.lecturaId, revisado: revisadoEnviado }}
                 bloqueado={
                   rectificativa
