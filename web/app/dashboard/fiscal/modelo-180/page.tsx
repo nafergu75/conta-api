@@ -1,11 +1,13 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { CaretLeft, CheckCircle, WarningCircle } from '@phosphor-icons/react';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { formatoImporte } from '@/lib/moneda';
-import { ejercicioAnualAPresentar } from '@/lib/aeatCalendar';
+import SelectorAnio from '@/components/SelectorAnio';
+import { useEjercicioAnual } from '../components/periodoModelo';
+import { CargandoModelo, ErrorModelo } from '../components/BorradorAeat';
 import {
   AvisosBorrador,
   CamposRegistro,
@@ -13,7 +15,6 @@ import {
   ESTADO_MODELO,
   Seccion,
   TablaRegistros,
-  ejerciciosBorrador,
   type CampoLeido,
   type Columna,
 } from '../components/RegistroAeat';
@@ -138,7 +139,16 @@ function Texto({ id, label, valor, onChange, max, ayuda, className = '' }: { id:
 }
 
 export default function Modelo180Page() {
-  const [ejercicio, setEjercicio] = useState(() => ejercicioAnualAPresentar());
+  return (
+    <Suspense fallback={<CargandoModelo />}>
+      <Modelo180 />
+    </Suspense>
+  );
+}
+
+function Modelo180() {
+  // Ejercicio de la URL o el anterior, nunca antes del primer año de la empresa.
+  const { ejercicio, setEjercicio, anios, listo } = useEjercicioAnual();
   const [b, setB] = useState<Borrador180 | null>(null);
   const [inmuebles, setInmuebles] = useState<Inmueble[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -150,6 +160,7 @@ export default function Modelo180Page() {
   const [mensaje, setMensaje] = useState('');
 
   useEffect(() => {
+    if (!listo) return;
     let vivo = true;
     setCargando(true);
     setError('');
@@ -164,7 +175,7 @@ export default function Modelo180Page() {
     return () => {
       vivo = false;
     };
-  }, [ejercicio, recarga]);
+  }, [listo, ejercicio, recarga]);
 
   // Arrendadores con facturas de alquiler del año (para dar de alta sus inmuebles).
   const arrendadores = useMemo(() => {
@@ -229,26 +240,13 @@ export default function Modelo180Page() {
       </div>
 
       <div className="flex flex-wrap gap-4 rounded-lg border border-slate-200 bg-white p-4">
-        <div>
-          <label htmlFor="m180-ej" className="block text-sm font-medium text-slate-700">
-            Ejercicio
-          </label>
-          <select id="m180-ej" value={ejercicio} onChange={(e) => setEjercicio(parseInt(e.target.value))} className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm">
-            {ejerciciosBorrador().map((y) => (
-              <option key={y} value={y}>
-                {y}
-              </option>
-            ))}
-          </select>
-        </div>
+        <SelectorAnio id="m180-ej" valor={ejercicio} anios={anios} onChange={(a) => a !== null && setEjercicio(a)} />
       </div>
 
       {cargando && !b ? (
-        <div className="h-96 animate-pulse rounded-lg bg-slate-200" />
+        <CargandoModelo />
       ) : error ? (
-        <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-6 text-center text-red-800">
-          {error}
-        </div>
+        <ErrorModelo mensaje={error} />
       ) : (
         b && (
           <div className={`space-y-6 ${cargando ? 'opacity-60' : ''}`}>
