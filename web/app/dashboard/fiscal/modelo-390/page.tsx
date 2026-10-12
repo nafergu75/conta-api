@@ -26,6 +26,8 @@ interface Borrador390 {
   casillas: Record<string, number | string>;
   liquidaciones: { casilla85: number; casilla95: number; casilla97: number; casilla98: number; casilla662: number; finales: number[] };
   paginasNoGeneradas: Array<{ codigo: string; motivo: string }>;
+  /** Marcas de la página 1 (sí/no), las mismas que lleva el fichero. Falta en los 390 presentados antes de existir. */
+  marcasPagina1?: Array<{ pos: number; descripcion: string; valor: string; texto: string }>;
   advertencias: string[];
   errores: string[];
 }
@@ -112,6 +114,21 @@ export default function Modelo390Page() {
           ))}
         </div>
       </section>
+
+      {b.marcasPagina1 && b.marcasPagina1.length > 0 && (
+        <section className="rounded-lg border border-slate-200 bg-white p-4">
+          <h2 className="font-semibold text-slate-900">Página 1: datos del sujeto pasivo</h2>
+          <p className="mt-1 text-sm text-slate-600">Marcas que van en el fichero. Salen de los ajustes fiscales y de lo presentado en la app.</p>
+          <dl className="mt-3 divide-y divide-slate-100 text-sm">
+            {b.marcasPagina1.map((m) => (
+              <div key={m.pos} className="flex justify-between gap-3 py-1.5">
+                <dt className="text-slate-700">{m.descripcion}</dt>
+                <dd className="font-medium text-slate-900">{m.texto}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+      )}
 
       <div className="space-y-3">
         {b.paginas.map((p) => (
