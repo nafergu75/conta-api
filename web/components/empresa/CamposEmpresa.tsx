@@ -470,7 +470,7 @@ export function CamposEmpresa({
             maxLength={80}
             className="md:col-span-3"
             placeholder="Apellidos y nombre"
-            ayuda="Primer apellido, segundo apellido y nombre. Va con el teléfono en los modelos 349 y 180."
+            ayuda="Primer apellido, segundo apellido y nombre. Va con el teléfono en los modelos 347, 349, 180 y 190 (sin los dos no se descargan) y en el 200."
           />
         </div>
       </Seccion>
