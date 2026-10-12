@@ -208,6 +208,8 @@ export interface GastoExtraido {
   confianza: number;
   errores: string[];
   tipoDocumento: 'factura' | 'nomina' | 'seguros_sociales';
+  /** Dirección del proveedor leída en la factura (para la ficha de un proveedor nuevo); `revisar` si se leyó con poca seguridad. */
+  direccionProveedor?: { calle: string | null; cp: string | null; municipio: string | null; provincia: string | null; revisar: boolean } | null;
   proveedorExistente: { id: string; nombreFiscal: string; nifCif: string } | null;
   duplicada: { facturaId: string; numeroCompleto: string } | null;
   /** Cuenta que mas usa el proveedor en sus ultimas facturas (si sigue activa). */
