@@ -131,9 +131,13 @@ export function estadoDesdeFicha(g: GastoDetalle): EstadoRectificacion | null {
   if (!r) return null;
   const varias = r.originales.length > 1;
   // Con una original de fuera: si al darlo de alta se descontó de lo que se le debía, tiene
-  // su aplicación «de fuera» activa; si no, quedó a favor (ya estaba pagada).
+  // su aplicación «de fuera» activa; si no, quedó a favor (ya estaba pagada). Un borrador del
+  // lector todavía no tiene aplicaciones: vale la respuesta que se guardó al leerlo.
   const deFuera = r.originales.some((o) => !o.id);
-  const descontada = g.compensaciones.some((c) => c.otra.fuera && c.estado === 'ACTIVO' && c.origen === 'AUTO');
+  const descontada =
+    g.estado === 'DRAFT' && typeof r.compensarFuera === 'boolean'
+      ? r.compensarFuera
+      : g.compensaciones.some((c) => c.otra.fuera && c.estado === 'ACTIVO' && c.origen === 'AUTO');
   return {
     ...estadoVacio(),
     yaPagada: deFuera ? !descontada : null,
