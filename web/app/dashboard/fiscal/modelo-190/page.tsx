@@ -8,6 +8,7 @@ import { ejercicioAnualAPresentar, ejerciciosSeleccionables } from '@/lib/aeatCa
 import { CaretLeft, Info, Download } from '@phosphor-icons/react';
 import { Declaraciones, descargarConNumero } from '../components/Declaraciones';
 import { AvisosModelo } from '../components/AvisosModelo';
+import { formatoImporte } from '@/lib/moneda';
 
 interface Modelo190 {
   /** Id de la fila del calendario; null si aún no existe (abrir la pantalla no la crea). */
@@ -151,10 +152,7 @@ export default function Modelo190Page() {
     };
   }, [ejercicio, conNominas, recarga]);
 
-  const eur = new Intl.NumberFormat('es-ES', {
-    style: 'currency',
-    currency: 'EUR',
-  });
+  const eur = { format: (n: number) => formatoImporte(n, 'EUR') };
 
   const complementaria = declaracion?.tipo === 'C' && !declaracion.congelada;
 
@@ -234,7 +232,7 @@ export default function Modelo190Page() {
                 <Link href="/dashboard/fiscal" className="font-semibold underline hover:no-underline">
                   Modelos Fiscales
                 </Link>
-                {' '}y genera primero los 4 trimestres del Modelo 111 (Q1, Q2, Q3, Q4) para el ejercicio {ejercicio}.
+                {' '}y genera primero los 4 trimestres del Modelo 111 (1T, 2T, 3T y 4T) para el ejercicio {ejercicio}.
               </p>
             </div>
           )}
@@ -288,8 +286,9 @@ export default function Modelo190Page() {
       {/* Período Selector */}
       <div className="flex flex-wrap gap-4 rounded-lg border border-slate-200 bg-white p-4">
         <div>
-          <label className="block text-sm font-medium text-slate-700">Ejercicio</label>
+          <label htmlFor="m190-ej" className="block text-sm font-medium text-slate-700">Ejercicio</label>
           <select
+            id="m190-ej"
             value={ejercicio}
             onChange={(e) => setEjercicio(parseInt(e.target.value))}
             className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
@@ -331,11 +330,15 @@ export default function Modelo190Page() {
                 </div>
               </div>
             ))}
-            <p className="text-xs text-slate-500">
-              Diseño de registro: {modelo.formulario.fuente}.
-              {modelo.cuadre111 &&
-                ` Suma de los 111 del año: ${eur.format(modelo.cuadre111.total)} (${modelo.cuadre111.coincide ? 'coincide' : 'no coincide'} con las retenciones del 190).`}
-            </p>
+            {modelo.cuadre111 && (
+              <p className="text-xs text-slate-500">
+                Suma de los 111 del año: {eur.format(modelo.cuadre111.total)} ({modelo.cuadre111.coincide ? 'coincide' : 'no coincide'} con las retenciones del 190).
+              </p>
+            )}
+            <details className="text-xs text-slate-500">
+              <summary className="cursor-pointer">Detalle técnico</summary>
+              <p className="mt-1">Diseño de registro: {modelo.formulario.fuente}.</p>
+            </details>
           </div>
         </section>
       )}
