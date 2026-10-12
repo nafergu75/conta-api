@@ -50,6 +50,8 @@ interface Factura {
   observaciones?: string;
   esRectificativa: boolean;
   facturaOriginalId?: string;
+  /** Rectificativa de una factura de fuera de la app (de antes de facturar con ella). */
+  rectificaFuera?: { numero: string; fecha: string | null };
   /** Factura nacida de una proforma. */
   proformaId?: string;
   /** Proforma aceptada: la factura que se creo al pasarla a factura. */
@@ -473,6 +475,11 @@ export default function FacturaDetallePage() {
             Rectifica la factura{' '}
             {original ? (
               <Link href={`/dashboard/facturas/${original.id}`} className="font-semibold underline">{original.numeroCompleto}</Link>
+            ) : factura.rectificaFuera ? (
+              <span className="font-semibold">
+                {factura.rectificaFuera.numero}
+                {factura.rectificaFuera.fecha ? ` del ${factura.rectificaFuera.fecha.split('-').reverse().join('/')}` : ''}, de fuera de la app,
+              </span>
             ) : (
               'original'
             )}{' '}
