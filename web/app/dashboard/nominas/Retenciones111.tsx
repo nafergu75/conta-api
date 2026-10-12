@@ -18,17 +18,23 @@ import {
   hoyIso,
   medioPagoCompleto,
   Modal,
+  nombreMes,
   type MedioPago,
 } from './comun';
 
 /**
- * Retenciones del trimestre (modelo 111) desde Nominas del mes: lo que sale con
+ * Retenciones del periodo (modelo 111) desde Nominas del mes: lo que sale con
  * las nominas por fecha de pago y los profesionales, lo que se paga (lo
  * presentado manda sobre el calculo) y el pago: 4751 contra el banco.
+ * El periodo es el trimestre del mes o, para quien presenta el 111 cada mes
+ * (gran empresa), el propio mes: se abre en el que dice el servidor y se puede
+ * cambiar.
  */
 
 interface Retenciones {
   periodo: { ejercicio: number; periodo: string };
+  /** La empresa presenta el 111 cada mes (gran empresa en los ajustes fiscales). */
+  mensual?: boolean;
   casillas: Record<string, number>;
   nominas: number;
   borradores: number;
@@ -43,8 +49,19 @@ const FUENTE: Record<Retenciones['aPagar']['fuente'], string> = {
   calculado: 'calculado con las nóminas (por fecha de pago) y las facturas de profesionales',
 };
 
-/** Ultimo dia para presentar e ingresar el 111 del trimestre (el 20 del mes siguiente; el 4T, el 20 de enero). */
-const vencimiento = (ejercicio: number, t: number) => (t === 4 ? `${ejercicio + 1}-01-20` : `${ejercicio}-${String(t * 3 + 1).padStart(2, '0')}-20`);
+/**
+ * Ultimo dia para presentar e ingresar el 111: el 20 del mes siguiente. El 4T,
+ * el 20 de enero; el mes de diciembre (111 mensual), el 30 de enero.
+ */
+function vencimiento(ejercicio: number, periodo: string): string {
+  const t = /^([1-4])T$/.exec(periodo);
+  if (t) return t[1] === '4' ? `${ejercicio + 1}-01-20` : `${ejercicio}-${String(Number(t[1]) * 3 + 1).padStart(2, '0')}-20`;
+  const mes = Number(periodo);
+  return mes === 12 ? `${ejercicio + 1}-01-30` : `${ejercicio}-${String(mes + 1).padStart(2, '0')}-20`;
+}
+
+/** «3T/2026» o «septiembre de 2026». */
+const textoPeriodo111 = (ejercicio: number, periodo: string) => (/^[1-4]T$/.test(periodo) ? `${periodo}/${ejercicio}` : `${nombreMes(Number(periodo))} de ${ejercicio}`);
 
 export function Retenciones111({
   ejercicio,
@@ -61,18 +78,25 @@ export function Retenciones111({
   onMensaje: (tipo: 'ok' | 'error', texto: string, avisos?: string[]) => void;
 }) {
   const trimestre = Math.ceil(mes / 3);
+  // null: aún sin elegir (manda lo que diga el servidor: mensual si es gran empresa).
+  const [modo, setModo] = useState<'trimestre' | 'mes' | null>(null);
+  const periodo = modo === 'mes' ? String(mes).padStart(2, '0') : `${trimestre}T`;
+  const texto = textoPeriodo111(ejercicio, periodo);
   const [r, setR] = useState<Retenciones | null>(null);
   const [error, setError] = useState('');
   const [modal, setModal] = useState<'pagar' | 'anular' | null>(null);
 
   const cargar = useCallback(async () => {
     try {
-      setR(await apiFetch<Retenciones>(companyPath(`/nominas/retenciones/${ejercicio}/${trimestre}T`)));
+      const datos = await apiFetch<Retenciones>(companyPath(`/nominas/retenciones/${ejercicio}/${periodo}`));
+      setR(datos);
       setError('');
+      // Solo la primera vez: después manda lo que elija la persona.
+      setModo((m) => m ?? (datos.mensual ? 'mes' : 'trimestre'));
     } catch (e) {
       setError(errorMessage(e));
     }
-  }, [ejercicio, trimestre]);
+  }, [ejercicio, periodo]);
 
   useEffect(() => {
     cargar();
@@ -96,14 +120,40 @@ export function Retenciones111({
     <section className="rounded-lg border border-slate-200 bg-white p-4" aria-labelledby="ret-titulo">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h2 id="ret-titulo" className="font-semibold text-slate-900">
-          Retenciones del {trimestre}T/{ejercicio} (modelo 111)
+          Retenciones de {texto} (modelo 111)
         </h2>
-        <Link href={`/dashboard/fiscal/modelo-111?ejercicio=${ejercicio}&trimestre=${trimestre}`} className="text-sm font-medium text-blue-700 hover:underline">
-          Ver el modelo 111
-        </Link>
+        <div className="flex flex-wrap items-center gap-3">
+          <div role="group" aria-label="Periodo del 111" className="inline-flex overflow-hidden rounded-lg border border-slate-300 text-xs">
+            {(
+              [
+                ['trimestre', `Trimestre ${trimestre}T`],
+                ['mes', `Mes de ${nombreMes(mes)}`],
+              ] as const
+            ).map(([valor, etiquetaModo]) => (
+              <button
+                key={valor}
+                type="button"
+                aria-pressed={(modo ?? 'trimestre') === valor}
+                onClick={() => setModo(valor)}
+                className={`px-2.5 py-1 font-medium ${(modo ?? 'trimestre') === valor ? 'bg-slate-800 text-white' : 'bg-white text-slate-700 hover:bg-slate-50'}`}
+              >
+                {etiquetaModo}
+              </button>
+            ))}
+          </div>
+          <Link href={`/dashboard/fiscal/modelo-111?ejercicio=${ejercicio}&periodo=${periodo}`} className="text-sm font-medium text-blue-700 hover:underline">
+            Ver el modelo 111
+          </Link>
+        </div>
       </div>
+      {r?.mensual && modo === 'trimestre' && (
+        <p className="mb-2 text-xs text-amber-700">En los ajustes fiscales la empresa es gran empresa: presenta el 111 cada mes, no por trimestres.</p>
+      )}
+      {r && !r.mensual && modo === 'mes' && (
+        <p className="mb-2 text-xs text-amber-700">El 111 mensual es para las grandes empresas. Según los ajustes fiscales, esta empresa lo presenta por trimestres.</p>
+      )}
       {error && <Alerta tipo="error">{error}</Alerta>}
-      {!r && !error && <p className="text-sm text-slate-500">Cargando las retenciones del trimestre...</p>}
+      {!r && !error && <p className="text-sm text-slate-500">Cargando las retenciones...</p>}
       {r && (
         <>
           <dl className="divide-y divide-slate-100 text-sm">
@@ -113,8 +163,8 @@ export function Retenciones111({
             {fila(r.pago ? 'Pagado' : 'A ingresar', eur.format(r.aPagar.importe), true)}
           </dl>
           <p className="mt-1 text-xs text-slate-500">
-            Importe: {FUENTE[r.aPagar.fuente]}. Nóminas del trimestre: {r.nominas}
-            {r.borradores ? `, ${r.borradores} en borrador` : ''}. Vence el {fechaEs(vencimiento(ejercicio, trimestre))}.
+            Importe: {FUENTE[r.aPagar.fuente]}. Nóminas del periodo: {r.nominas}
+            {r.borradores ? `, ${r.borradores} en borrador` : ''}. Vence el {fechaEs(vencimiento(ejercicio, periodo))}.
           </p>
           {r.avisos.length > 0 && (
             <div className="mt-3">
@@ -152,14 +202,15 @@ export function Retenciones111({
         </>
       )}
 
-      {modal === 'pagar' && r && <Pagar111 r={r} ejercicio={ejercicio} trimestre={trimestre} onCerrar={() => setModal(null)} onHecho={hecho} />}
-      {modal === 'anular' && r && <AnularPago111 ejercicio={ejercicio} trimestre={trimestre} onCerrar={() => setModal(null)} onHecho={hecho} />}
+      {modal === 'pagar' && r && <Pagar111 r={r} ejercicio={ejercicio} periodo={periodo} onCerrar={() => setModal(null)} onHecho={hecho} />}
+      {modal === 'anular' && r && <AnularPago111 ejercicio={ejercicio} periodo={periodo} onCerrar={() => setModal(null)} onHecho={hecho} />}
     </section>
   );
 }
 
-function Pagar111({ r, ejercicio, trimestre, onCerrar, onHecho }: { r: Retenciones; ejercicio: number; trimestre: number; onCerrar: () => void; onHecho: (t: string, avisos?: string[]) => void }) {
-  const vence = vencimiento(ejercicio, trimestre);
+function Pagar111({ r, ejercicio, periodo, onCerrar, onHecho }: { r: Retenciones; ejercicio: number; periodo: string; onCerrar: () => void; onHecho: (t: string, avisos?: string[]) => void }) {
+  const vence = vencimiento(ejercicio, periodo);
+  const texto = textoPeriodo111(ejercicio, periodo);
   const [medio, setMedio] = useState<MedioPago>({ fecha: vence < hoyIso() ? vence : hoyIso(), cuenta: '' });
   const [error, setError] = useState('');
   const [ocupado, setOcupado] = useState(false);
@@ -169,11 +220,11 @@ function Pagar111({ r, ejercicio, trimestre, onCerrar, onHecho }: { r: Retencion
     setOcupado(true);
     setError('');
     try {
-      const p = await apiFetch<{ importe: number; asiento: { numero: string }; avisos: string[] }>(companyPath(`/nominas/retenciones/${ejercicio}/${trimestre}T/pago`), {
+      const p = await apiFetch<{ importe: number; asiento: { numero: string }; avisos: string[] }>(companyPath(`/nominas/retenciones/${ejercicio}/${periodo}/pago`), {
         method: 'POST',
         body: JSON.stringify(cuerpoMedioPago(medio)),
       });
-      onHecho(`111 del ${trimestre}T/${ejercicio} pagado: ${eur.format(p.importe)} (asiento ${p.asiento.numero}).`, p.avisos);
+      onHecho(`111 de ${texto} pagado: ${eur.format(p.importe)} (asiento ${p.asiento.numero}).`, p.avisos);
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -182,7 +233,7 @@ function Pagar111({ r, ejercicio, trimestre, onCerrar, onHecho }: { r: Retencion
   };
 
   return (
-    <Modal titulo={`Pagar el 111 del ${trimestre}T/${ejercicio}`} onCerrar={onCerrar}>
+    <Modal titulo={`Pagar el 111 de ${texto}`} onCerrar={onCerrar}>
       <form onSubmit={pagar} className="space-y-4">
         <p className="text-sm text-slate-700">
           Se paga <strong className="tabular-nums">{eur.format(r.aPagar.importe)}</strong> ({FUENTE[r.aPagar.fuente]}): se salda la 4751 de las retenciones del trabajo
@@ -203,7 +254,7 @@ function Pagar111({ r, ejercicio, trimestre, onCerrar, onHecho }: { r: Retencion
   );
 }
 
-function AnularPago111({ ejercicio, trimestre, onCerrar, onHecho }: { ejercicio: number; trimestre: number; onCerrar: () => void; onHecho: (t: string) => void }) {
+function AnularPago111({ ejercicio, periodo, onCerrar, onHecho }: { ejercicio: number; periodo: string; onCerrar: () => void; onHecho: (t: string) => void }) {
   const [fecha, setFecha] = useState(hoyIso());
   const [motivo, setMotivo] = useState('');
   const [error, setError] = useState('');
@@ -214,7 +265,7 @@ function AnularPago111({ ejercicio, trimestre, onCerrar, onHecho }: { ejercicio:
     setOcupado(true);
     setError('');
     try {
-      const p = await apiFetch<{ asientoRevertido: string | null; contraasiento: { numero: string } | null }>(companyPath(`/nominas/retenciones/${ejercicio}/${trimestre}T/pago/anular`), {
+      const p = await apiFetch<{ asientoRevertido: string | null; contraasiento: { numero: string } | null }>(companyPath(`/nominas/retenciones/${ejercicio}/${periodo}/pago/anular`), {
         method: 'POST',
         body: JSON.stringify({ fecha, ...(motivo.trim() ? { motivo: motivo.trim() } : {}) }),
       });
@@ -227,7 +278,7 @@ function AnularPago111({ ejercicio, trimestre, onCerrar, onHecho }: { ejercicio:
   };
 
   return (
-    <Modal titulo={`Anular el pago del 111 del ${trimestre}T/${ejercicio}`} onCerrar={onCerrar}>
+    <Modal titulo={`Anular el pago del 111 de ${textoPeriodo111(ejercicio, periodo)}`} onCerrar={onCerrar}>
       <form onSubmit={anular} className="space-y-4">
         <p className="text-sm text-slate-700">Si el periodo del pago está abierto, el asiento se anula. Si está cerrado, se hace un contraasiento con esta fecha.</p>
         <div className="grid gap-3 sm:grid-cols-2">

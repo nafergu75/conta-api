@@ -6,12 +6,12 @@ import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { ejercicioAnualAPresentar, ejerciciosSeleccionables } from '@/lib/aeatCalendar';
 import { CaretLeft, Info, Download } from '@phosphor-icons/react';
-import { CasillasViewer } from '../components/CasillasViewer';
-import { FormPresentar } from '../components/FormPresentar';
+import { Declaraciones, descargarConNumero } from '../components/Declaraciones';
 import { AvisosModelo } from '../components/AvisosModelo';
 
 interface Modelo190 {
-  id: string;
+  /** Id de la fila del calendario; null si aún no existe (abrir la pantalla no la crea). */
+  id: string | null;
   ejercicio: number;
   totalBase: number;
   totalRetenido: number;
@@ -32,6 +32,49 @@ interface Modelo190 {
   /** Nominas en borrador, datos que faltan, atrasos sin ejercicio, cuadre con los 111 presentados... */
   avisos?: string[];
   cuadre111?: { total: number; coincide: boolean };
+  /** Casillas del resumen del formulario (las del registro de declarante del fichero). */
+  formulario?: { titulo: string; fuente: string; resumen: CasillaResumen[] };
+  /** Aviso fijo si el ejercicio aun no tiene diseño de registro publicado. */
+  avisoDiseno?: string | null;
+}
+
+interface CasillaResumen {
+  casilla: string;
+  rotulo: string;
+  valor: number;
+  signo: 'N' | ' ';
+  tipo: 'numero' | 'importe';
+}
+
+/** Registro de perceptor del fichero (GET /nominas/190/:ejercicio/perceptores, permiso de nominas). */
+interface Perceptor190 {
+  /** Identificador del registro: con el se eligen los perceptores de una complementaria. */
+  id: string;
+  clave: string;
+  subclave: string | null;
+  nif: string;
+  nombre: string;
+  provincia: string | null;
+  percepcionIntegra: number;
+  retenciones: number;
+  valoracionEspecie: number;
+  ingresosACuentaEfectuados: number;
+  ejercicioDevengo: number | null;
+  faltan: string[];
+  /** Estaba en una declaración ya presentada. */
+  presentado?: boolean;
+  /** Va en la declaración que se prepara (en una complementaria, solo los elegidos). */
+  incluido?: boolean;
+  /** NIF con la letra o el control mal (y dónde se corrige); null si vale. */
+  errorNif?: string | null;
+}
+
+/** Declaración en curso o presentada, según el historial. */
+interface Declaracion190 {
+  tipo: 'N' | 'C' | 'S';
+  numero: string | null;
+  justificanteAnterior: string | null;
+  congelada: boolean;
 }
 
 /**
@@ -58,6 +101,13 @@ export default function Modelo190Page() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [avisoDescarga, setAvisoDescarga] = useState('');
+  const [perceptores, setPerceptores] = useState<Perceptor190[] | null>(null);
+  const [declaracion, setDeclaracion] = useState<Declaracion190 | null>(null);
+  // Resumen [01]-[03] de los perceptores que van (en una complementaria, solo los elegidos).
+  const [resumenElegidos, setResumenElegidos] = useState<CasillaResumen[] | null>(null);
+  // Presentado: aviso de los perceptores nuevos desde la presentación (no salen en la lista).
+  const [avisoCongelada, setAvisoCongelada] = useState<string | null>(null);
+  const [recarga, setRecarga] = useState(0);
   // Modelo anual: se presenta por el ejercicio anterior.
   const [ejercicio, setEjercicio] = useState(ejercicioAnualAPresentar);
 
@@ -75,31 +125,65 @@ export default function Modelo190Page() {
     };
 
     fetchModelo();
-  }, [ejercicio]);
+  }, [ejercicio, recarga]);
+
+  // El fichero y el informe por perceptor llevan datos de cada trabajador: solo con permiso de nominas.
+  const conNominas = tieneAlgunPermiso(getUser(), ['nominas:read']);
+
+  // Relacion de perceptores (los registros de tipo 2 del fichero).
+  useEffect(() => {
+    if (!conNominas) return;
+    let vivo = true;
+    setPerceptores(null);
+    apiFetch<{ perceptores: Perceptor190[]; resumen?: CasillaResumen[]; declaracion?: Declaracion190; avisoCongelada?: string | null }>(
+      companyPath(`/nominas/190/${ejercicio}/perceptores`),
+    )
+      .then((r) => {
+        if (!vivo) return;
+        setPerceptores(r.perceptores ?? []);
+        setDeclaracion(r.declaracion ?? null);
+        setResumenElegidos(r.resumen ?? null);
+        setAvisoCongelada(r.avisoCongelada ?? null);
+      })
+      .catch(() => vivo && setPerceptores([]));
+    return () => {
+      vivo = false;
+    };
+  }, [ejercicio, conNominas, recarga]);
 
   const eur = new Intl.NumberFormat('es-ES', {
     style: 'currency',
     currency: 'EUR',
   });
 
-  // El fichero y el informe por perceptor llevan datos de cada trabajador: solo con permiso de nominas.
-  const conNominas = tieneAlgunPermiso(getUser(), ['nominas:read']);
+  const complementaria = declaracion?.tipo === 'C' && !declaracion.congelada;
 
-  const descargar = async (ruta: string, nombre: string) => {
+  // El fichero lleva los datos de cada trabajador: solo con permiso de nóminas.
+  const conPermiso = (): boolean => {
     setAvisoDescarga('');
-    if (!conNominas) {
-      setAvisoDescarga('El fichero lleva los datos de cada trabajador: solo lo pueden descargar el administrador y el contable.');
-      return;
-    }
+    if (conNominas) return true;
+    setAvisoDescarga('El fichero lleva los datos de cada trabajador: solo lo pueden descargar el administrador y el contable.');
+    return false;
+  };
+  // Si aún no tiene número identificativo, la app se lo pone antes (y ya no cambia).
+  const descargarAEAT = async () => {
+    if (!conPermiso()) return;
     try {
-      await apiDownload(companyPath(ruta), nombre);
+      await descargarConNumero('190', ejercicio, undefined, companyPath(`/nominas/190/${ejercicio}/fichero`), `190_${ejercicio}.txt`);
+      setRecarga((n) => n + 1);
     } catch (err) {
-      // 409 si el diseno de registro de ese ejercicio aun no esta publicado; 400 si faltan datos.
+      // 409 si el diseño de registro de ese ejercicio aún no está publicado; 400 si faltan datos.
       setAvisoDescarga(errorMessage(err));
     }
   };
-  const descargarAEAT = () => descargar(`/nominas/190/${ejercicio}/fichero`, `190_${ejercicio}.txt`);
-  const descargarPerceptores = () => descargar(`/nominas/190/${ejercicio}/perceptores?formato=xlsx`, `modelo190_${ejercicio}.xlsx`);
+  const descargarPerceptores = async () => {
+    if (!conPermiso()) return;
+    try {
+      await apiDownload(companyPath(`/nominas/190/${ejercicio}/perceptores?formato=xlsx`), `modelo190_${ejercicio}.xlsx`);
+    } catch (err) {
+      setAvisoDescarga(errorMessage(err));
+    }
+  };
 
   if (loading) {
     return (
@@ -186,7 +270,7 @@ export default function Modelo190Page() {
               <div className="pointer-events-none absolute right-0 top-8 z-50 hidden w-64 rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-700 shadow-lg group-hover:pointer-events-auto group-hover:block">
                 <p className="font-semibold text-slate-900">¿Qué es el Modelo 190?</p>
                 <p className="mt-2">
-                  Es el resumen anual de retenciones e ingresos a cuenta. Se calcula automáticamente consolidando los 4 trimestres del Modelo 111 del mismo ejercicio.
+                  Es el resumen anual de retenciones e ingresos a cuenta, con un registro por perceptor. Sale de las nóminas y de las facturas de profesionales del año, y se compara con los cuatro 111.
                 </p>
               </div>
             </div>
@@ -221,20 +305,40 @@ export default function Modelo190Page() {
 
       <AvisosModelo avisos={modelo.avisos} ejercicio={modelo.ejercicio} />
 
-      {/* Resumen Anual */}
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="rounded-lg border border-slate-200 bg-white p-6">
-          <p className="text-sm text-slate-600">Base Total de Retenciones</p>
-          <p className="mt-2 text-2xl font-bold text-slate-900">{eur.format(modelo.totalBase)}</p>
-          <p className="mt-1 text-xs text-slate-500">Suma de todas las bases anuales</p>
+      {modelo.avisoDiseno && (
+        <div role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+          <p className="font-semibold">Borrador</p>
+          <p className="mt-1">{modelo.avisoDiseno}</p>
         </div>
+      )}
 
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-6">
-          <p className="text-sm text-amber-600">Total Retenido (IRPF + Ingresos a Cuenta)</p>
-          <p className="mt-2 text-2xl font-bold text-amber-900">{eur.format(modelo.totalRetenido)}</p>
-          <p className="mt-1 text-xs text-amber-600">Total anual – Suma Q1-Q4</p>
-        </div>
-      </div>
+      {/* Resumen con las casillas del formulario oficial (las del registro de declarante del fichero) */}
+      {modelo.formulario && (
+        <section className="overflow-hidden rounded-lg border border-slate-300 bg-white">
+          <h2 className="bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-800">Resumen de los datos incluidos en la declaración</h2>
+          <div className="space-y-2 p-3">
+            {complementaria && resumenElegidos && (
+              <p className="text-xs text-indigo-800">Complementaria: el resumen es el de los perceptores que van en ella.</p>
+            )}
+            {(complementaria && resumenElegidos ? resumenElegidos : modelo.formulario.resumen).map((r) => (
+              <div key={r.casilla} className="grid grid-cols-1 items-center gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,14rem)]">
+                <span className="text-sm text-slate-700">{r.rotulo}</span>
+                <div className="flex items-center justify-between gap-2 rounded border border-slate-300 bg-white px-2 py-1.5">
+                  <span className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-xs font-semibold text-white">{r.casilla}</span>
+                  <span className="font-mono text-sm text-slate-900">
+                    {r.tipo === 'numero' ? r.valor.toLocaleString('es-ES') : `${r.signo === 'N' ? 'N ' : ''}${eur.format(Math.abs(r.valor))}`}
+                  </span>
+                </div>
+              </div>
+            ))}
+            <p className="text-xs text-slate-500">
+              Diseño de registro: {modelo.formulario.fuente}.
+              {modelo.cuadre111 &&
+                ` Suma de los 111 del año: ${eur.format(modelo.cuadre111.total)} (${modelo.cuadre111.coincide ? 'coincide' : 'no coincide'} con las retenciones del 190).`}
+            </p>
+          </div>
+        </section>
+      )}
 
       {/* Desglose Trimestral */}
       {modelo.desgloseTrimestral && modelo.desgloseTrimestral.length > 0 && (
@@ -308,15 +412,66 @@ export default function Modelo190Page() {
         </div>
       )}
 
-      {/* Casillas Completas */}
-      <CasillasViewer
-        casillas={modelo.casillas}
-        // La 01 y los totales de perceptores son recuentos, no euros.
-        casillasConteo={['01', 'numeroPercepciones', 'perceptores']}
-        titulo="Casillas del Modelo 190"
-        descripcion={`Ejercicio ${modelo.ejercicio} – Resumen Anual de Retenciones`}
-        estado={modelo.estado}
-      />
+      {/* Relacion de perceptores: los registros de tipo 2 del fichero (con permiso de nominas) */}
+      {conNominas && perceptores && perceptores.length > 0 && (
+        <section className="rounded-lg border border-slate-200 bg-white p-4 md:p-6">
+          <h3 className="mb-3 font-semibold text-slate-900">Relación de perceptores</h3>
+          {perceptores.some((p) => p.errorNif) && (
+            <p role="alert" className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+              {perceptores.filter((p) => p.errorNif).length === 1 ? 'Hay un NIF que no es válido' : `Hay ${perceptores.filter((p) => p.errorNif).length} NIF que no son válidos`}{' '}
+              (marcados en rojo en la tabla). El fichero no se puede descargar hasta corregirlos.
+            </p>
+          )}
+          {avisoCongelada && <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{avisoCongelada}</p>}
+          {complementaria && (
+            <p className="mb-3 rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-900">
+              Complementaria: solo van los perceptores marcados en «Declaraciones presentadas», más abajo ({perceptores.filter((p) => p.incluido).length} de {perceptores.length}).
+            </p>
+          )}
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[44rem] text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-left text-slate-600">
+                  {complementaria && <th className="py-2 pr-2 font-medium">Va</th>}
+                  <th className="py-2 font-medium">NIF</th>
+                  <th className="py-2 font-medium">Apellidos y nombre o razón social</th>
+                  <th className="py-2 font-medium">Prov.</th>
+                  <th className="py-2 font-medium">Clave</th>
+                  <th className="py-2 font-medium">Subclave</th>
+                  <th className="py-2 text-right font-medium">Percepción íntegra</th>
+                  <th className="py-2 text-right font-medium">Retenciones</th>
+                  <th className="py-2 text-right font-medium">Especie</th>
+                  <th className="py-2 text-right font-medium">Ingresos a cuenta</th>
+                  <th className="py-2 text-right font-medium">Devengo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {perceptores.map((p, i) => (
+                  <tr key={p.id ?? `${p.nif}-${p.clave}-${p.subclave ?? ''}-${p.ejercicioDevengo ?? ''}-${i}`} className={`border-b border-slate-100 ${complementaria && p.incluido ? 'bg-indigo-50' : ''}`}>
+                    {complementaria && <td className="py-2 pr-2">{p.incluido ? 'Sí' : 'No'}</td>}
+                    <td className={`py-2 font-mono ${p.errorNif ? 'text-red-700' : ''}`}>{p.nif}</td>
+                    <td className="py-2">
+                      {p.nombre}
+                      {p.errorNif && <span className="block text-xs text-red-700">{p.errorNif.charAt(0).toUpperCase() + p.errorNif.slice(1)}</span>}
+                      {p.presentado && <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">ya presentado</span>}
+                      {p.faltan.length > 0 && <span className="block text-xs text-amber-700">Falta: {p.faltan.join(', ')}</span>}
+                    </td>
+                    <td className="py-2 font-mono">{p.provincia ?? '—'}</td>
+                    <td className="py-2 font-mono">{p.clave}</td>
+                    <td className="py-2 font-mono">{p.subclave ?? ''}</td>
+                    <td className="py-2 text-right font-mono">{`${p.percepcionIntegra < 0 ? 'N ' : ''}${eur.format(Math.abs(p.percepcionIntegra))}`}</td>
+                    <td className="py-2 text-right font-mono">{eur.format(p.retenciones)}</td>
+                    <td className="py-2 text-right font-mono">{eur.format(p.valoracionEspecie)}</td>
+                    <td className="py-2 text-right font-mono">{eur.format(p.ingresosACuentaEfectuados)}</td>
+                    <td className="py-2 text-right font-mono">{p.ejercicioDevengo ?? ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-2 text-xs text-slate-500">N delante del importe: reintegro de lo cobrado de más en un ejercicio anterior.</p>
+        </section>
+      )}
 
       {/* Sección de ayuda */}
       <div className="space-y-4">
@@ -326,8 +481,8 @@ export default function Modelo190Page() {
             <div className="text-sm text-indigo-900">
               <p className="font-semibold">¿Cómo funciona este resumen?</p>
               <p className="mt-1">
-                El Modelo 190 consolida automáticamente los 4 trimestres (Q1, Q2, Q3, Q4) del Modelo 111 del mismo ejercicio.
-                Incluye todas las retenciones e ingresos a cuenta (IRPF, dividendos, cupones, etc.) del ejercicio.
+                El 190 suma, por perceptor, las nóminas (clave A y rentas exentas L) y las facturas de profesionales (clave G) pagadas en el año.
+                Los alquileres no van aquí: van al 115 y a su resumen anual, el 180.
               </p>
             </div>
           </div>
@@ -345,35 +500,34 @@ export default function Modelo190Page() {
         </div>
       </div>
 
-      {/* Acciones Finales */}
+      {/* Acciones finales */}
       <div className="space-y-4">
-        {/* Botón de Descarga AEAT */}
-        {modelo.estado === 'vigente' && (
-          <>
-            <button
-              onClick={descargarAEAT}
-              className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-6 py-3 text-sm font-medium text-white hover:bg-emerald-700 transition"
-            >
-              <Download size={18} />
-              Descargar Fichero AEAT (TXT)
-            </button>
-            {conNominas && (
-              <button
-                onClick={descargarPerceptores}
-                className="w-full inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-6 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50 transition"
-              >
-                <Download size={18} />
-                Informe por perceptor (Excel)
-              </button>
-            )}
-            {avisoDescarga && (
-              <p role="status" className="mt-2 text-sm text-amber-700">{avisoDescarga}</p>
-            )}
-          </>
+        <button
+          onClick={descargarAEAT}
+          className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-6 py-3 text-sm font-medium text-white hover:bg-emerald-700 transition"
+        >
+          <Download size={18} />
+          {declaracion?.congelada ? 'Descargar el fichero que se presentó (TXT)' : 'Descargar fichero AEAT (TXT)'}
+        </button>
+        {conNominas && (
+          <button
+            onClick={descargarPerceptores}
+            className="w-full inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-6 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50 transition"
+          >
+            <Download size={18} />
+            Informe por perceptor (Excel)
+          </button>
+        )}
+        <p className="text-xs text-slate-500">
+          {declaracion?.numero ? `Número identificativo de la declaración: ${declaracion.numero}. ` : 'La app le pone a la declaración su número identificativo al descargar el fichero, y ya no cambia. '}
+          La persona de contacto y el teléfono son los de Registro Mercantil &gt; Datos.
+        </p>
+        {avisoDescarga && (
+          <p role="status" className="mt-2 text-sm text-amber-700">{avisoDescarga}</p>
         )}
 
-        {/* Formulario de Presentación */}
-        {modelo.estado === 'vigente' && <FormPresentar codigo="190" ejercicio={ejercicio} />}
+        {/* Presentar, complementaria o sustitutiva e historial */}
+        <Declaraciones codigo="190" ejercicio={ejercicio} recarga={recarga} onCambio={() => setRecarga((n) => n + 1)} />
       </div>
     </div>
   );
