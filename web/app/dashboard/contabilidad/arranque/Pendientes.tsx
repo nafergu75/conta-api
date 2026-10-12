@@ -38,7 +38,8 @@ interface CuentaBancaria {
 /** Cobrar o pagar una factura de 2026 (todo o una parte). */
 function Liquidar({ partida, cuentas, onCerrar, onHecho }: { partida: PartidaVista; cuentas: CuentaBancaria[]; onCerrar: () => void; onHecho: (texto: string) => void }) {
   const cobro = partida.tipo === 'COBRO';
-  const [fecha, setFecha] = useState(hoyEspana());
+  // Antes del 1-1-2027 no se puede cobrar en la app (2026 lo lleva la gestoría).
+  const [fecha, setFecha] = useState(() => (hoyEspana() < `${A + 1}-01-01` ? `${A + 1}-01-01` : hoyEspana()));
   const [importe, setImporte] = useState(importeEnCampo(partida.pendiente));
   const [comision, setComision] = useState('');
   const [cuenta, setCuenta] = useState(cuentas.find((c) => c.estado === 'activa')?.id ?? (cuentas[0]?.id ?? 'caja'));
