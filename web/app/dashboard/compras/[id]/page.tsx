@@ -256,7 +256,7 @@ export default function GastoDetailPage() {
                       <span className="font-semibold">{o.numero ?? 'sin número'}</span>
                     )}
                     {o.fecha ? ` del ${fechaCorta(o.fecha)}` : ''}
-                    {!o.id && ' (de fuera de la app)'}
+                    {!o.id && ', de fuera de la app,'}
                   </span>
                 ))}
               </>
