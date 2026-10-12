@@ -272,3 +272,32 @@ export function bloqueParaEnviar(
     ...(opciones.confirmaRectificar303 ? { confirmaRectificar303: true } : {}),
   };
 }
+
+/**
+ * Avisos que da el servidor al guardar (por ejemplo, «prepara la
+ * autoliquidación rectificativa de ese 303»): se guardan un momento para
+ * enseñarlos en la ficha al llegar. Sin almacenamiento del navegador, se pierden
+ * sin romper nada.
+ */
+const CLAVE_AVISOS = (id: string) => `conta:avisos-gasto:${id}`;
+
+export function guardarAvisosGasto(id: string, avisos: string[] | undefined): void {
+  if (!avisos?.length) return;
+  try {
+    sessionStorage.setItem(CLAVE_AVISOS(id), JSON.stringify(avisos));
+  } catch {
+    // Sin sessionStorage (modo privado, bloqueado): no se enseñan.
+  }
+}
+
+/** Lee y borra los avisos guardados al guardar la factura. */
+export function leerAvisosGasto(id: string): string[] {
+  try {
+    const v = sessionStorage.getItem(CLAVE_AVISOS(id));
+    sessionStorage.removeItem(CLAVE_AVISOS(id));
+    const a = v ? (JSON.parse(v) as unknown) : null;
+    return Array.isArray(a) ? a.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
