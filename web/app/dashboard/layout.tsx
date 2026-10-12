@@ -140,7 +140,8 @@ export default function DashboardLayout({
         </div>
       )}
 
-      <div className="min-w-0">
+      {/* En el móvil, margen abajo para que lo último de cada pantalla pueda quedar por encima de los botones flotantes (menú y Carmen). */}
+      <div className="min-w-0 pb-36 md:pb-0">
         {faltanDatos.length > 0 && !pathname.startsWith('/dashboard/empresa') && (
           <div role="status" className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 md:px-6">
             <span className="font-medium">Faltan datos de la empresa:</span>
