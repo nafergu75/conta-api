@@ -195,12 +195,12 @@ export default function UsuariosPage() {
   const alternarActivo = (u: UsuarioEmpresa) => {
     const quien = u.nombre || u.email;
     const pregunta = u.activo
-      ? `¿Desactivar a ${quien}? Se le cierran las sesiones abiertas y no podrá entrar en ninguna empresa hasta que lo reactives. No se borra nada.`
-      : `¿Reactivar a ${quien}?`;
+      ? `¿Desactivar la cuenta de ${quien}? Se le cierran las sesiones abiertas y no podrá entrar en ninguna empresa hasta que reactives su cuenta. No se borra nada.`
+      : `¿Reactivar la cuenta de ${quien}?`;
     if (!window.confirm(pregunta)) return;
     accion(u, async () => {
       await apiFetch(`/admin/usuarios/${encodeURIComponent(u.userId)}`, { method: 'PATCH', body: JSON.stringify({ activo: !u.activo }) });
-      return u.activo ? `${quien} queda desactivado.` : `${quien} vuelve a estar activo.`;
+      return u.activo ? `Cuenta de ${quien} desactivada.` : `La cuenta de ${quien} vuelve a estar activa.`;
     });
   };
 
@@ -224,7 +224,7 @@ export default function UsuariosPage() {
     return (
       <>
         {cabecera}
-        <SinAcceso texto="Los usuarios de una empresa los gestiona su administrador. Tu acceso está en «Tu acceso y usuarios»." />
+        <SinAcceso texto="Los usuarios de una empresa los gestiona su administrador. Lo que puedes hacer tú está en «Tu acceso»." />
       </>
     );
   }
