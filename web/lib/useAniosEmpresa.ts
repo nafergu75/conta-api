@@ -26,8 +26,13 @@ export interface AniosEmpresa {
   conDatos: number[];
   /** Ejercicios dados de alta, de mayor a menor, con su estado. */
   ejercicios: Array<{ anio: number; estado: EstadoEjercicio }>;
+  /** Primer año que se lleva en la app (fecha de inicio; nunca un año de la gestoría). Servidores anteriores no lo mandan. */
+  primeroEnApp?: number;
+  /** Años que llevó la gestoría (Traer la contabilidad de 2026). */
+  aniosGestoria?: number[];
 }
 
+const SIN_ANIOS: number[] = [];
 const pedidos = new Map<string, Promise<AniosEmpresa | null>>();
 const leidos = new Map<string, AniosEmpresa | null>();
 
@@ -98,6 +103,14 @@ export interface UsoAniosEmpresa {
    * para decidir qué plazos y periodos le tocan.
    */
   primeroReal: number;
+  /**
+   * Primer año que se lleva en la app: como primeroReal, pero sin los años que
+   * llevó la gestoría (tienen datos de la carga, pero sus modelos los presenta
+   * ella). Es el que abren por defecto el 303 y el Estado fiscal.
+   */
+  primeroApp: number;
+  /** Años que llevó la gestoría: sus modelos no se descargan ni se presentan desde aquí. */
+  aniosGestoria: number[];
   actual: number;
   conDatos: number[];
   ejercicios: AniosEmpresa['ejercicios'];
@@ -146,6 +159,8 @@ export function useAniosEmpresa(): UsoAniosEmpresa {
   const actual = Math.max(estado.datos?.actual ?? 0, anioHoy);
   const primero = estado.datos ? Math.min(estado.datos.primero, actual) : PRIMERO_RESPALDO(actual);
   const primeroReal = estado.datos ? estado.datos.primero : primero;
+  const primeroApp = estado.datos && Number.isInteger(estado.datos.primeroEnApp) ? Math.max(primeroReal, estado.datos.primeroEnApp as number) : primeroReal;
+  const aniosGestoria = estado.datos?.aniosGestoria ?? SIN_ANIOS;
   const conDatos = estado.datos?.conDatos ?? [];
 
   const anios = useCallback(
@@ -171,6 +186,8 @@ export function useAniosEmpresa(): UsoAniosEmpresa {
     respaldo: estado.listo && !estado.datos,
     primero,
     primeroReal,
+    primeroApp,
+    aniosGestoria,
     actual,
     conDatos,
     ejercicios: estado.datos?.ejercicios ?? [],
