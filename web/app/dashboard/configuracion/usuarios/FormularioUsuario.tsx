@@ -77,8 +77,6 @@ type Props =
       modo: 'editar';
       companyId: string;
       usuario: UsuarioEmpresa;
-      /** El usuario es quien está usando la pantalla. */
-      esYo: boolean;
       onGrabado: (companyId: string, texto: string | null) => void;
     });
 
@@ -116,12 +114,14 @@ export default function FormularioUsuario(props: Props) {
   const aMedida = difiereDelPerfil(catalogo, rol, areasElegidas);
   const nombrePerfil = (r: string) => perfilDe(catalogo, r)?.nombre ?? nombreRol(r);
 
-  // En la edición, el nombre y el teléfono los toca quien también podría darle
-  // una contraseña (su cuenta no entra en empresas que no administre) o él mismo.
-  const datosEditables = !editando || (props.modo === 'editar' && (editando.puedes.nuevaContrasena || props.esYo));
+  // En la edición, el nombre y el teléfono solo si el servidor lo deja: los
+  // propios siempre; los de otro, si su cuenta no entra en empresas que no administre.
+  const datosEditables = !editando || editando.puedes.datosPersonales === true;
   // Alta con un correo que ya tiene usuario: no se crea otro ni se tocan sus datos.
   const correoExistente = !editando && correo?.existe === true;
   const yaTieneAcceso = !editando && correo?.yaTieneAcceso === true;
+  // ...salvo que solo se lo pueda dar el administrador global (el servidor lo rechazaría).
+  const soloAdminGlobal = !editando && !yaTieneAcceso && correo?.soloAdminGlobal === true;
 
   // Comprueba el correo (alta) al dejar de escribir y al cambiar de empresa.
   useEffect(() => {
@@ -189,7 +189,7 @@ export default function FormularioUsuario(props: Props) {
       enfocar(primero);
       return;
     }
-    if (yaTieneAcceso) return;
+    if (yaTieneAcceso || soloAdminGlobal) return;
 
     const aMedidaEnviar = areasParaEnviar(catalogo, rol, areasElegidas);
     setGrabando(true);
@@ -334,11 +334,19 @@ export default function FormularioUsuario(props: Props) {
             </p>
             {comprobando && <p className="text-xs text-slate-500">Comprobando el correo…</p>}
             <div aria-live="polite">
-              {correoExistente && !yaTieneAcceso && (
+              {correoExistente && !yaTieneAcceso && !soloAdminGlobal && (
                 <p className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
                   <Info size={18} className="mt-0.5 shrink-0" aria-hidden />
                   <span>
                     Este correo ya tiene usuario: se le dará acceso a esta empresa. No se cambian su nombre, su teléfono ni su contraseña.
+                  </span>
+                </p>
+              )}
+              {soloAdminGlobal && (
+                <p role="alert" className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
+                  <WarningCircle size={18} className="mt-0.5 shrink-0" aria-hidden />
+                  <span>
+                    Este correo ya tiene usuario, pero desde aquí no se le puede dar acceso. Pídeselo al administrador global de la plataforma.
                   </span>
                 </p>
               )}
@@ -487,7 +495,7 @@ export default function FormularioUsuario(props: Props) {
           <button type="button" onClick={onClose} disabled={grabando} className={`${BOTON_SECUNDARIO} min-h-[44px]`}>
             Cancelar
           </button>
-          <button type="submit" disabled={grabando || yaTieneAcceso || vacio} className={BOTON_PRIMARIO}>
+          <button type="submit" disabled={grabando || yaTieneAcceso || soloAdminGlobal || vacio} className={BOTON_PRIMARIO}>
             {grabando ? 'Grabando…' : 'Grabar'}
           </button>
         </div>

@@ -356,7 +356,6 @@ export default function UsuariosPage() {
           empresas={empresasConPais}
           companyId={companyId}
           usuario={ventana.usuario}
-          esYo={ventana.usuario.email.toLowerCase() === miEmail}
           onClose={() => setVentana(null)}
           onGrabado={alGrabar}
         />
