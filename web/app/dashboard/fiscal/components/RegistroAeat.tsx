@@ -226,11 +226,6 @@ export function DescargarFichero({
   );
 }
 
-/** Ejercicios del selector: el siguiente (la app hace los modelos de 2027 en adelante) y los cuatro anteriores. */
-export function ejerciciosBorrador(hoy: Date = new Date()): number[] {
-  return Array.from({ length: 5 }, (_, i) => hoy.getFullYear() + 1 - i);
-}
-
 export function Seccion({ titulo, children, extra }: { titulo: string; children: React.ReactNode; extra?: React.ReactNode }) {
   return (
     <section className="space-y-4 rounded-lg border border-slate-200 bg-white p-4 md:p-6">
