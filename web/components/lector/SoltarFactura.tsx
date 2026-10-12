@@ -17,6 +17,11 @@ import { FileArrowUp, WarningCircle, X } from '@phosphor-icons/react';
  *   leer o un archivo de mas de 4 MB: se avisa y no se lee.
  * - Si hay una lectura en curso o sin registrar, se pregunta antes de
  *   descartarla (la descarta la pagina al leer la nueva, como «Leer otra»).
+ * - Mientras se arrastra, la capa recibe el archivo aunque debajo este la vista
+ *   previa del PDF (un iframe, que si no se quedaria con el).
+ * - Sin permiso de escritura o con un dialogo abierto no se lee nada, pero
+ *   tampoco se deja que el navegador abra el archivo en la pestaña (se perderia
+ *   lo que hay en pantalla).
  */
 
 /** Lo mismo que aceptan los dos lectores (y el servidor). */
@@ -32,14 +37,13 @@ export function motivoArchivoNoValido(f: File): string | null {
   return null;
 }
 
-/**
- * ¿Lo que se arrastra trae archivos? (texto y enlaces, no). Con un dialogo
- * abierto (dar de alta, descartar...) tampoco: primero se termina con el.
- */
+/** ¿Lo que se arrastra trae archivos? (texto y enlaces, no). */
 function traeArchivos(e: DragEvent): boolean {
-  if (document.querySelector('[aria-modal="true"]')) return false;
   return !!e.dataTransfer && Array.from(e.dataTransfer.types ?? []).includes('Files');
 }
+
+/** Con un dialogo abierto (dar de alta, descartar...) no se lee: primero se termina con el. */
+const hayDialogo = () => !!document.querySelector('[aria-modal="true"]');
 
 /**
  * Escucha el arrastre de archivos en toda la ventana. Devuelve si hay un
@@ -49,12 +53,14 @@ export function useArrastreArchivos(activo: boolean, alSoltar: (archivos: File[]
   const [arrastrando, setArrastrando] = useState(false);
   const alSoltarRef = useRef(alSoltar);
   alSoltarRef.current = alSoltar;
+  const activoRef = useRef(activo);
+  activoRef.current = activo;
 
   useEffect(() => {
-    if (!activo) {
-      setArrastrando(false);
-      return;
-    }
+    if (!activo) setArrastrando(false);
+  }, [activo]);
+
+  useEffect(() => {
     let dentro = 0;
     let vigilante: ReturnType<typeof setTimeout> | undefined;
     const ocultar = () => {
@@ -67,8 +73,16 @@ export function useArrastreArchivos(activo: boolean, alSoltar: (archivos: File[]
       clearTimeout(vigilante);
       vigilante = setTimeout(ocultar, 600);
     };
+    /** Archivo que no se va a leer: el navegador no lo abre y el cursor dice que ahi no se suelta. */
+    const rechazar = (e: DragEvent) => {
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'none';
+      ocultar();
+    };
+    const sePuedeLeer = () => activoRef.current && !hayDialogo();
     const alEntrar = (e: DragEvent) => {
       if (!traeArchivos(e)) return;
+      if (!sePuedeLeer()) return rechazar(e);
       e.preventDefault();
       dentro += 1;
       setArrastrando(true);
@@ -76,6 +90,7 @@ export function useArrastreArchivos(activo: boolean, alSoltar: (archivos: File[]
     };
     const alPasar = (e: DragEvent) => {
       if (!traeArchivos(e)) return;
+      if (!sePuedeLeer()) return rechazar(e);
       // Sin esto el navegador no deja soltar (y abriria el archivo en la pestaña).
       e.preventDefault();
       if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
@@ -88,6 +103,7 @@ export function useArrastreArchivos(activo: boolean, alSoltar: (archivos: File[]
     };
     const alSoltarArchivos = (e: DragEvent) => {
       if (!traeArchivos(e)) return;
+      if (!sePuedeLeer()) return rechazar(e);
       e.preventDefault();
       ocultar();
       const archivos = Array.from(e.dataTransfer?.files ?? []);
@@ -106,7 +122,7 @@ export function useArrastreArchivos(activo: boolean, alSoltar: (archivos: File[]
       window.removeEventListener('drop', alSoltarArchivos);
       window.removeEventListener('blur', ocultar);
     };
-  }, [activo]);
+  }, []);
 
   return arrastrando;
 }
@@ -143,10 +159,20 @@ export default function SoltarFactura({ activo, hayLectura, onArchivo }: Props) 
     else onArchivo(primero);
   });
 
+  // «Seguir con la actual»: no se lee nada, asi que el aviso de varios archivos («Se lee el primero») ya no vale.
+  const seguirConLaActual = () => {
+    setPendiente(null);
+    setAviso([]);
+  };
+
   return (
     <>
-      {/* Se anuncia sin mover el foco: «Seleccionar archivo» sigue siendo el camino con el teclado. */}
-      <div role="status" aria-live="polite" className={arrastrando ? 'pointer-events-none fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/30 p-4' : 'sr-only'}>
+      {/*
+        Se anuncia sin mover el foco: «Seleccionar archivo» sigue siendo el camino con el teclado.
+        Mientras se arrastra recibe los eventos (no pointer-events-none): si no, encima de la vista
+        previa del PDF el archivo iria al iframe y no se leeria.
+      */}
+      <div role="status" aria-live="polite" className={arrastrando ? 'fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/30 p-4' : 'sr-only'}>
         {arrastrando && (
           <div className="flex w-full max-w-lg flex-col items-center gap-2 rounded-2xl border-4 border-dashed border-emerald-400 bg-white px-6 py-10 text-center shadow-xl">
             <FileArrowUp size={56} weight="duotone" className="text-accent-600" aria-hidden="true" />
@@ -178,7 +204,7 @@ export default function SoltarFactura({ activo, hayLectura, onArchivo }: Props) 
             setPendiente(null);
             onArchivo(f);
           }}
-          onNo={() => setPendiente(null)}
+          onNo={seguirConLaActual}
         />
       )}
     </>
