@@ -9,6 +9,7 @@ import { anioEspana } from '@/lib/anios';
 import { useAniosEmpresa } from '@/lib/useAniosEmpresa';
 import { useVencimientosAeat } from '@/lib/useVencimientosAeat';
 import SelectorAnio from '@/components/SelectorAnio';
+import { anioOTodosDeUrl, ponerEnUrl } from '@/lib/urlEstado';
 import { AlertCard } from '@/components/dashboard/AlertCard';
 import { CobrosClientes } from '@/components/dashboard/CobrosClientes';
 import { getQuartersForYear, getCurrentQuarter, isDateInQuarter, PATRON_TRIMESTRE } from '@/lib/quarters';
@@ -95,10 +96,12 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [userEmail, setUserEmail] = useState<string>('');
-  // Año en curso en España por defecto; la lista, los años de la empresa más los que tienen movimientos.
-  const [selectedYear, setSelectedYear] = useState(() => anioEspana());
+  // Año en curso en España por defecto (o el de la URL, al volver al panel); la lista, los años
+  // de la empresa más los que tienen movimientos.
+  const [selectedYear, setSelectedYear] = useState(() => anioOTodosDeUrl() ?? anioEspana());
   const [periodType, setPeriodType] = useState<'year' | 'quarters' | 'months'>('quarters');
-  const [selectedPeriod, setSelectedPeriod] = useState(getCurrentQuarter());
+  // El trimestre en curso, en el año que se abre.
+  const [selectedPeriod, setSelectedPeriod] = useState(() => `${selectedYear}${getCurrentQuarter().slice(4)}`);
   const [aniosConMovimientos, setAniosConMovimientos] = useState<number[]>([]);
   const aniosEmpresa = useAniosEmpresa();
   const availableYears = aniosEmpresa.anios([...aniosConMovimientos, selectedYear]);
@@ -195,6 +198,7 @@ export default function DashboardPage() {
   const cambiarAnio = (y: number) => {
     const mover = (p: string) => (PATRON_TRIMESTRE.test(p) || /^\d{4}-\d{2}$/.test(p) ? `${y}${p.slice(4)}` : p);
     setSelectedYear(y);
+    ponerEnUrl({ ejercicio: y });
     setSelectedPeriod((p) => mover(p));
     setSelectedAnalysisPeriod((p) => mover(p));
   };

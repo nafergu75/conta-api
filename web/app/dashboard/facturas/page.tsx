@@ -10,6 +10,7 @@ import { ETIQUETA_CORTA, useContextoFiscal } from '@/lib/fiscal';
 import { useRedSeguridad } from '@/lib/verifactu';
 import AvisoRedSeguridad from '@/components/verifactu/AvisoRedSeguridad';
 import SelectorAnio from '@/components/SelectorAnio';
+import { anioOTodosDeUrl, anioParaUrl, ponerEnUrl, trimestreDeUrl } from '@/lib/urlEstado';
 import { anioEspana, rangoFechas } from '@/lib/anios';
 import { useAniosEmpresa } from '@/lib/useAniosEmpresa';
 
@@ -62,8 +63,12 @@ export default function FacturasPage() {
   const [facturas, setFacturas] = useState<Factura[]>([]);
   const [total, setTotal] = useState(0);
   // Año (null = todos) y trimestre (0 = todo el año): se filtra en el servidor por fecha de emisión.
-  const [anio, setAnio] = useState<number | null>(() => anioEspana());
-  const [trimestre, setTrimestre] = useState(0);
+  // Se guardan en la URL: al volver de una factura, la lista sigue en el mismo año.
+  const [anio, setAnio] = useState<number | null>(() => {
+    const url = anioOTodosDeUrl();
+    return url === undefined ? anioEspana() : url;
+  });
+  const [trimestre, setTrimestre] = useState(() => trimestreDeUrl());
   const [pagina, setPagina] = useState(1);
   const aniosEmpresa = useAniosEmpresa();
   const [clientes, setClientes] = useState<Cliente[]>([]);
@@ -157,6 +162,7 @@ export default function FacturasPage() {
                 setAnio(a);
                 if (a === null) setTrimestre(0);
                 setPagina(1);
+                ponerEnUrl({ ejercicio: anioParaUrl(a), trimestre: a === null ? null : trimestre || null });
               }}
             />
             <div>
@@ -170,6 +176,7 @@ export default function FacturasPage() {
                 onChange={(e) => {
                   setTrimestre(Number(e.target.value));
                   setPagina(1);
+                  ponerEnUrl({ ejercicio: anioParaUrl(anio), trimestre: Number(e.target.value) || null });
                 }}
                 className="mt-1 block rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-60"
               >

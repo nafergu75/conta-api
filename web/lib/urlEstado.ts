@@ -40,3 +40,12 @@ export function ponerEnUrl(valores: Record<string, string | number | null | unde
   const nueva = `${url.pathname}${url.search}${url.hash}`;
   if (nueva !== `${window.location.pathname}${window.location.search}${window.location.hash}`) window.history.replaceState(null, '', nueva);
 }
+
+/** Trimestre de la URL (?trimestre=1 a 4); 0 si no viene: todo el año. */
+export function trimestreDeUrl(nombre = 'trimestre'): number {
+  const t = Number(paramDeUrl(nombre));
+  return Number.isInteger(t) && t >= 1 && t <= 4 ? t : 0;
+}
+
+/** Texto del año para la URL: el año o «todos». */
+export const anioParaUrl = (anio: number | null): string => (anio === null ? TODOS_LOS_ANIOS : String(anio));
