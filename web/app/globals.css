@@ -122,6 +122,9 @@ body {
 .dark .zona-app .text-accent-600, .dark .zona-app .text-accent-700 { color: #34d399; }
 .dark .zona-app input:not([type=checkbox]):not([type=radio]), .dark .zona-app select, .dark .zona-app textarea { background-color: #0f0f0f; color: #f5f5f5; border-color: #3a3a3a; }
 .dark .zona-app input::placeholder, .dark .zona-app textarea::placeholder { color: #6b6b6b; }
+/* Los campos que el lector de facturas deja para revisar (ambar) o con error (rojo) se ven tambien de noche: la regla general de campos pisaria sus colores. Van antes de aria-invalid para que un error del servidor siga en rojo. */
+.dark .zona-app input[data-lector=revisar]:not([type=checkbox]):not([type=radio]), .dark .zona-app select[data-lector=revisar], .dark .zona-app textarea[data-lector=revisar] { border-color: rgba(245,158,11,.7); background-color: rgba(245,158,11,.14); }
+.dark .zona-app input[data-lector=error]:not([type=checkbox]):not([type=radio]), .dark .zona-app select[data-lector=error], .dark .zona-app textarea[data-lector=error] { border-color: rgba(239,68,68,.7); background-color: rgba(239,68,68,.14); }
 /* Un campo marcado como no valido se ve en rojo tambien de noche (la regla de arriba pisaria .bg-red-50). */
 .dark .zona-app input[aria-invalid=true]:not([type=checkbox]):not([type=radio]), .dark .zona-app select[aria-invalid=true], .dark .zona-app textarea[aria-invalid=true] { border-color: rgba(239,68,68,.7); background-color: rgba(239,68,68,.14); }
 /* Un campo desactivado (modo lectura) se distingue tambien de noche: la regla general de campos pisaria disabled:bg-slate-50. */
