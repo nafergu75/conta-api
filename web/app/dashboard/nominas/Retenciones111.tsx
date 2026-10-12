@@ -91,11 +91,12 @@ export function Retenciones111({
       const datos = await apiFetch<Retenciones>(companyPath(`/nominas/retenciones/${ejercicio}/${periodo}`));
       setR(datos);
       setError('');
-      if (modo === null) setModo(datos.mensual ? 'mes' : 'trimestre');
+      // Solo la primera vez: después manda lo que elija la persona.
+      setModo((m) => m ?? (datos.mensual ? 'mes' : 'trimestre'));
     } catch (e) {
       setError(errorMessage(e));
     }
-  }, [ejercicio, periodo, modo]);
+  }, [ejercicio, periodo]);
 
   useEffect(() => {
     cargar();
