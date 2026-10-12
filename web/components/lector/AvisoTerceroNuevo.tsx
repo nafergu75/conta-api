@@ -585,6 +585,13 @@ function DialogoBuscar({ tipo, inicial, onCerrar, onElegir }: { tipo: TipoTercer
   const [error, setError] = useState('');
   const peticion = useRef(0);
   const ids = useId();
+  const campoRef = useRef<HTMLInputElement>(null);
+
+  // Se abre con lo leído seleccionado: lo normal es buscar otra cosa (por eso se abre este
+  // buscador), y así lo que se escribe lo sustituye en lugar de pegarse detrás.
+  useEffect(() => {
+    campoRef.current?.select();
+  }, []);
 
   useEffect(() => {
     const n = ++peticion.current;
@@ -616,7 +623,7 @@ function DialogoBuscar({ tipo, inicial, onCerrar, onElegir }: { tipo: TipoTercer
         </label>
         <div className="relative">
           <MagnifyingGlass size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden="true" />
-          <input id={`${ids}-q`} value={q} onChange={(e) => setQ(e.target.value)} autoComplete="off" aria-describedby={`${ids}-estado`} className={`${campo} pl-9`} />
+          <input ref={campoRef} id={`${ids}-q`} value={q} onChange={(e) => setQ(e.target.value)} autoComplete="off" aria-describedby={`${ids}-estado`} className={`${campo} pl-9`} />
         </div>
         {error && <p className="text-sm text-rose-700">{error}</p>}
         <p id={`${ids}-estado`} role="status" className="sr-only">
