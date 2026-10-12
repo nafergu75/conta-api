@@ -6,7 +6,8 @@
 import type { FormInicial, LineaInicial, MarcasLector, NivelMarca } from '@/components/compras/FormFacturaGasto';
 import { pareceNifIvaUe } from './fiscal';
 import { calcularLinea, hoyIso, paisDelPrefijo, TIPO_GASTO_INFO, tipoGastoDeCuenta, tipoGastoParaRetencion, TIPOS_GASTO, tipoIvaMasCercano, type TipoGasto } from './compras';
-import { descripcionNeutraTramo, type EstadoCampo, type GastoLeido, type InfoLectura, type TramoGasto } from './lecturas';
+import { descripcionNeutraTramo, type EstadoCampo, type GastoLeido, type InfoLectura, type RectificativaLeida, type TramoGasto } from './lecturas';
+import { estadoDesdeLectura } from './rectificativasGasto';
 
 /** Tramos con base y tipo numericos. */
 export const tramosValidos = (g: GastoLeido): TramoGasto[] =>
@@ -207,4 +208,21 @@ export function marcasDireccion(g: GastoLeido, inicial: FormInicial): MarcasLect
   if (d.municipio) m['proveedor.municipio'] = 'revisar';
   if (d.provincia) m['proveedor.provincia'] = 'revisar';
   return m;
+}
+
+/**
+ * Lectura de una rectificativa o un abono (V19 en «revisar»): la propuesta
+ * del formulario como abono. Las líneas van en positivo, como se escriben en
+ * un abono: con importes leídos en negativo («Reduce el importe») se les
+ * cambia el signo, y una línea que va al revés queda con el signo menos.
+ * El bloque «Rectificación» sale de lo que propone el servidor
+ * (rectificativa.propuesta, tipoPropuesto, causaPropuesta, sentido).
+ */
+export function inicialComoAbono(inicial: FormInicial, r: RectificativaLeida): FormInicial {
+  const signo = r.importesNegativos ? -1 : 1;
+  return {
+    ...inicial,
+    lineas: (inicial.lineas ?? []).map((l) => ({ ...l, precioUnitario: signo * l.precioUnitario + 0 })),
+    rectificativa: estadoDesdeLectura(r),
+  };
 }
