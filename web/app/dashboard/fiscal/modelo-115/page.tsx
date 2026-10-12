@@ -131,6 +131,8 @@ export default function Modelo115Page() {
     };
   }, [ejercicio, periodo, recarga]);
 
+  const avisos115 = (modelo?.avisos ?? []).filter((a) => !a.startsWith('El traspaso a la 4709'));
+
   return (
     <div className="space-y-6">
       <div>
@@ -175,9 +177,10 @@ export default function Modelo115Page() {
                 </h2>
                 <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-medium text-slate-700">{modelo.estadoTexto ?? ESTADO[modelo.estado] ?? modelo.estado}</span>
               </div>
-              {modelo.avisos && modelo.avisos.length > 0 && (
+              {/* El descuadre del traspaso a la 4709 lo dice su panel, junto al botón. */}
+              {avisos115.length > 0 && (
                 <ul className="list-disc space-y-1 rounded-lg border border-amber-200 bg-amber-50 p-3 pl-8 text-sm text-amber-800">
-                  {modelo.avisos.map((a, i) => (
+                  {avisos115.map((a, i) => (
                     <li key={i}>{a}</li>
                   ))}
                 </ul>

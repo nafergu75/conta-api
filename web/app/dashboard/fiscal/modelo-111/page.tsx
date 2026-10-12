@@ -131,7 +131,8 @@ function Modelo111Contenido() {
         <SelectorPeriodoRetenciones id="m111-periodo" valor={periodo} onChange={setPeriodo} />
       </div>
 
-      <AvisosModelo avisos={modelo.avisos} ejercicio={modelo.ejercicio} mes={mesFinalPeriodo(modelo.periodo ?? periodo)} />
+      {/* El descuadre del traspaso a la 4709 lo dice su panel, junto al botón. */}
+      <AvisosModelo avisos={modelo.avisos?.filter((a) => !a.startsWith('El traspaso a la 4709'))} ejercicio={modelo.ejercicio} mes={mesFinalPeriodo(modelo.periodo ?? periodo)} />
 
       <Traspaso4709Panel
         codigo="111"

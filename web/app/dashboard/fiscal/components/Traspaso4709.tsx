@@ -46,8 +46,12 @@ export function Traspaso4709Panel({
   const [error, setError] = useState('');
   const [aviso, setAviso] = useState('');
 
-  if (!exceso || exceso <= 0) return null;
+  // Con el traspaso hecho se enseña aunque ya no haya exceso (hay que poder anularlo).
+  if ((!exceso || exceso <= 0) && !traspaso) return null;
   const eur = (n: number) => formatoImporte(n, 'EUR');
+  const excesoCent = Math.round((exceso ?? 0) * 100);
+  /** El traspaso hecho ya no es lo que no cabe ahora (se corrigió o anuló un abono, o entró otra factura). */
+  const descuadrado = !!traspaso && Math.round(traspaso.importe * 100) !== excesoCent;
 
   const pasar = async () => {
     setOcupado(true);
@@ -88,8 +92,15 @@ export function Traspaso4709Panel({
       <h2 className="font-semibold">Retención de abonos que no cabe en este {codigo}</h2>
       {!traspaso && (
         <p>
-          {eur(exceso)} de retención de abonos no caben en este {codigo} (el aviso de arriba explica por qué y cómo se recuperan). Cuando lo pagues, pásalos de la 4751 a
-          la 4709 con un asiento.
+          {eur(exceso ?? 0)} de retención de abonos no caben en este {codigo} (el aviso de arriba explica por qué y cómo se recuperan). Cuando presentes este {codigo}, pásalos
+          de la 4751 a la 4709 con el botón de abajo.
+        </p>
+      )}
+      {descuadrado && (
+        <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-red-700">
+          {excesoCent > 0
+            ? `El traspaso hecho (${eur(traspaso!.importe)}) ya no coincide con lo que ahora no cabe en este ${codigo} (${eur(excesoCent / 100)}): anúlalo y vuelve a hacerlo.`
+            : `El traspaso hecho (${eur(traspaso!.importe)}) ya no hace falta: ahora los abonos caben en este ${codigo}. Anúlalo.`}
         </p>
       )}
       {traspaso ? (
