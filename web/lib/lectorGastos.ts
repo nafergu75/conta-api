@@ -217,12 +217,17 @@ export function marcasDireccion(g: GastoLeido, inicial: FormInicial): MarcasLect
  * cambia el signo, y una línea que va al revés queda con el signo menos.
  * El bloque «Rectificación» sale de lo que propone el servidor
  * (rectificativa.propuesta, tipoPropuesto, causaPropuesta, sentido).
+ * Con la original de la app propuesta, la cuenta que sugiere el lector (la
+ * habitual del proveedor) no vale: el abono va a la cuenta de la original o a
+ * la de la causa (608, 609, 606), que el formulario propone al cargarla.
  */
 export function inicialComoAbono(inicial: FormInicial, r: RectificativaLeida): FormInicial {
   const signo = r.importesNegativos ? -1 : 1;
+  const conOriginal = !!r.propuesta?.original;
   return {
     ...inicial,
-    lineas: (inicial.lineas ?? []).map((l) => ({ ...l, precioUnitario: signo * l.precioUnitario + 0 })),
+    ...(conOriginal ? { cuentaGasto: undefined, origenCuentaGasto: undefined } : {}),
+    lineas: (inicial.lineas ?? []).map((l) => ({ ...l, precioUnitario: signo * l.precioUnitario + 0, ...(conOriginal ? { cuenta: undefined } : {}) })),
     rectificativa: estadoDesdeLectura(r),
   };
 }
