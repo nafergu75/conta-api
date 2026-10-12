@@ -145,6 +145,7 @@ export function inicialDe(g: GastoLeido, paisExistente: string | null): FormInic
     fechaEmision: fecha,
     tipoGasto: tipo,
     cuentaGasto,
+    ...(cuentaGasto ? { origenCuentaGasto: cuentaGasto === habitual ? ('habitual' as const) : ('sugerida' as const) } : {}),
     lineas,
     totalDocumento: Number.isFinite(Number(g.total)) && Number(g.total) !== 0 ? Number(g.total) : undefined,
   };

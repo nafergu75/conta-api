@@ -68,6 +68,8 @@ export interface FormInicial {
   fechaRegistro?: string | null;
   tipoGasto?: TipoGasto;
   cuentaGasto?: string | null;
+  /** De donde sale cuentaGasto (lector): 'habitual' = la que mas usan las facturas de ese proveedor. */
+  origenCuentaGasto?: 'habitual' | 'sugerida';
   lineas?: LineaInicial[];
   observaciones?: string;
   /** Lector: total que pone la factura (se cruza con el calculado). */
@@ -259,6 +261,13 @@ export default function FormFacturaGasto({
   /** Sin IVA español ni retención: proveedor de fuera de España o empresa no establecida en España. */
   const extranjero = proveedorExtranjero || empresaExtranjera;
   const retenciones = TIPO_GASTO_INFO[tipoGasto].retenciones;
+  // La cuenta de la factura no es la del tipo de gasto marcado (p. ej. 629 con
+  // «Profesionales independientes (623)»): se avisa debajo del tipo, para que el
+  // numero del boton no engane.
+  const cuentaFactura = cuenta.trim();
+  const cuentaDelTipo = TIPO_GASTO_INFO[tipoGasto].cuenta;
+  const cuentaDistintaDelTipo = cuentaFactura.length >= 3 && !cuentaFactura.startsWith(cuentaDelTipo) ? cuentaFactura : null;
+  const cuentaEsHabitual = !!cuentaDistintaDelTipo && inicial?.origenCuentaGasto === 'habitual' && cuentaDistintaDelTipo === inicial.cuentaGasto;
   // Una retencion que el tipo no admite solo llega del lector (1 o 2 %): se ve, para que se cambie.
   const retencionNoAdmitida = lineas.some((l) => l.tipoRetencion !== 0 && !retenciones.includes(l.tipoRetencion));
   const conRetencion = (retenciones.length > 1 || retencionNoAdmitida) && !extranjero;
@@ -574,6 +583,22 @@ export default function FormFacturaGasto({
             <p className={ayuda}>El alquiler de un local suele llevar una retención del 19 % (modelo 115), salvo que el arrendador te diga que está exento.</p>
           )}
           {tipoGasto === 'SERVICIO_PROFESIONAL' && !extranjero && <p className={ayuda}>Si el profesional te descuenta IRPF en la factura, ponlo en la columna IRPF (va al modelo 111).</p>}
+          {cuentaDistintaDelTipo && (
+            <div role="note" className="mt-2 flex flex-col gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 sm:flex-row sm:items-center sm:justify-between">
+              <p className="min-w-0">
+                Esta factura irá a la cuenta {cuentaDistintaDelTipo}
+                {catalogo.nombreDe(cuentaDistintaDelTipo) ? ` ${catalogo.nombreDe(cuentaDistintaDelTipo)}` : ''}
+                {cuentaEsHabitual ? ' (la habitual de este proveedor)' : ''}, no a la {cuentaDelTipo} del tipo de gasto. El tipo marcado decide el modelo de la retención; la cuenta, dónde se anota el gasto.
+              </p>
+              <button
+                type="button"
+                onClick={() => setCuenta('')}
+                className="shrink-0 rounded-lg border border-amber-300 bg-white px-3 py-1.5 font-semibold text-amber-800 hover:bg-amber-100"
+              >
+                Usar la {cuentaDelTipo}
+              </button>
+            </div>
+          )}
         </fieldset>
 
         <div className="mt-4">
