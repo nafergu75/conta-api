@@ -11,6 +11,7 @@ import { Declaraciones } from '../components/Declaraciones';
 import { Tooltip } from '../components/Tooltip';
 import { AvisosModelo } from '../components/AvisosModelo';
 import { mesFinalPeriodo, normalizarPeriodo, SelectorPeriodoRetenciones } from '../components/SelectorPeriodoRetenciones';
+import { formatoImporte } from '@/lib/moneda';
 
 interface Modelo111 {
   /** Id de la fila del calendario; null si aún no existe (abrir la pantalla no la crea). */
@@ -67,10 +68,7 @@ function Modelo111Contenido() {
     fetchModelo();
   }, [ejercicio, periodo, recarga]);
 
-  const eur = new Intl.NumberFormat('es-ES', {
-    style: 'currency',
-    currency: 'EUR',
-  });
+  const eur = { format: (n: number) => formatoImporte(n, 'EUR') };
 
   if (loading) {
     return (
@@ -110,8 +108,9 @@ function Modelo111Contenido() {
       {/* Período Selector */}
       <div className="flex flex-wrap gap-4 rounded-lg border border-slate-200 bg-white p-4">
         <div>
-          <label className="block text-sm font-medium text-slate-700">Ejercicio</label>
+          <label htmlFor="m111-ej" className="block text-sm font-medium text-slate-700">Ejercicio</label>
           <select
+            id="m111-ej"
             value={ejercicio}
             onChange={(e) => setEjercicio(parseInt(e.target.value))}
             className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
