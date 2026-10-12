@@ -40,10 +40,15 @@ export function valorLegible(c: { lon: number; valor: string | number }, id = ''
     return eur(c.valor);
   }
   const v = String(c.valor ?? '').trim();
+  // Número identificativo aún sin poner (13 ceros en el fichero de la pantalla): lo pone la app al descargar.
+  if (/^numero(Declaracion|Identificativo)/i.test(id) && /^0{13}$/.test(v)) return 'Se pone al descargar el fichero';
   // Los recuentos van con ceros a la izquierda en el fichero: en pantalla, sin ellos.
   if (/^numero(Operadores|Rectificaciones|Perceptores)$/.test(id) && /^\d+$/.test(v)) return String(Number(v));
   return v === '' ? '—' : v;
 }
+
+/** Descripción del diseño sin las llamadas a sus notas («(Nota 9)»), que no se ven en la pantalla. */
+const sinNotas = (texto: string) => texto.replace(/\s*\(Nota \d+\)/gi, '').trim();
 
 /** Posiciones de un campo en el registro ("76-77"). */
 export const posiciones = (c: { pos: number; lon: number }) => (c.lon === 1 ? `${c.pos}` : `${c.pos}-${c.pos + c.lon - 1}`);
@@ -55,10 +60,10 @@ export function CamposRegistro({ campos, ocultar = [] }: { campos: CampoLeido[];
     <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
       {visibles.map((c) => (
         <div key={c.id} className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-3">
-          <dt className="text-xs text-slate-600">
+          {/* Las posiciones del diseño, solo al pasar el ratón: a quien lo usa no le dicen nada. */}
+          <dt className="text-xs text-slate-600" title={`Posiciones ${posiciones(c)} del diseño de registro`}>
             {c.casilla ? <span className="mr-1 font-semibold text-slate-800">[{c.casilla}]</span> : null}
-            {c.descripcion}
-            <span className="ml-1 text-slate-400">({posiciones(c)})</span>
+            {sinNotas(c.descripcion)}
           </dt>
           <dd className="mt-1 break-words font-mono text-sm font-semibold text-slate-900">{valorLegible(c, c.id)}</dd>
         </div>
