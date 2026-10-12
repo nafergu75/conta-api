@@ -101,6 +101,9 @@ export const enlaceRecibidaTarde = (facturaId: string) => `/dashboard/compras/${
 /** Tipos de IVA de una factura de gasto, de mayor a menor. */
 export const TIPOS_IVA_GASTO = [21, 10, 5, 4, 0] as const;
 
+/** Texto del tipo de IVA en los desplegables: el 0 % es «Exento» (o «Sin IVA» si no lleva IVA español). */
+export const textoTipoIva = (t: number, extranjero: boolean) => (t !== 0 ? `${t} %` : extranjero ? 'Sin IVA' : 'Exento');
+
 /** Cuentas de gasto habituales (grupo 62 y la 600). */
 export const CUENTAS_GASTO_HABITUALES: Array<[string, string]> = [
   ['600', 'Compras de mercaderías'],

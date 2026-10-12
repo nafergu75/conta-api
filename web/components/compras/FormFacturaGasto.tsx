@@ -24,6 +24,7 @@ import {
   TIPO_GASTO_INFO,
   TIPOS_GASTO,
   TIPOS_IVA_GASTO,
+  textoTipoIva,
   type TipoGasto,
 } from '@/lib/compras';
 import { bloqueParaEnviar, type EstadoRectificacion, faltaEnBloque, type LineaCuerpo, signoDe } from '@/lib/rectificativasGasto';
@@ -193,9 +194,6 @@ const PIE = {
   botones: 'flex flex-col-reverse gap-3 sm:flex-row sm:flex-wrap sm:justify-end [@container_fgform_(min-width:40rem)]:shrink-0',
   boton: 'whitespace-nowrap',
 };
-
-/** Texto del tipo de IVA en el desplegable: el 0 % es «Exento» (o «Sin IVA» si no lleva IVA español). */
-const textoTipoIva = (t: number, extranjero: boolean) => (t !== 0 ? `${t} %` : extranjero ? 'Sin IVA' : 'Exento');
 
 let siguienteClave = 1;
 const lineaVacia = (tipoIva = 21): LineaForm => ({ clave: siguienteClave++, descripcion: '', cantidad: '1', precio: '', descuento: 0, tipoIva, tipoRetencion: 0 });
@@ -896,6 +894,7 @@ export default function FormFacturaGasto({
           onCambio={(ls) => setRect({ ...rect, lineasOriginal: ls })}
           marca={marca}
           monedaCuenta={monedaCuenta}
+          extranjero={extranjero}
           numero={rect.originales[0].numero || rect.originales[0].numeroCompleto || ''}
         />
       )}
