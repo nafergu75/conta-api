@@ -6,6 +6,7 @@ import { ArrowLeft, CaretRight, FilePdf, FileXls, MagnifyingGlass, X } from '@ph
 import { Tooltip } from '@/app/dashboard/components/Tooltip';
 import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { anioDeTexto, anioEspana, rangoAnios } from '@/lib/anios';
+import { ponerEnUrl } from '@/lib/urlEstado';
 import SelectorAnio from '@/components/SelectorAnio';
 import { TablaInforme, fecha, importe, type Tabla } from '../informes/TablaInforme';
 
@@ -194,6 +195,8 @@ function MayorTerceros() {
               if (a === null) return;
               setEjercicio(a);
               setHasta('');
+              // El año va a la URL: al volver atrás, el mayor sigue en él.
+              ponerEnUrl({ ejercicio: a });
             }}
             className={campo}
             claseEtiqueta="block text-xs font-medium text-slate-600"

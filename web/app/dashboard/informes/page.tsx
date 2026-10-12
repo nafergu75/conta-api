@@ -10,6 +10,7 @@ import { BuscadorTercero } from '@/components/contabilidad/BuscadorTercero';
 import { BuscadorCuenta } from '@/components/contabilidad/BuscadorCuenta';
 import SelectorAnio from '@/components/SelectorAnio';
 import { anioDeTexto, anioEspana, rangoAnios } from '@/lib/anios';
+import { ponerEnUrl } from '@/lib/urlEstado';
 
 /**
  * Informes contables de cualquier ejercicio (tambien los ya cerrados), en
@@ -284,7 +285,7 @@ function InformesContables() {
             onClick={() => {
               // La URL sigue al informe elegido: un enlace posterior a ?tipo=... siempre es un cambio.
               tipoVisto.current = i.id;
-              router.replace(`/dashboard/informes?tipo=${i.id}`, { scroll: false });
+              router.replace(`/dashboard/informes?tipo=${i.id}&ejercicio=${form.ejercicio}`, { scroll: false });
               cambiarYAplicar({ tipo: i.id });
             }}
             className={`-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium sm:px-4 ${form.tipo === i.id ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
@@ -306,7 +307,12 @@ function InformesContables() {
             id="inf-ej"
             valor={form.ejercicio}
             anios={ejercicios}
-            onChange={(a) => a !== null && cambiarYAplicar({ ejercicio: a })}
+            onChange={(a) => {
+              if (a === null) return;
+              // El año va a la URL: al volver atrás, el informe sigue en él.
+              ponerEnUrl({ ejercicio: a });
+              cambiarYAplicar({ ejercicio: a });
+            }}
             className={campo}
             claseEtiqueta="block text-xs font-medium text-slate-600"
           />
