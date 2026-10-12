@@ -154,52 +154,68 @@ const ayuda = 'mt-1 text-xs text-slate-500';
  * - Menos de 24rem: tarjeta con la descripcion a lo ancho y debajo, en dos
  *   columnas, Cantidad y Precio; despues IVA e IRPF.
  * - De 24rem a 46rem: tarjeta con Cantidad, Precio (sin IVA) e IVA en una fila.
- *   El IRPF, si lo hay, debajo del IVA; desde 34rem, en la misma fila.
- * - Desde 46rem: tabla, con una fila de cabeceras y columnas de ancho fijo para
- *   que nada se solape; las etiquetas de cada campo siguen ahi para el lector
- *   de pantalla.
+ *   El IRPF, si lo hay, debajo del IVA; desde 34rem, en la misma fila. Desde
+ *   34rem el precio no pasa de 12rem: los campos van juntos a la izquierda en vez
+ *   de estirar el precio hasta el borde.
+ * - Desde 46rem y sin IRPF: tabla, con una fila de cabeceras y columnas de ancho
+ *   fijo para que nada se solape; las etiquetas de cada campo siguen ahi para el
+ *   lector de pantalla.
+ * - Con IRPF siempre tarjeta: en una tabla con una columna mas, la descripcion
+ *   (lo que mas se lee de cada linea) se quedaria en unos 190 px. En la tarjeta va
+ *   a lo ancho y los cuatro campos, en una fila debajo.
  *
- * Anchos: la cantidad cabe con tres cifras y el IVA ensena «21 %» o «Exento» enteros.
- * Las clases van escritas enteras para que Tailwind las encuentre.
+ * Para eso el bloque se llama distinto con IRPF («conceptosirpf»): las reglas de
+ * la tabla, que preguntan por «conceptos», no le afectan.
+ *
+ * Anchos: la cantidad cabe con tres cifras, el IVA ensena «21 %» o «Exento»
+ * enteros y la base, hasta 999.999.999,99 € (si alguna vez no cabe, baja de linea
+ * en vez de salirse). Las clases van escritas enteras para que Tailwind las encuentre.
  */
 const CONCEPTOS = {
-  /** El bloque que se mide. */
-  contenedor: 'flex flex-col gap-3 [container-name:conceptos] [container-type:inline-size]',
   sinIrpf: {
+    /** El bloque que se mide. */
+    contenedor: 'flex flex-col gap-3 [container-name:conceptos] [container-type:inline-size]',
     cabecera:
-      'hidden [@container_conceptos_(min-width:46rem)]:grid [@container_conceptos_(min-width:46rem)]:grid-cols-[minmax(0,1fr)_4.5rem_7rem_6.5rem_6.5rem_2.25rem]',
+      'hidden [@container_conceptos_(min-width:46rem)]:grid [@container_conceptos_(min-width:46rem)]:grid-cols-[minmax(0,1fr)_4.5rem_7rem_6.5rem_7.5rem_2.25rem]',
     linea:
-      '[@container_conceptos_(min-width:24rem)_and_(max-width:45.99rem)]:grid-cols-[5rem_minmax(0,1fr)_7.5rem] [@container_conceptos_(min-width:46rem)]:grid-cols-[minmax(0,1fr)_4.5rem_7rem_6.5rem_6.5rem_2.25rem]',
+      '[@container_conceptos_(min-width:24rem)_and_(max-width:33.99rem)]:grid-cols-[5rem_minmax(0,1fr)_7.5rem] [@container_conceptos_(min-width:34rem)_and_(max-width:45.99rem)]:grid-cols-[5rem_minmax(7rem,12rem)_7.5rem_minmax(0,1fr)] [@container_conceptos_(min-width:46rem)]:grid-cols-[minmax(0,1fr)_4.5rem_7rem_6.5rem_7.5rem_2.25rem]',
+    /** IRPF: no lo hay. */
+    irpf: '',
   },
   conIrpf: {
-    cabecera:
-      'hidden [@container_conceptos_(min-width:46rem)]:grid [@container_conceptos_(min-width:46rem)]:grid-cols-[minmax(0,1fr)_4.5rem_7rem_6.5rem_5.5rem_6.5rem_2.25rem]',
+    contenedor: 'flex flex-col gap-3 [container-name:conceptosirpf] [container-type:inline-size]',
+    /** Sin tabla: no hay cabeceras. */
+    cabecera: 'hidden',
     linea:
-      '[@container_conceptos_(min-width:24rem)_and_(max-width:33.99rem)]:grid-cols-[5rem_minmax(0,1fr)_7.5rem] [@container_conceptos_(min-width:34rem)_and_(max-width:45.99rem)]:grid-cols-[5rem_minmax(0,1fr)_7.5rem_6.5rem] [@container_conceptos_(min-width:46rem)]:grid-cols-[minmax(0,1fr)_4.5rem_7rem_6.5rem_5.5rem_6.5rem_2.25rem]',
+      '[@container_conceptosirpf_(min-width:24rem)_and_(max-width:33.99rem)]:grid-cols-[5rem_minmax(0,1fr)_7.5rem] [@container_conceptosirpf_(min-width:34rem)]:grid-cols-[5rem_minmax(7rem,12rem)_7.5rem_6.5rem_minmax(0,1fr)]',
+    /** IRPF: en la tarjeta de tres columnas, debajo del IVA. */
+    irpf: '[@container_conceptosirpf_(min-width:24rem)_and_(max-width:33.99rem)]:col-start-3',
   },
-  /** Tarjeta (estrecho) o fila de la tabla (ancho). */
+  /** Tarjeta (estrecho o con IRPF) o fila de la tabla (ancho, sin IRPF). */
   fila:
     'grid grid-cols-2 gap-3 rounded-lg border border-slate-200 p-3 [@container_conceptos_(min-width:46rem)]:items-center [@container_conceptos_(min-width:46rem)]:gap-x-3 [@container_conceptos_(min-width:46rem)]:gap-y-2 [@container_conceptos_(min-width:46rem)]:rounded-none [@container_conceptos_(min-width:46rem)]:border-0 [@container_conceptos_(min-width:46rem)]:border-b [@container_conceptos_(min-width:46rem)]:px-0 [@container_conceptos_(min-width:46rem)]:pt-0 [@container_conceptos_(min-width:46rem)]:pb-3',
   /** Cabecera de la tabla: una celda (solo se ve en ancho). */
   titulo: 'text-xs font-medium leading-tight text-slate-500',
   /** Descripcion: a lo ancho en la tarjeta, primera columna en la tabla. */
   descripcion: 'col-span-full [@container_conceptos_(min-width:46rem)]:col-span-1',
-  /** IRPF: en la tarjeta de tres columnas, debajo del IVA. */
-  irpf: '[@container_conceptos_(min-width:24rem)_and_(max-width:33.99rem)]:col-start-3',
   /** Etiqueta de cada campo: visible en la tarjeta; en la tabla la sustituye la cabecera. */
   etiqueta: 'block text-sm font-medium text-slate-700 mb-1 [@container_conceptos_(min-width:46rem)]:sr-only',
   /** Base y papelera: una fila al pie de la tarjeta; en la tabla, dos columnas. */
   pie: 'col-span-full flex items-center justify-between gap-2 [@container_conceptos_(min-width:46rem)]:contents',
-  base: 'text-sm text-slate-600 [@container_conceptos_(min-width:46rem)]:text-right [@container_conceptos_(min-width:46rem)]:font-mono',
+  /** Cifras del mismo ancho (tabular-nums) para que las bases cuadren entre lineas. */
+  base: 'min-w-0 text-sm tabular-nums text-slate-600 [overflow-wrap:anywhere] [@container_conceptos_(min-width:46rem)]:text-right',
   palabraBase: '[@container_conceptos_(min-width:46rem)]:sr-only',
   papelera:
-    'rounded-lg p-2 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-600 disabled:opacity-40 [@container_conceptos_(min-width:46rem)]:justify-self-end',
+    'shrink-0 rounded-lg p-2 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-600 disabled:opacity-40 [@container_conceptos_(min-width:46rem)]:justify-self-end',
 };
 
 /**
  * Pie del formulario (nota y botones): tambien segun el ancho del formulario.
- * En estrecho la nota va encima y los botones debajo; en un movil, uno sobre
- * otro y a todo lo ancho. Los botones no se parten en dos lineas. El margen de
+ * En estrecho la nota va encima y los botones debajo, en fila a la derecha (si
+ * el formulario es muy estrecho, «Registrar factura» baja a otra fila). Solo en
+ * un movil (pantalla de menos de 640 px) van uno sobre otro y a todo lo ancho:
+ * el lector en un portatil de 1024 px deja el formulario casi tan estrecho como
+ * un movil y ahi no tiene sentido apilarlos. Los botones no se parten en dos lineas. El margen de
  * abajo deja sitio a los botones flotantes (Carmen y, en el movil, el menu) para
  * que no tapen «Registrar factura» al llegar al final de la pagina.
  */
@@ -207,7 +223,7 @@ const PIE = {
   formulario: 'flex flex-col gap-6 [container-name:fgform] [container-type:inline-size]',
   pie: 'mb-12 flex flex-col gap-3 [@container_fgform_(min-width:40rem)]:flex-row [@container_fgform_(min-width:40rem)]:items-center [@container_fgform_(min-width:40rem)]:justify-end',
   nota: 'min-w-0 text-sm text-slate-500 [@container_fgform_(min-width:40rem)]:mr-auto',
-  botones: 'flex flex-col-reverse gap-3 [@container_fgform_(min-width:22rem)]:flex-row [@container_fgform_(min-width:22rem)]:justify-end [@container_fgform_(min-width:40rem)]:shrink-0',
+  botones: 'flex flex-col-reverse gap-3 sm:flex-row sm:flex-wrap sm:justify-end [@container_fgform_(min-width:40rem)]:shrink-0',
   boton: 'whitespace-nowrap',
 };
 
@@ -721,14 +737,13 @@ export default function FormFacturaGasto({
       {/* 3. Lineas */}
       <section className="rounded-xl border border-slate-200 bg-white p-4 md:p-6">
         <h2 className="mb-4 text-base font-semibold text-slate-900">Conceptos</h2>
-        <div className={CONCEPTOS.contenedor}>
-          {/* Cabeceras de la tabla (solo en ancho). Cada campo lleva ademas su etiqueta para el lector de pantalla. */}
+        <div className={L.contenedor}>
+          {/* Cabeceras de la tabla (solo en ancho y sin IRPF). Cada campo lleva ademas su etiqueta para el lector de pantalla. */}
           <div aria-hidden="true" className={`${L.cabecera} items-end gap-x-3`}>
             <span className={CONCEPTOS.titulo}>Descripción</span>
             <span className={`${CONCEPTOS.titulo} text-right`}>Cantidad</span>
             <span className={`${CONCEPTOS.titulo} text-right`}>Precio (sin IVA)</span>
             <span className={CONCEPTOS.titulo}>IVA</span>
-            {conRetencion && <span className={CONCEPTOS.titulo}>IRPF</span>}
             <span className={`${CONCEPTOS.titulo} text-right`}>Base</span>
             <span />
           </div>
@@ -795,7 +810,7 @@ export default function FormFacturaGasto({
                   </select>
                 </div>
                 {conRetencion && (
-                  <div className={CONCEPTOS.irpf}>
+                  <div className={L.irpf}>
                     <label htmlFor={`fg-irpf-${l.clave}`} className={CONCEPTOS.etiqueta}>
                       IRPF
                     </label>
