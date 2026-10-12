@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from 'react';
 import { apiFetch, errorMessage } from '@/lib/api';
 import { Declaraciones } from '../components/Declaraciones';
+import { AvisoEjercicioEnCurso } from '../components/AvisosModelo';
 import { useEjercicioAnual } from '../components/periodoModelo';
 import { importeParaEnviar } from '@/lib/moneda';
 import {
@@ -139,6 +140,7 @@ function Modelo200() {
         {cabecera}
         <div className="rounded-lg border border-slate-200 bg-white p-4">
           <SelectorEjercicio ejercicio={ejercicio} anios={anios} onChange={setEjercicio} />
+          <AvisoEjercicioEnCurso ejercicio={ejercicio} />
         </div>
         {error ? <ErrorModelo mensaje={error} /> : <CargandoModelo />}
       </div>
@@ -178,6 +180,7 @@ function Modelo200() {
       {cabecera}
 
       <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
+        <AvisoEjercicioEnCurso ejercicio={ejercicio} />
         <div className="flex flex-wrap items-end gap-4">
           <SelectorEjercicio ejercicio={ejercicio} anios={anios} onChange={setEjercicio} />
           <label className="flex items-center gap-2 text-sm text-slate-700">

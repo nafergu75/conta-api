@@ -9,7 +9,7 @@ import { useEjercicioAnual } from '../components/periodoModelo';
 import { CargandoModelo } from '../components/BorradorAeat';
 import { CaretLeft, Info, Download } from '@phosphor-icons/react';
 import { Declaraciones, descargarConNumero } from '../components/Declaraciones';
-import { AvisosModelo } from '../components/AvisosModelo';
+import { AvisoEjercicioEnCurso, AvisosModelo } from '../components/AvisosModelo';
 import { formatoImporte } from '@/lib/moneda';
 
 interface Modelo190 {
@@ -198,6 +198,7 @@ function Modelo190Contenido() {
   const selectorEjercicio = (
     <div className="flex flex-wrap gap-4 rounded-lg border border-slate-200 bg-white p-4">
       <SelectorAnio id="m190-ej" valor={ejercicio} anios={anios} onChange={(a) => a !== null && setEjercicio(a)} />
+      <AvisoEjercicioEnCurso ejercicio={ejercicio} />
     </div>
   );
 

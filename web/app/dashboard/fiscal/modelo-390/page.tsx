@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from 'react';
 import { apiFetch, errorMessage } from '@/lib/api';
 import { Declaraciones } from '../components/Declaraciones';
+import { AvisoEjercicioEnCurso } from '../components/AvisosModelo';
 import { useEjercicioAnual } from '../components/periodoModelo';
 import {
   CabeceraBorrador,
@@ -84,6 +85,7 @@ function Modelo390() {
   const filtros = (
     <div className="flex flex-wrap items-end gap-4 rounded-lg border border-slate-200 bg-white p-4">
       <SelectorEjercicio ejercicio={ejercicio} anios={anios} onChange={setEjercicio} />
+      <AvisoEjercicioEnCurso ejercicio={ejercicio} />
       <label className="block text-sm font-medium text-slate-700">
         Si el último periodo salió negativo
         <select

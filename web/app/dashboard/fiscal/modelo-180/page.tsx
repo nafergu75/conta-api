@@ -19,6 +19,7 @@ import {
   type Columna,
 } from '../components/RegistroAeat';
 import { Declaraciones } from '../components/Declaraciones';
+import { AvisoEjercicioEnCurso } from '../components/AvisosModelo';
 
 /**
  * Modelo 180 (resumen anual de retenciones por alquileres): borrador con el
@@ -241,6 +242,7 @@ function Modelo180() {
 
       <div className="flex flex-wrap gap-4 rounded-lg border border-slate-200 bg-white p-4">
         <SelectorAnio id="m180-ej" valor={ejercicio} anios={anios} onChange={(a) => a !== null && setEjercicio(a)} />
+        <AvisoEjercicioEnCurso ejercicio={ejercicio} />
       </div>
 
       {cargando && !b ? (

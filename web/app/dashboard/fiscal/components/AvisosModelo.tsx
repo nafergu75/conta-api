@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { Warning } from '@phosphor-icons/react';
+import { Info, Warning } from '@phosphor-icons/react';
+import { anioEspana } from '@/lib/anios';
 
 /** Avisos del calculo en ambar; los de nominas, con enlace a Nominas del mes. */
 export function AvisosModelo({ avisos, ejercicio, mes }: { avisos?: string[]; ejercicio: number; mes?: number }) {
@@ -22,5 +23,22 @@ export function AvisosModelo({ avisos, ejercicio, mes }: { avisos?: string[]; ej
         </Link>
       )}
     </div>
+  );
+}
+
+/**
+ * Modelos anuales (390, 190, 180, 347, 200) de un ejercicio que aún no ha
+ * terminado en hora de Madrid: lo que se ve es una vista previa con los datos
+ * de hoy y todavía no se puede presentar.
+ */
+export function AvisoEjercicioEnCurso({ ejercicio }: { ejercicio: number }) {
+  if (ejercicio < anioEspana()) return null;
+  return (
+    <p role="note" className="flex w-full gap-2 rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-800">
+      <Info size={18} className="mt-0.5 shrink-0" aria-hidden />
+      <span>
+        El ejercicio {ejercicio} aún no ha terminado: esto es una vista previa con los datos de hoy. Se presenta a partir del 1 de enero de {ejercicio + 1}.
+      </span>
+    </p>
   );
 }

@@ -4,6 +4,7 @@ import { Suspense, useEffect, useMemo, useState } from 'react';
 import { MagnifyingGlass, X } from '@phosphor-icons/react';
 import { apiFetch, errorMessage } from '@/lib/api';
 import { Declaraciones } from '../components/Declaraciones';
+import { AvisoEjercicioEnCurso } from '../components/AvisosModelo';
 import { useEjercicioAnual } from '../components/periodoModelo';
 import {
   CabeceraBorrador,
@@ -95,6 +96,7 @@ function Modelo347() {
   const filtros = (
     <div className="flex flex-wrap items-end gap-4 rounded-lg border border-slate-200 bg-white p-4">
       <SelectorEjercicio ejercicio={ejercicio} anios={anios} onChange={setEjercicio} />
+      <AvisoEjercicioEnCurso ejercicio={ejercicio} />
       <p className="text-sm text-slate-600">La persona de contacto y el teléfono son los de Más &gt; Datos de la empresa, apartado Contacto.</p>
     </div>
   );
