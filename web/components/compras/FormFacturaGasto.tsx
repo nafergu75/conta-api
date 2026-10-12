@@ -74,6 +74,19 @@ export interface FormInicial {
   totalDocumento?: number;
 }
 
+/**
+ * Lector (P6): datos que el lector dejo en «revisar» o en «error», con el nombre
+ * del campo del formulario (el mismo que usan los errores del servidor):
+ * 'proveedor', 'proveedor.nifCif', 'numeroFacturaProveedor', 'fechaEmision',
+ * 'totalDocumento', 'lineas.0.precioUnitario'... El numero de linea es el de
+ * inicial.lineas.
+ */
+export type NivelMarca = 'revisar' | 'error';
+export type MarcasLector = Partial<Record<string, NivelMarca>>;
+
+/** Lo que devuelve marca(): aria-invalid y, con la marca del lector, data-lector. */
+type PropsMarca = { 'aria-invalid': boolean; 'aria-describedby': string | undefined; 'data-lector'?: NivelMarca };
+
 interface Props {
   modo: 'alta' | 'editar' | 'lector';
   inicial?: FormInicial;
@@ -96,6 +109,8 @@ interface Props {
   campoInicial?: 'fechaRegistro';
   /** Por que hay que corregirlo; sale en el cuadro de error. */
   avisoInicial?: string;
+  /** lector: los datos que el lector ha marcado, para colorearlos dentro del formulario. */
+  marcas?: MarcasLector;
   onGuardado: (r: GastoRegistrado) => void;
   onCancelar?: () => void;
 }
@@ -124,7 +139,7 @@ interface ProveedorBuscado {
 const numeroATexto = (n: number | undefined | null) => (n === undefined || n === null || !Number.isFinite(n) ? '' : String(n).replace('.', ','));
 
 const campoBase =
-  'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-accent-600 focus:border-accent-600 disabled:bg-slate-100 disabled:cursor-not-allowed aria-[invalid=true]:border-red-500 aria-[invalid=true]:bg-red-50';
+  'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-accent-600 focus:border-accent-600 disabled:bg-slate-100 disabled:cursor-not-allowed aria-[invalid=true]:border-red-500 aria-[invalid=true]:bg-red-50 data-[lector=revisar]:border-amber-500 data-[lector=revisar]:bg-amber-50 data-[lector=error]:border-red-500 data-[lector=error]:bg-red-50';
 const etiqueta = 'block text-sm font-medium text-slate-700 mb-1';
 const ayuda = 'mt-1 text-xs text-slate-500';
 
@@ -147,6 +162,7 @@ export default function FormFacturaGasto({
   monedaCuenta = 'EUR',
   campoInicial,
   avisoInicial,
+  marcas,
   onGuardado,
   onCancelar,
 }: Props) {
@@ -176,6 +192,43 @@ export default function FormFacturaGasto({
       : [lineaVacia()],
   );
   const [observaciones, setObservaciones] = useState(inicial?.observaciones ?? '');
+
+  // Lector (P6): cada dato marcado se colorea mientras conserve el valor leido; al cambiarlo,
+  // la marca se quita (ya se ha corregido o comprobado). Las lineas se siguen por su clave.
+  const [valoresLeidos] = useState<Record<string, unknown>>(() => {
+    const v: Record<string, unknown> = {
+      proveedor: inicial?.proveedor ?? null,
+      numeroFacturaProveedor: numero,
+      fechaEmision,
+      totalDocumento: numeroATexto(inicial?.totalDocumento),
+    };
+    if (inicial?.proveedor?.tipo === 'nuevo') {
+      v['proveedor.nifCif'] = inicial.proveedor.nifCif;
+      v['proveedor.nombreFiscal'] = inicial.proveedor.nombreFiscal;
+    }
+    lineas.forEach((l, i) => {
+      v[`lineas.${i}`] = l.clave;
+      v[`linea:${l.clave}.descripcion`] = l.descripcion;
+      v[`linea:${l.clave}.precioUnitario`] = l.precio;
+      v[`linea:${l.clave}.tipoIva`] = l.tipoIva;
+      v[`linea:${l.clave}.tipoRetencion`] = l.tipoRetencion;
+    });
+    return v;
+  });
+  /** Nivel de la marca del lector en un campo, si sigue con el valor leido. En las lineas se pasa su clave. */
+  const marcaLeida = (campo: string, actual: unknown, clave?: number): NivelMarca | undefined => {
+    if (modo !== 'lector' || !marcas) return undefined;
+    let nivel = marcas[campo];
+    let id = campo;
+    if (clave !== undefined) {
+      // La marca es de la linea N de la propuesta: se busca por su clave, aunque se borren o anadan lineas.
+      const n = Object.keys(valoresLeidos).find((k) => /^lineas\.\d+$/.test(k) && valoresLeidos[k] === clave);
+      const parte = campo.split('.').pop();
+      nivel = n ? marcas[`${n}.${parte}`] : undefined;
+      id = `linea:${clave}.${parte}`;
+    }
+    return nivel && Object.is(valoresLeidos[id], actual) ? nivel : undefined;
+  };
   // Cuentas de gasto del plan para el «Cambiar cuenta» de cada linea (una sola peticion).
   const catalogo = useCuentasLinea('gasto');
   const puedeCrearCuenta = tieneAlgunPermiso(getUser(), ['compras:write', 'contabilidad:write']);
@@ -238,12 +291,22 @@ export default function FormFacturaGasto({
   const totales = useMemo(() => calcularTotales(valores), [valores]);
   const totalDoc = parseImporte(totalDocumento);
   const totalNoCuadra = modo === 'lector' && Number.isFinite(totalDoc) && Math.abs(totalDoc - totales.total) > 0.02;
+  const marcaTotal = marcaLeida('totalDocumento', totalDocumento);
 
   const inv = (campo: string) => !!campoError && (campoError === campo || campoError.startsWith(`${campo}.`));
   /** aria-invalid y, si hay mensaje, aria-describedby al cuadro del error: el lector de pantalla lee el motivo. */
-  const marca = (...campos: string[]) => {
+  const marca = (...campos: string[]): PropsMarca => {
     const mal = campos.some(inv);
     return { 'aria-invalid': mal, 'aria-describedby': mal && error ? 'fg-error' : undefined };
+  };
+  /**
+   * marca() mas la del lector: data-lector colorea el campo (ambar o rojo) y
+   * aria-describedby lee la explicacion de las marcas. Un error del servidor manda.
+   */
+  const marcaCon = (nivel: NivelMarca | undefined, ...campos: string[]): PropsMarca => {
+    const m = marca(...campos);
+    if (!nivel || m['aria-invalid']) return m;
+    return { ...m, 'data-lector': nivel, 'aria-describedby': 'fg-marcas-lector' };
   };
 
   // Tras un error, el campo que falla se pone a la vista y recibe el foco (en el movil
@@ -383,12 +446,20 @@ export default function FormFacturaGasto({
 
   return (
     <form onSubmit={guardar} noValidate className="flex flex-col gap-6">
+      {modo === 'lector' && marcas && Object.values(marcas).some(Boolean) && (
+        <p id="fg-marcas-lector" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          Los datos que el lector no ha podido confirmar van marcados en el formulario: en ámbar, los que conviene comprobar con la factura; en rojo, los que faltan o no
+          cuadran. La marca se quita cuando cambias el dato.
+        </p>
+      )}
       {/* 1. Proveedor */}
       <section className="rounded-xl border border-slate-200 bg-white p-4 md:p-6">
         <h2 className="mb-4 text-base font-semibold text-slate-900">Proveedor</h2>
         <SelectorProveedor
           valor={proveedor}
           textoNuevo={avisoProveedor}
+          marcaLector={(campo, actual) => marcaLeida(campo, actual)}
+          marcaCon={marcaCon}
           onCambio={(p) => {
             setProveedor(p);
             if (campoError?.startsWith('proveedor')) {
@@ -424,7 +495,7 @@ export default function FormFacturaGasto({
               value={numero}
               onChange={(e) => setNumero(e.target.value)}
               maxLength={60}
-              {...marca('numeroFacturaProveedor')}
+              {...marcaCon(marcaLeida('numeroFacturaProveedor', numero), 'numeroFacturaProveedor')}
               className={campoBase}
               autoComplete="off"
             />
@@ -434,7 +505,7 @@ export default function FormFacturaGasto({
             <label htmlFor="fg-fecha" className={etiqueta}>
               Fecha de la factura *
             </label>
-            <input id="fg-fecha" type="date" value={fechaEmision} onChange={(e) => cambiarFecha(e.target.value)} {...marca('fechaEmision')} className={campoBase} />
+            <input id="fg-fecha" type="date" value={fechaEmision} onChange={(e) => cambiarFecha(e.target.value)} {...marcaCon(marcaLeida('fechaEmision', fechaEmision), 'fechaEmision')} className={campoBase} />
           </div>
           <div>
             <label htmlFor="fg-venc" className={etiqueta}>
@@ -557,7 +628,7 @@ export default function FormFacturaGasto({
                     id={`fg-desc-${l.clave}`}
                     value={l.descripcion}
                     onChange={(e) => cambiarLinea(l.clave, { descripcion: e.target.value })}
-                    {...marca(`${c}.descripcion`)}
+                    {...marcaCon(marcaLeida(`${c}.descripcion`, l.descripcion, l.clave), `${c}.descripcion`)}
                     className={campoBase}
                   />
                 </div>
@@ -584,7 +655,7 @@ export default function FormFacturaGasto({
                     value={l.precio}
                     placeholder="0,00"
                     onChange={(e) => cambiarLinea(l.clave, { precio: e.target.value })}
-                    {...marca(`${c}.precioUnitario`)}
+                    {...marcaCon(marcaLeida(`${c}.precioUnitario`, l.precio, l.clave), `${c}.precioUnitario`)}
                     className={`${campoBase} text-right`}
                   />
                 </div>
@@ -597,7 +668,7 @@ export default function FormFacturaGasto({
                     value={l.tipoIva}
                     disabled={extranjero}
                     onChange={(e) => cambiarLinea(l.clave, { tipoIva: Number(e.target.value) })}
-                    {...marca(`${c}.tipoIva`)}
+                    {...marcaCon(marcaLeida(`${c}.tipoIva`, l.tipoIva, l.clave), `${c}.tipoIva`)}
                     className={campoBase}
                   >
                     {TIPOS_IVA_GASTO.map((t) => (
@@ -616,7 +687,7 @@ export default function FormFacturaGasto({
                       id={`fg-irpf-${l.clave}`}
                       value={l.tipoRetencion}
                       onChange={(e) => cambiarLinea(l.clave, { tipoRetencion: Number(e.target.value) })}
-                      {...marca(`${c}.tipoRetencion`)}
+                      {...marcaCon(marcaLeida(`${c}.tipoRetencion`, l.tipoRetencion, l.clave), `${c}.tipoRetencion`)}
                       className={campoBase}
                     >
                       {retenciones.map((t) => (
@@ -711,7 +782,8 @@ export default function FormFacturaGasto({
               value={totalDocumento}
               onChange={(e) => setTotalDocumento(e.target.value)}
               aria-invalid={inv('totalDocumento') || totalNoCuadra}
-              aria-describedby={inv('totalDocumento') && error ? 'fg-error' : undefined}
+              aria-describedby={inv('totalDocumento') && error ? 'fg-error' : marcaTotal ? 'fg-marcas-lector' : undefined}
+              data-lector={inv('totalDocumento') || totalNoCuadra ? undefined : marcaTotal}
               className={`${campoBase} text-right`}
             />
             {totalNoCuadra ? (
@@ -802,12 +874,17 @@ function SelectorProveedor({
   textoNuevo,
   onCambio,
   marca,
+  marcaLector,
+  marcaCon,
 }: {
   valor: ProveedorElegido | null;
   /** Texto sobre el proveedor nuevo (el lector: «No está dado de alta: se creará al registrar la factura.»). */
   textoNuevo?: string;
   onCambio: (p: ProveedorElegido | null) => void;
-  marca: (...campos: string[]) => { 'aria-invalid': boolean; 'aria-describedby': string | undefined };
+  marca: (...campos: string[]) => PropsMarca;
+  /** Marca del lector en un dato del proveedor, si sigue con el valor leido. */
+  marcaLector: (campo: string, actual: unknown) => NivelMarca | undefined;
+  marcaCon: (nivel: NivelMarca | undefined, ...campos: string[]) => PropsMarca;
 }) {
   const [q, setQ] = useState('');
   const [resultados, setResultados] = useState<ProveedorBuscado[]>([]);
@@ -836,8 +913,14 @@ function SelectorProveedor({
   }, [q, valor]);
 
   if (valor?.tipo === 'existente') {
+    // El proveedor que encontro el lector por su NIF: si el NIF o el nombre leidos estan marcados, la ficha tambien.
+    const nivel = marcaLector('proveedor', valor);
     return (
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+      <div
+        data-lector={nivel}
+        aria-describedby={nivel ? 'fg-marcas-lector' : undefined}
+        className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 data-[lector=error]:border-red-500 data-[lector=error]:bg-red-50 data-[lector=revisar]:border-amber-500 data-[lector=revisar]:bg-amber-50"
+      >
         <div className="min-w-0">
           <p className="font-medium text-slate-900 break-words">{valor.nombre}</p>
           <p className="font-mono text-sm text-slate-500">
@@ -880,7 +963,13 @@ function SelectorProveedor({
             <label htmlFor="fg-pnombre" className={etiqueta}>
               Nombre fiscal *
             </label>
-            <input id="fg-pnombre" value={valor.nombreFiscal} onChange={set('nombreFiscal')} {...marca('proveedor.nombreFiscal')} className={campoBase} />
+            <input
+              id="fg-pnombre"
+              value={valor.nombreFiscal}
+              onChange={set('nombreFiscal')}
+              {...marcaCon(marcaLector('proveedor.nombreFiscal', valor.nombreFiscal), 'proveedor.nombreFiscal')}
+              className={campoBase}
+            />
           </div>
           <div>
             <label htmlFor="fg-ppais" className={etiqueta}>
@@ -898,7 +987,14 @@ function SelectorProveedor({
             <label htmlFor="fg-pnif" className={etiqueta}>
               {es ? 'NIF/CIF *' : ue ? 'NIF-IVA (con el prefijo del país) *' : 'Identificación fiscal (Tax ID) *'}
             </label>
-            <input id="fg-pnif" value={valor.nifCif} onChange={set('nifCif')} {...marca('proveedor.nifCif', 'proveedor.nuevo')} className={`${campoBase} font-mono`} autoComplete="off" />
+            <input
+              id="fg-pnif"
+              value={valor.nifCif}
+              onChange={set('nifCif')}
+              {...marcaCon(marcaLector('proveedor.nifCif', valor.nifCif), 'proveedor.nifCif', 'proveedor.nuevo')}
+              className={`${campoBase} font-mono`}
+              autoComplete="off"
+            />
           </div>
           <div className="md:col-span-2">
             <label htmlFor="fg-pdir" className={etiqueta}>
