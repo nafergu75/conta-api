@@ -16,38 +16,66 @@ function seguridad(h: HojaAnalizada): string | null {
   return h.confianza >= 0.85 ? 'Reconocido con seguridad' : 'Reconocido';
 }
 
-/** Elegir a mano la columna de cada dato que falta. */
+/** Datos que puede llevar cada tipo de listado (para elegir columnas a mano). */
+const CAMPOS_TIPO: Record<string, string[]> = {
+  PLAN: ['cuenta', 'nombre', 'nif'],
+  TERCEROS_CLIENTES: ['nif', 'nombre', 'cuenta', 'direccion', 'cp', 'municipio', 'provincia', 'pais', 'email', 'telefono'],
+  TERCEROS_PROVEEDORES: ['nif', 'nombre', 'cuenta', 'direccion', 'cp', 'municipio', 'provincia', 'pais', 'email', 'telefono'],
+  SUMAS_Y_SALDOS: ['cuenta', 'nombre', 'saldo', 'saldoDeudor', 'saldoAcreedor', 'debe', 'haber'],
+  DIARIO: ['fecha', 'asiento', 'cuenta', 'nombre', 'concepto', 'debe', 'haber', 'importe', 'signo'],
+  CARTERA: ['cuenta', 'nif', 'nombre', 'documento', 'fecha', 'vencimiento', 'importeOriginal', 'pendiente', 'moneda'],
+  INMOVILIZADO: ['nombre', 'cuenta', 'fechaAlta', 'fechaInicioAmort', 'coste', 'amortAcumulada', 'coeficiente', 'vidaUtil', 'valorResidual', 'cuentaAmortAcum', 'cuentaDotacion'],
+};
+
+/**
+ * Elegir a mano la columna de cada dato: primero los que faltan; en «Otras
+ * columnas», el resto de datos de ese tipo de listado (por ejemplo, saldo
+ * deudor y acreedor en vez de un saldo en una sola columna).
+ */
 function Mapeo({ hoja, onAplicar, ocupado }: { hoja: HojaAnalizada; onAplicar: (a: AjusteHoja) => void; ocupado: boolean }) {
   const columnas = hoja.error?.columnas ?? [];
   const faltan = hoja.error?.faltan ?? [];
-  const [elegidas, setElegidas] = useState<Record<string, string>>({});
-  const listo = faltan.every((f) => elegidas[f] !== undefined && elegidas[f] !== '');
+  const otros = (CAMPOS_TIPO[hoja.tipo] ?? []).filter((c) => !faltan.includes(c));
+  const [elegidas, setElegidas] = useState<Record<string, string>>(() =>
+    Object.fromEntries(Object.entries(hoja.mapeo ?? {}).map(([k, v]) => [k, String(v)])),
+  );
+  const [verOtros, setVerOtros] = useState(false);
+  const algo = Object.values(elegidas).some((v) => v !== '');
+
+  const selector = (f: string) => (
+    <label key={f} className="block text-xs font-medium text-slate-600">
+      {NOMBRE_CAMPO[f] ?? f}
+      <select className={campo} value={elegidas[f] ?? ''} onChange={(e) => setElegidas((x) => ({ ...x, [f]: e.target.value }))}>
+        <option value="">{faltan.includes(f) ? 'Elige la columna…' : 'No está en el fichero'}</option>
+        {columnas.map((c) => (
+          <option key={c.indice} value={c.indice}>
+            {c.letra} · {c.titulo || 'sin título'}
+            {c.ejemplo ? ` (ej. ${c.ejemplo})` : ''}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+
   return (
     <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
-      <p className="text-sm text-slate-700">Indica en qué columna está cada dato. El resto de columnas ya están reconocidas.</p>
-      <div className="mt-2 grid gap-3 sm:grid-cols-2">
-        {faltan.map((f) => (
-          <label key={f} className="block text-xs font-medium text-slate-600">
-            {NOMBRE_CAMPO[f] ?? f}
-            <select className={campo} value={elegidas[f] ?? ''} onChange={(e) => setElegidas((x) => ({ ...x, [f]: e.target.value }))}>
-              <option value="">Elige la columna…</option>
-              {columnas.map((c) => (
-                <option key={c.indice} value={c.indice}>
-                  {c.letra} · {c.titulo || 'sin título'}
-                  {c.ejemplo ? ` (ej. ${c.ejemplo})` : ''}
-                </option>
-              ))}
-            </select>
-          </label>
-        ))}
-      </div>
+      <p className="text-sm text-slate-700">Indica en qué columna está cada dato.</p>
+      <div className="mt-2 grid gap-3 sm:grid-cols-2">{faltan.map(selector)}</div>
+      {otros.length > 0 && (
+        <>
+          <button type="button" className="mt-2 text-xs font-medium text-emerald-700 hover:underline" aria-expanded={verOtros} onClick={() => setVerOtros((v) => !v)}>
+            {verOtros ? 'Ocultar las otras columnas' : 'Otras columnas (si el dato viene repartido en varias)'}
+          </button>
+          {verOtros && <div className="mt-2 grid gap-3 sm:grid-cols-2">{otros.map(selector)}</div>}
+        </>
+      )}
       <button
         type="button"
-        disabled={!listo || ocupado}
+        disabled={!algo || ocupado}
         className={`${boton} mt-3`}
         onClick={() => {
-          const mapeo: Record<string, number> = { ...hoja.mapeo };
-          for (const f of faltan) mapeo[f] = Number(elegidas[f]);
+          const mapeo: Record<string, number> = {};
+          for (const [k, v] of Object.entries(elegidas)) if (v !== '') mapeo[k] = Number(v);
           onAplicar({ ...(hoja.elegidoAMano ? { tipo: hoja.tipo } : {}), mapeo });
         }}
       >
@@ -69,7 +97,10 @@ export function HojaTarjeta({
   ocupado: boolean;
   onAjuste: (id: string, a: AjusteHoja | null) => void;
 }) {
-  const [cambiando, setCambiando] = useState(false);
+  // Un fichero que no se ha podido leer (PDF, ancho fijo) no tiene filas: elegir el tipo no lo arregla.
+  const legible = hoja.filas > 0;
+  // Sin reconocer y sin candidatos: se pide el tipo directamente.
+  const [cambiando, setCambiando] = useState(legible && hoja.tipo === 'DESCONOCIDO' && hoja.candidatos.length === 0);
   const nombre = hoja.hoja && hoja.hoja !== hoja.fichero ? `${hoja.fichero} › ${hoja.hoja}` : hoja.fichero;
   const seg = seguridad(hoja);
   const tipoMarcado = hoja.elegidoAMano ? { tipo: hoja.tipo } : {};
@@ -92,7 +123,7 @@ export function HojaTarjeta({
         </div>
         {puedeEditar && (
           <div className="flex shrink-0 flex-wrap gap-2">
-            {!hoja.excluida && (
+            {!hoja.excluida && legible && (
               <button type="button" disabled={ocupado} className="text-xs font-medium text-emerald-700 hover:underline disabled:opacity-50" onClick={() => setCambiando((v) => !v)}>
                 Cambiar tipo
               </button>
@@ -103,7 +134,7 @@ export function HojaTarjeta({
               className="text-xs font-medium text-slate-600 hover:underline disabled:opacity-50"
               onClick={() => onAjuste(hoja.id, hoja.excluida ? (hoja.elegidoAMano ? tipoMarcado : null) : { ...tipoMarcado, excluida: true })}
             >
-              {hoja.excluida ? 'Volver a usar esta hoja' : 'No usar esta hoja'}
+              {hoja.excluida ? 'Volver a usar esta hoja' : legible ? 'No usar esta hoja' : 'No usar este fichero'}
             </button>
           </div>
         )}
