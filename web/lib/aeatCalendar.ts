@@ -140,6 +140,9 @@ export function enlaceModelo(codigo: string, ejercicio: number, periodo: string)
 export function textoPeriodoModelo(ejercicio: number, periodo: string): string {
   if (periodo === '0A') return `Ejercicio ${ejercicio}`;
   if (NOMBRE_PERIODO[periodo]) return `${periodo} de ${ejercicio}`;
+  // Pagos fraccionados del 202: 1P (abril), 2P (octubre) y 3P (diciembre).
+  const pago = /^([1-3])P$/.exec(periodo);
+  if (pago) return `${pago[1]}.${pago[1] === '2' ? 'º' : 'er'} pago de ${ejercicio}`;
   const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
   const mes = MESES[Number(periodo) - 1];
   return mes ? `${mes} de ${ejercicio}` : `${periodo} de ${ejercicio}`;
