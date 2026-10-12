@@ -344,6 +344,8 @@ export default function FormFacturaGasto({
     : null;
   /** Lo que se registra resta (abono): por diferencias, el total; por sustitucion, la diferencia. */
   const esAbono = !!rect && (sustitucion ? (diferencia?.total ?? 0) < 0 : totales.total < 0);
+  /** Lector con importes en positivo: aún no se ha dicho si es por diferencias (y si resta o suma) o por sustitución. */
+  const sinSentido = !!rect && (!rect.tipo || (rect.tipo === 'I' && !rect.sentido));
   /** Cuenta de una linea si no tiene una propia: en un abono, la que toca por la causa. */
   const cuentaPorDefecto = (l: LineaForm): { codigo: string; texto: string } => {
     const base = l.cuentaOriginal || cuenta.trim() || TIPO_GASTO_INFO[tipoGasto].cuenta;
@@ -407,9 +409,20 @@ export default function FormFacturaGasto({
     setDatosOriginal(d);
     if (!d) return;
     setTipoGasto(d.tipoGasto);
+    // Lector: la cuenta que sugirio (la habitual del proveedor) no es la de la original.
+    if (modo === 'lector') {
+      setCuenta('');
+      setMostrarCuenta(false);
+    }
     setLineas((ls) => {
       const enBlanco = ls.every((l) => !l.descripcion.trim() && !l.precio.trim());
-      if (!enBlanco) return ls;
+      if (!enBlanco) {
+        // Lineas ya escritas (o leidas): cada una toma la cuenta de la original (la unica, o la de
+        // la linea con su mismo IVA), para proponer la de la causa o restar cuenta a cuenta.
+        const cuentas = Array.from(new Set(d.lineas.map((x) => x.cuenta).filter((c): c is string => !!c)));
+        const cuentaDe = (tipoIva: number) => (cuentas.length === 1 ? cuentas[0] : (d.lineas.find((x) => x.tipoIva === tipoIva)?.cuenta ?? d.lineas[0]?.cuenta ?? undefined));
+        return ls.map((l) => ({ ...l, cuentaOriginal: cuentaDe(l.tipoIva) ?? undefined, ...(modo === 'lector' ? { cuenta: undefined } : {}) }));
+      }
       return d.lineas.map((l) => ({
         clave: siguienteClave++,
         descripcion: l.descripcion,
@@ -422,6 +435,44 @@ export default function FormFacturaGasto({
       }));
     });
   };
+
+  // Descuento, rappel o pronto pago de una factura de la app: el proveedor manda un solo importe.
+  // Si las líneas siguen siendo la copia de la original, se cambian por una por tipo de IVA (cantidad 1,
+  // precio vacío): con la cantidad copiada, el importe escrito se multiplicaba.
+  const causaAnterior = useRef(rect?.causa ?? '');
+  useEffect(() => {
+    const causa = rect?.causa ?? '';
+    if (causaAnterior.current === causa) return;
+    causaAnterior.current = causa;
+    const d = datosOriginal;
+    if (!rect || rect.tipo !== 'I' || !d || !(causa === 'DESCUENTO' || causa === 'RAPPEL' || causa === 'PRONTO_PAGO')) return;
+    setLineas((ls) => {
+      const copia =
+        ls.length === d.lineas.length &&
+        ls.every((l, i) => l.descripcion === d.lineas[i].descripcion && parseImporte(l.cantidad) === d.lineas[i].cantidad && parseImporte(l.precio) === Math.abs(d.lineas[i].precioUnitario));
+      if (!copia) return ls;
+      const que = causa === 'RAPPEL' ? 'Rappel' : causa === 'PRONTO_PAGO' ? 'Descuento por pronto pago' : 'Descuento';
+      const numeroOriginal = d.original.numero ?? d.original.numeroCompleto;
+      const grupos = new Map<string, (typeof d.lineas)[number]>();
+      for (const l of d.lineas) {
+        const k = `${l.tipoIva}|${l.tipoRetencion}|${l.cuenta}`;
+        if (!grupos.has(k)) grupos.set(k, l);
+      }
+      const varios = grupos.size > 1;
+      return Array.from(grupos.values()).map((l) => ({
+        clave: siguienteClave++,
+        descripcion: `${que} sobre la ${numeroOriginal}${varios ? ` (IVA ${l.tipoIva} %)` : ''}`,
+        cantidad: '1',
+        precio: '',
+        descuento: 0,
+        tipoIva: l.tipoIva,
+        tipoRetencion: l.tipoRetencion,
+        cuentaOriginal: l.cuenta,
+      }));
+    });
+    // Solo al cambiar la causa.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rect?.causa]);
 
   // Al cambiar a otro proveedor, las facturas de la app elegidas (del anterior) ya no valen.
   const proveedorIdActual = proveedor?.tipo === 'existente' ? proveedor.id : null;
@@ -684,7 +735,8 @@ export default function FormFacturaGasto({
             </label>
             <input id="fg-fecha" type="date" value={fechaEmision} onChange={(e) => cambiarFecha(e.target.value)} {...marcaCon(marcaLeida('fechaEmision', fechaEmision), 'fechaEmision')} className={campoBase} />
           </div>
-          <div>
+          {/* Un abono no se paga ni vence: no se pregunta el vencimiento (se guarda el de por defecto). */}
+          <div className={esAbono ? 'hidden' : ''}>
             <label htmlFor="fg-venc" className={etiqueta}>
               Vencimiento
             </label>
@@ -823,9 +875,11 @@ export default function FormFacturaGasto({
         <p className="mb-4 text-sm text-slate-600">
           {sustitucion
             ? 'Las líneas de la factura corregida que manda el proveedor, con sus importes completos y en positivo.'
-            : rect
-              ? `Lo que rectifica, en positivo: ${signo < 0 ? 'se registra restando' : 'se registra sumando'}. Las cuentas se proponen según la causa.`
-              : ''}
+            : rect && sinSentido
+              ? 'Elige arriba cómo viene la rectificativa: según eso, estos importes restan o sustituyen a los de la original.'
+              : rect
+                ? `Lo que rectifica, en positivo: ${signo < 0 ? 'se registra restando' : 'se registra sumando'}. Las cuentas se proponen según la causa.`
+                : ''}
         </p>
         <div className="flex flex-col gap-3">
           {lineas.map((l, i) => {
@@ -975,7 +1029,7 @@ export default function FormFacturaGasto({
             </div>
           )}
           <div className="flex justify-between border-t border-slate-200 pt-2 text-base font-semibold">
-            <dt className="text-slate-900">{sustitucion ? 'Total de la corregida' : rect && totales.total < 0 ? 'Total del abono' : 'Total a pagar'}</dt>
+            <dt className="text-slate-900">{sustitucion ? 'Total de la corregida' : rect && sinSentido ? 'Total leído' : rect && totales.total < 0 ? 'Total del abono' : 'Total a pagar'}</dt>
             <dd className={`font-mono ${rect && totales.total < 0 ? 'text-rose-700' : 'text-slate-900'}`}>{fmt(totales.total)}</dd>
           </div>
           {rect && !sustitucion && totales.total < 0 && <p className="text-xs text-slate-500">En negativo: resta de lo que le debes al proveedor y del IVA soportado.</p>}
@@ -1007,7 +1061,7 @@ export default function FormFacturaGasto({
             ) : (
               <p className="text-slate-600">Se calcula cuando estén las líneas de la factura original.</p>
             )}
-            <p className="mt-2 text-xs text-slate-500">El IVA de la diferencia se calcula por tipo con los totales de las dos facturas, como hace el servidor.</p>
+            <p className="mt-2 text-xs text-slate-500">El IVA de la diferencia se calcula por tipo con los totales de las dos facturas.</p>
           </div>
         )}
 
@@ -1071,6 +1125,26 @@ export default function FormFacturaGasto({
               >
                 Registrar y avisarme de rectificar el 303
               </button>
+              {/* Por el art. 80 cuenta la fecha en que llegó: si llegó más tarde, se pone esa (está plegada en «¿La recibiste más tarde?»). */}
+              {conflicto.rectificar303.campo === 'fechaRegistro' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMostrarRegistro(true);
+                    setConflicto(null);
+                    setError('');
+                    // El campo aparece al desplegarse: se enfoca en el siguiente pintado.
+                    window.setTimeout(() => {
+                      const el = document.getElementById('fg-registro');
+                      el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                      el?.focus({ preventScroll: true });
+                    }, 0);
+                  }}
+                  className="self-start rounded-lg border border-rose-300 bg-white px-3 py-2 font-semibold text-rose-700 hover:bg-rose-50"
+                >
+                  Me llegó más tarde: poner la fecha de recepción
+                </button>
+              )}
               <Link href={conflicto.rectificar303.enlace} className="self-start font-semibold underline">
                 Ver el 303{conflicto.rectificar303.periodo ? ` del ${textoPeriodoModelo(conflicto.rectificar303.ejercicio, conflicto.rectificar303.periodo)}` : ''}
               </Link>
