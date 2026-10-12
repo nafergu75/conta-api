@@ -3,6 +3,7 @@
 import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { useEmpresaEspanola } from '@/lib/fiscal';
+import MargenPagina from '@/components/MargenPagina';
 
 /**
  * El Registro Mercantil (legalizacion de libros y deposito de cuentas) es el
@@ -27,5 +28,5 @@ export default function RegistroMercantilLayout({ children }: { children: ReactN
       </div>
     );
   }
-  return <>{children}</>;
+  return <MargenPagina>{children}</MargenPagina>;
 }
