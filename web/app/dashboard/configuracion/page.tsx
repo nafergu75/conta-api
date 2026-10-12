@@ -21,6 +21,7 @@ import {
 import type { Icon } from '@phosphor-icons/react';
 import { ApiError, apiFetch, companyPath } from '@/lib/api';
 import { tieneAlgunPermiso } from '@/lib/auth';
+import { anioEspana, mesEspana } from '@/lib/anios';
 import { nombrePais } from '@/lib/fiscal';
 import { NOMBRE_MONEDA } from '@/lib/moneda';
 import { NOMBRE_FORMA, puedeVer, type EjercicioConfig, type SerieConfig } from '@/lib/configuracion';
@@ -55,7 +56,8 @@ async function leer<T>(path: string): Promise<T | null | 'error'> {
   }
 }
 
-const anioActual = () => new Date().getFullYear();
+/** Año en curso en España (no el del navegador ni el de UTC). */
+const anioActual = () => anioEspana();
 
 export default function ConfiguracionPortada() {
   const { user, listo, empresa, empresaLeida, espanola, inscribible } = useConfiguracion();
@@ -114,6 +116,25 @@ export default function ConfiguracionPortada() {
           href: `${BASE}/ejercicios`,
           enlace: 'Ejercicios y periodos',
         });
+
+        // Desde el 1 de octubre, que esté creado también el del año que viene.
+        if (mesEspana() >= 10) {
+          const siguiente = anio + 1;
+          const creado = ejercicios === 'error' ? undefined : ejercicios.find((e) => e.label === String(siguiente));
+          lista.push({
+            clave: 'ejercicio-siguiente',
+            titulo: `Ejercicio ${siguiente} creado`,
+            estado: ejercicios === 'error' ? 'error' : creado ? 'ok' : 'pendiente',
+            detalle:
+              ejercicios === 'error'
+                ? noComprobado
+                : creado
+                  ? `El ${siguiente} ya está creado: el 1 de enero podrás registrar facturas y asientos desde el primer día.`
+                  : `Crea el ${siguiente} antes del 31 de diciembre para poder registrar facturas y asientos desde el 1 de enero.`,
+            href: `${BASE}/ejercicios`,
+            enlace: 'Ejercicios y periodos',
+          });
+        }
       }
 
       if (series !== null) {
