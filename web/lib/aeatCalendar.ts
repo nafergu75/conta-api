@@ -187,10 +187,3 @@ export function ejercicioAnualAPresentar(hoy: string = hoyIso(), primero?: numbe
   const r = anio - 1;
   return primero !== undefined && r < primero ? Math.min(primero, anio) : r;
 }
-
-
-/** @deprecated Usa useAniosEmpresa().aniosModelos: se quita cuando no lo use ninguna pantalla. */
-export function ejerciciosSeleccionables(hoy: string = hoyIso()): number[] {
-  const anio = Number(hoy.slice(0, 4));
-  return Array.from({ length: 5 }, (_, i) => anio - i);
-}
