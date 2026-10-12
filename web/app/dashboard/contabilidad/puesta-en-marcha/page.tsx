@@ -5,6 +5,8 @@ import { CheckCircle, Trash, XCircle } from '@phosphor-icons/react';
 import { Tooltip } from '@/app/dashboard/components/Tooltip';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
+import { anioEspana, rangoAnios } from '@/lib/anios';
+import { useAniosEmpresa } from '@/lib/useAniosEmpresa';
 import {
   AJUSTES_INICIALES,
   boton,
@@ -69,7 +71,20 @@ const CAMPOS_DIARIO: Array<[string, string]> = [
   ['signo', 'Lado D/H'],
 ];
 
-const anioActual = new Date().getFullYear();
+/** Desplegable de años (el texto de la primera opción vacía, si la hay). */
+function SelectAnio({ valor, anios, onChange, vacio }: { valor: number | ''; anios: number[]; onChange: (a: number | '') => void; vacio?: string }) {
+  const lista = valor === '' || anios.includes(valor) ? anios : [...anios, valor].sort((a, b) => b - a);
+  return (
+    <select className={campo} value={valor === '' ? '' : String(valor)} onChange={(e) => onChange(e.target.value ? Number(e.target.value) : '')}>
+      {vacio !== undefined && <option value="">{vacio}</option>}
+      {lista.map((a) => (
+        <option key={a} value={a}>
+          {a}
+        </option>
+      ))}
+    </select>
+  );
+}
 
 export default function PuestaEnMarchaPage() {
   const puedeEditar = tieneAlgunPermiso(getUser(), ['contabilidad:write']);
@@ -414,6 +429,8 @@ interface VistaApertura {
 }
 
 function ImportarApertura({ onHecho }: { onHecho: (t: string) => void }) {
+  // Apertura: del año pasado al siguiente (hora de España); por defecto, el actual.
+  const anioActual = anioEspana();
   const [ejercicio, setEjercicio] = useState(anioActual);
   const [fecha, setFecha] = useState('');
   const [reemplazar, setReemplazar] = useState(false);
@@ -442,11 +459,11 @@ function ImportarApertura({ onHecho }: { onHecho: (t: string) => void }) {
       <div className="grid gap-3 sm:grid-cols-3">
         <label className="block text-sm font-medium text-slate-700">
           Ejercicio que se abre
-          <input type="number" className={campo} value={ejercicio} onChange={(e) => setEjercicio(Number(e.target.value) || anioActual)} />
+          <SelectAnio valor={ejercicio} anios={[anioActual + 1, anioActual, anioActual - 1]} onChange={(a) => setEjercicio(a === '' ? anioActual : a)} />
         </label>
         <label className="block text-sm font-medium text-slate-700">
           Fecha del asiento
-          <input type="date" className={campo} value={fecha} onChange={(e) => setFecha(e.target.value)} />
+          <input type="date" className={campo} min={`${ejercicio}-01-01`} max={`${ejercicio}-12-31`} value={fecha} onChange={(e) => setFecha(e.target.value)} />
           <span className="mt-1 block text-xs font-normal text-slate-500">Vacía: 1 de enero del ejercicio.</span>
         </label>
       </div>
@@ -549,6 +566,8 @@ interface VistaDiario {
 }
 
 function ImportarDiario({ onHecho }: { onHecho: (t: string) => void }) {
+  // Diario: de los años de la empresa al actual; vacío, el que traiga el fichero.
+  const aniosEmpresa = useAniosEmpresa();
   const [ejercicio, setEjercicio] = useState<number | ''>('');
   const [agrupacion, setAgrupacion] = useState<'auto' | 'asiento' | 'fecha' | 'mes'>('auto');
   const [incluirEspeciales, setIncluirEspeciales] = useState(false);
@@ -575,7 +594,7 @@ function ImportarDiario({ onHecho }: { onHecho: (t: string) => void }) {
       <div className="grid gap-3 sm:grid-cols-3">
         <label className="block text-sm font-medium text-slate-700">
           Ejercicio
-          <input type="number" placeholder="El del fichero" className={campo} value={ejercicio} onChange={(e) => setEjercicio(e.target.value ? Number(e.target.value) : '')} />
+          <SelectAnio valor={ejercicio} anios={aniosEmpresa.anios([], 0)} onChange={setEjercicio} vacio="El del fichero" />
         </label>
         <label className="block text-sm font-medium text-slate-700">
           Agrupar apuntes en asientos
@@ -693,7 +712,11 @@ interface VistaComparativo {
 }
 
 function ImportarComparativo({ onHecho }: { onHecho: (t: string) => void }) {
+  // Comparativo: un año ya terminado (hasta el pasado); por defecto, el pasado.
+  const anioActual = anioEspana();
+  const aniosEmpresa = useAniosEmpresa();
   const [ejercicio, setEjercicio] = useState(anioActual - 1);
+  const aniosComparativo = rangoAnios({ primero: Math.min(aniosEmpresa.primero - 1, anioActual - 5), actual: anioActual - 1, extra: 0 });
   const [parte, setParte] = useState<'todo' | 'balance' | 'pyg'>('todo');
   const imp = useImportacion<VistaComparativo>('/puesta-en-marcha/comparativo', { ejercicio, parte });
   const v = imp.vista && !esNecesitaMapeo(imp.vista) ? imp.vista : null;
@@ -716,7 +739,7 @@ function ImportarComparativo({ onHecho }: { onHecho: (t: string) => void }) {
       <div className="grid gap-3 sm:grid-cols-3">
         <label className="block text-sm font-medium text-slate-700">
           Ejercicio
-          <input type="number" className={campo} value={ejercicio} onChange={(e) => setEjercicio(Number(e.target.value) || anioActual - 1)} />
+          <SelectAnio valor={ejercicio} anios={aniosComparativo} onChange={(a) => setEjercicio(a === '' ? anioActual - 1 : a)} />
         </label>
         <label className="block text-sm font-medium text-slate-700">
           El fichero contiene
