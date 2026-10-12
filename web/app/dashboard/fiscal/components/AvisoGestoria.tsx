@@ -19,7 +19,8 @@ export function AvisoGestoria() {
   }, []);
   if (!texto) return null;
   return (
-    <div className="mx-auto w-full max-w-7xl px-4 pt-4 md:px-8">
+    // Va dentro del margen de la pantalla (MargenPagina del layout de Fiscalidad): solo la separación con lo de abajo.
+    <div className="mb-4">
       <p role="note" className="flex gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
         <Info size={18} className="mt-0.5 shrink-0" aria-hidden /> <span>{texto}</span>
       </p>
