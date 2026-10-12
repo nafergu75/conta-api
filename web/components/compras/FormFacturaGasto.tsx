@@ -446,6 +446,40 @@ export default function FormFacturaGasto({
   };
 
   const textoBoton = modo === 'editar' ? 'Guardar cambios' : modo === 'lector' ? 'Registrar factura' : 'Guardar factura';
+  /**
+   * Rejillas del formulario. En el lector ocupa media pantalla, pero las
+   * rejillas de siempre cambian con el ancho de la ventana: a 1280 px la fecha
+   * se cortaba y la cantidad de cada linea no se veia. Ahi va siempre en la
+   * disposicion estrecha (fechas en dos columnas, lineas apiladas).
+   */
+  const R =
+    modo === 'lector'
+      ? {
+          datos: 'grid grid-cols-1 gap-4 sm:grid-cols-2',
+          datosAncho: 'sm:col-span-2',
+          linea: 'grid grid-cols-2 gap-2 rounded-lg border border-slate-200 p-3',
+          descripcion: 'col-span-2',
+          estrecha: '',
+          media: '',
+          etiquetaOculta: '',
+          hueco: 'hidden',
+          pie: 'col-span-2 flex items-center justify-between gap-2',
+          base: 'text-sm text-slate-600',
+          cuenta: 'col-span-2',
+        }
+      : {
+          datos: 'grid grid-cols-1 gap-4 lg:grid-cols-3',
+          datosAncho: 'lg:col-span-3',
+          linea: 'grid grid-cols-2 gap-2 rounded-lg border border-slate-200 p-3 xl:grid-cols-12 xl:items-end xl:border-0 xl:p-0',
+          descripcion: 'col-span-2 xl:col-span-4',
+          estrecha: 'xl:col-span-1',
+          media: 'xl:col-span-2',
+          etiquetaOculta: 'xl:sr-only',
+          hueco: 'hidden xl:col-span-2 xl:block',
+          pie: 'col-span-2 flex items-center justify-between gap-2 xl:col-span-1 xl:justify-end',
+          base: 'text-sm text-slate-600 xl:hidden',
+          cuenta: 'col-span-2 xl:col-span-12',
+        };
   const nota =
     modo === 'lector'
       ? 'Quedará pendiente de revisar: su asiento se aprueba en el Motor contable.'
@@ -494,8 +528,8 @@ export default function FormFacturaGasto({
       {/* 2. Datos de la factura */}
       <section className="rounded-xl border border-slate-200 bg-white p-4 md:p-6">
         <h2 className="mb-4 text-base font-semibold text-slate-900">Datos de la factura</h2>
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-          <div className="lg:col-span-3">
+        <div className={R.datos}>
+          <div className={R.datosAncho}>
             <label htmlFor="fg-numero" className={etiqueta}>
               Nº de factura del proveedor *
             </label>
@@ -548,7 +582,7 @@ export default function FormFacturaGasto({
             )}
           </div>
           {mostrarRegistro && (
-            <p className="lg:col-span-3 -mt-2 text-xs text-slate-500">
+            <p className={`${R.datosAncho} -mt-2 text-xs text-slate-500`}>
               El IVA se deduce en el trimestre de esta fecha. Déjala vacía si la anotas en el mismo trimestre que la fecha de la factura.{' '}
               <button
                 type="button"
@@ -644,9 +678,9 @@ export default function FormFacturaGasto({
           {lineas.map((l, i) => {
             const c = `lineas.${i}`;
             return (
-              <div key={l.clave} className="grid grid-cols-2 gap-2 rounded-lg border border-slate-200 p-3 xl:grid-cols-12 xl:items-end xl:border-0 xl:p-0">
-                <div className="col-span-2 xl:col-span-4">
-                  <label htmlFor={`fg-desc-${l.clave}`} className={`${etiqueta} ${i > 0 ? 'xl:sr-only' : ''}`}>
+              <div key={l.clave} className={R.linea}>
+                <div className={R.descripcion}>
+                  <label htmlFor={`fg-desc-${l.clave}`} className={`${etiqueta} ${i > 0 ? R.etiquetaOculta : ''}`}>
                     Descripción
                   </label>
                   <input
@@ -657,8 +691,8 @@ export default function FormFacturaGasto({
                     className={campoBase}
                   />
                 </div>
-                <div className="xl:col-span-1">
-                  <label htmlFor={`fg-cant-${l.clave}`} className={`${etiqueta} ${i > 0 ? 'xl:sr-only' : ''}`}>
+                <div className={R.estrecha}>
+                  <label htmlFor={`fg-cant-${l.clave}`} className={`${etiqueta} ${i > 0 ? R.etiquetaOculta : ''}`}>
                     Cantidad
                   </label>
                   <input
@@ -670,8 +704,8 @@ export default function FormFacturaGasto({
                     className={`${campoBase} text-right`}
                   />
                 </div>
-                <div className="xl:col-span-2">
-                  <label htmlFor={`fg-precio-${l.clave}`} className={`${etiqueta} ${i > 0 ? 'xl:sr-only' : ''}`}>
+                <div className={R.media}>
+                  <label htmlFor={`fg-precio-${l.clave}`} className={`${etiqueta} ${i > 0 ? R.etiquetaOculta : ''}`}>
                     Precio (sin IVA)
                   </label>
                   <input
@@ -684,8 +718,8 @@ export default function FormFacturaGasto({
                     className={`${campoBase} text-right`}
                   />
                 </div>
-                <div className="xl:col-span-2">
-                  <label htmlFor={`fg-iva-${l.clave}`} className={`${etiqueta} ${i > 0 ? 'xl:sr-only' : ''}`}>
+                <div className={R.media}>
+                  <label htmlFor={`fg-iva-${l.clave}`} className={`${etiqueta} ${i > 0 ? R.etiquetaOculta : ''}`}>
                     IVA
                   </label>
                   <select
@@ -704,8 +738,8 @@ export default function FormFacturaGasto({
                   </select>
                 </div>
                 {conRetencion ? (
-                  <div className="xl:col-span-2">
-                    <label htmlFor={`fg-irpf-${l.clave}`} className={`${etiqueta} ${i > 0 ? 'xl:sr-only' : ''}`}>
+                  <div className={R.media}>
+                    <label htmlFor={`fg-irpf-${l.clave}`} className={`${etiqueta} ${i > 0 ? R.etiquetaOculta : ''}`}>
                       IRPF
                     </label>
                     <select
@@ -726,10 +760,10 @@ export default function FormFacturaGasto({
                     </select>
                   </div>
                 ) : (
-                  <div className="hidden xl:col-span-2 xl:block" />
+                  <div className={R.hueco} />
                 )}
-                <div className="col-span-2 flex items-center justify-between gap-2 xl:col-span-1 xl:justify-end">
-                  <span className="text-sm text-slate-600 xl:hidden">
+                <div className={R.pie}>
+                  <span className={R.base}>
                     Base {fmt(Number.isFinite(valores[i].cantidad) && Number.isFinite(valores[i].precioUnitario) ? calcularTotales([valores[i]]).base : 0)}
                   </span>
                   <button
@@ -743,7 +777,7 @@ export default function FormFacturaGasto({
                     <Trash size={18} />
                   </button>
                 </div>
-                <div className="col-span-2 xl:col-span-12">
+                <div className={R.cuenta}>
                   <CuentaLinea
                     tipo="gasto"
                     catalogo={catalogo}
