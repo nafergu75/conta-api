@@ -15,10 +15,11 @@ import {
   type AjustesCarga,
   type EstadoFase,
   type FicheroCarga,
+  type PuntoComprobacion,
   type RespuestaCarga,
   type VistaCarga,
 } from '@/lib/arranque';
-import { Bloque, boton, botonSecundario, campo, Cifra, Cifras, Dialogo, MensajeComprobacion, Nota } from './comun';
+import { Bloque, boton, botonSecundario, campo, Cifra, Cifras, Dialogo, irA, MensajeComprobacion, Nota } from './comun';
 import { DatosBancos, DatosFiscalesForm } from './DatosAMano';
 import { HojaTarjeta, ListaFicheros } from './Hojas';
 import { SubirFicheros } from './SubirFicheros';
@@ -174,10 +175,16 @@ export function Resumen({
   }, [vista, soloPendientes]);
 
   if (!vista) {
+    // Borrador sin resumen (por ejemplo, si falló el análisis): se pueden añadir ficheros o volver a analizar.
     return (
       <Bloque titulo="Ficheros subidos">
         <ListaFicheros ficheros={carga.ficheros} puedeEditar={puedeEditar} ocupado={ocupado} onQuitar={quitar} />
         {puedeEditar && (
+          <div className="mt-3">
+            <SubirFicheros compacta texto={carga.ficheros.length ? 'Añadir más ficheros' : 'Suelta aquí los ficheros de la gestoría o haz clic para elegirlos'} onSubido={onAnalizado} />
+          </div>
+        )}
+        {puedeEditar && carga.ficheros.length > 0 && (
           <button type="button" className={`${boton} mt-3`} disabled={ocupado} onClick={() => analizarSinLanzar({})}>
             Analizar los ficheros
           </button>
@@ -192,6 +199,18 @@ export function Resumen({
   }
 
   const c = vista.comprobaciones;
+  /** Puntos que se arreglan escribiendo algo más abajo: llevan un botón que baja hasta el formulario. */
+  const deBancos = (p: PuntoComprobacion) => p.clave.startsWith('bancos:');
+  const deFiscales = (p: PuntoComprobacion) => p.clave.startsWith('iva:') || p.clave.startsWith('resultado-declarado');
+  const accionDe = (p: PuntoComprobacion) => {
+    const destino = deBancos(p) && vista.bancos?.length ? 'bancos' : deFiscales(p) ? 'impuestos' : null;
+    if (!destino || !puedeEditar) return null;
+    return (
+      <button type="button" className="mt-1 text-xs font-medium text-emerald-700 hover:underline" onClick={() => irA(destino)}>
+        Escribirlo
+      </button>
+    );
+  };
   const p = vista.plan;
   const t = vista.terceros.resumen;
   const masasCuadran = vista.apertura ? Math.round((vista.apertura.masas.activo - vista.apertura.masas.patrimonioNeto - vista.apertura.masas.pasivo) * 100) === 0 : true;
@@ -201,7 +220,9 @@ export function Resumen({
 
   return (
     <div className="space-y-4">
-      <MensajeComprobacion nivel={c.nivel} mensaje={c.mensaje} puntos={c.puntos} />
+      <div id="comprobacion" className="scroll-mt-4">
+        <MensajeComprobacion nivel={c.nivel} mensaje={c.mensaje} puntos={c.puntos} accionDe={accionDe} />
+      </div>
 
       {aviso && <Nota tipo="aviso">{aviso}</Nota>}
       {avisosSubida.map((a) => (
@@ -551,33 +572,48 @@ export function Resumen({
       )}
 
       {vista.bancos && vista.bancos.length > 0 && (
-        <DatosBancos
-          bancos={vista.bancos}
+        <div id="bancos" className="scroll-mt-4">
+          <DatosBancos
+            bancos={vista.bancos}
+            puedeEditar={puedeEditar}
+            ocupado={ocupado}
+            puntos={c.puntos.filter(deBancos)}
+            onGuardar={(bancos) => analizarDesdeForm({ bancos })}
+          />
+        </div>
+      )}
+      <div id="impuestos" className="scroll-mt-4">
+        <DatosFiscalesForm
+          datos={vista.datosFiscales}
+          resultadoDeclarado={vista.resultadoDeclarado ?? null}
+          conResultado={!!vista.apertura}
           puedeEditar={puedeEditar}
           ocupado={ocupado}
-          onGuardar={(bancos) => analizarDesdeForm({ bancos })}
+          puntos={c.puntos.filter(deFiscales)}
+          onGuardar={async ({ datosFiscales, resultadoDeclarado: r }) => {
+            await analizarDesdeForm({ datosFiscales, ...(r !== undefined ? { resultadoDeclarado: r } : {}) });
+          }}
         />
-      )}
-      <DatosFiscalesForm
-        datos={vista.datosFiscales}
-        resultadoDeclarado={vista.resultadoDeclarado ?? null}
-        conResultado={!!vista.apertura}
-        puedeEditar={puedeEditar}
-        ocupado={ocupado}
-        onGuardar={async ({ datosFiscales, resultadoDeclarado: r }) => {
-          await analizarDesdeForm({ datosFiscales, ...(r !== undefined ? { resultadoDeclarado: r } : {}) });
-        }}
-      />
+      </div>
 
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         {puedeConfirmar ? (
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm text-slate-700">
-              {vista.puedeConfirmar
-                ? c.nivel === 'CORRECTO'
-                  ? 'Todo listo para traer la contabilidad.'
-                  : 'Se puede traer ya; lo que falta lo completas después.'
-                : 'Corrige los errores de arriba para poder traerla.'}
+              {vista.puedeConfirmar ? (
+                c.nivel === 'CORRECTO' ? (
+                  'Todo listo para traer la contabilidad.'
+                ) : (
+                  'Se puede traer ya; lo que falta lo completas después.'
+                )
+              ) : (
+                <>
+                  Corrige los errores para poder traerla.{' '}
+                  <button type="button" className="font-medium text-emerald-700 hover:underline" onClick={() => irA('comprobacion')}>
+                    Ver los errores
+                  </button>
+                </>
+              )}
             </p>
             <button type="button" className={boton} disabled={!vista.puedeConfirmar || ocupado} onClick={() => setConfirmando(true)}>
               Traer la contabilidad de {A} <ArrowRight size={16} />
