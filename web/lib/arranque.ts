@@ -3,6 +3,7 @@
  * (/companies/:companyId/arranque). El ejercicio de destino es 2027.
  */
 import { ApiError, apiFetch, companyPath } from './api';
+import { euros } from './lecturas';
 
 /** Año que se empieza a llevar en la app; el anterior lo llevó la gestoría. */
 export const EJERCICIO_ARRANQUE = 2027;
@@ -445,9 +446,17 @@ export const partidasApi = {
 // Formato
 // ---------------------------------------------------------------------------
 
-export const eur = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' });
+/**
+ * Importes en euros como en el resto de la app («1.210,00 €», también con
+ * cuatro cifras: Intl en es-ES no pone el punto de miles hasta las cinco).
+ */
+export const eur = { format: (n: number) => euros(n) };
 export const fechaEs = (f: string | null | undefined) => (f ? f.slice(0, 10).split('-').reverse().join('/') : '');
-export const numero = (n: number) => n.toLocaleString('es-ES');
+/** Número entero o decimal con el punto de miles siempre («1.234»). */
+export const numero = (n: number) => {
+  const [ent, dec] = String(Math.abs(n)).split('.');
+  return `${n < 0 ? '-' : ''}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, '.')}${dec ? `,${dec}` : ''}`;
+};
 /** «1 cuenta» / «3 cuentas». */
 export const varios = (n: number, uno: string, muchos: string) => `${numero(n)} ${n === 1 ? uno : muchos}`;
 
