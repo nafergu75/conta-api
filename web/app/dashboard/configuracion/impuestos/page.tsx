@@ -414,7 +414,7 @@ export default function ImpuestosPage() {
             {!ajustes.inicioEnApp && ajustes.inicioDeducido && (
               <p className="text-sm text-slate-600">
                 Si la dejas vacía, la app cuenta desde el {ajustes.inicioDeducido.split('-').reverse().join('/')}: el primer día con datos de la empresa
-                o, si todavía no tiene ninguno, el día en que se dio de alta. Si tienes aquí datos de antes de empezar a usarla (de 2026, por
+                (sin contar los años que llevó la gestoría) o, si todavía no tiene ninguno, el día en que se dio de alta. Si tienes aquí datos de antes de empezar a usarla (de 2026, por
                 ejemplo), indica la fecha. Si no, la app da por hecho que esos periodos también los llevas aquí y sus modelos salen como pendientes.
               </p>
             )}
