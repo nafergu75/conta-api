@@ -78,7 +78,7 @@ export function useAvisoPlanAnterior(): {
         aria-modal="true"
         aria-labelledby="aviso-plan-titulo"
         aria-describedby="aviso-plan-texto"
-        className="max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-5 shadow-xl sm:p-6"
+        className="max-h-[90dvh] w-full max-w-xl overflow-y-auto rounded-xl bg-white p-5 shadow-xl sm:p-6"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3">
