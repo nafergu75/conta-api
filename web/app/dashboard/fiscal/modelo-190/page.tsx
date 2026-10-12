@@ -105,6 +105,8 @@ export default function Modelo190Page() {
   const [declaracion, setDeclaracion] = useState<Declaracion190 | null>(null);
   // Resumen [01]-[03] de los perceptores que van (en una complementaria, solo los elegidos).
   const [resumenElegidos, setResumenElegidos] = useState<CasillaResumen[] | null>(null);
+  // Presentado: aviso de los perceptores nuevos desde la presentación (no salen en la lista).
+  const [avisoCongelada, setAvisoCongelada] = useState<string | null>(null);
   const [recarga, setRecarga] = useState(0);
   // Modelo anual: se presenta por el ejercicio anterior.
   const [ejercicio, setEjercicio] = useState(ejercicioAnualAPresentar);
@@ -133,12 +135,15 @@ export default function Modelo190Page() {
     if (!conNominas) return;
     let vivo = true;
     setPerceptores(null);
-    apiFetch<{ perceptores: Perceptor190[]; resumen?: CasillaResumen[]; declaracion?: Declaracion190 }>(companyPath(`/nominas/190/${ejercicio}/perceptores`))
+    apiFetch<{ perceptores: Perceptor190[]; resumen?: CasillaResumen[]; declaracion?: Declaracion190; avisoCongelada?: string | null }>(
+      companyPath(`/nominas/190/${ejercicio}/perceptores`),
+    )
       .then((r) => {
         if (!vivo) return;
         setPerceptores(r.perceptores ?? []);
         setDeclaracion(r.declaracion ?? null);
         setResumenElegidos(r.resumen ?? null);
+        setAvisoCongelada(r.avisoCongelada ?? null);
       })
       .catch(() => vivo && setPerceptores([]));
     return () => {
@@ -417,6 +422,7 @@ export default function Modelo190Page() {
               (marcados en rojo en la tabla). El fichero no se puede descargar hasta corregirlos.
             </p>
           )}
+          {avisoCongelada && <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{avisoCongelada}</p>}
           {complementaria && (
             <p className="mb-3 rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-900">
               Complementaria: solo van los perceptores marcados en «Declaraciones presentadas», más abajo ({perceptores.filter((p) => p.incluido).length} de {perceptores.length}).
