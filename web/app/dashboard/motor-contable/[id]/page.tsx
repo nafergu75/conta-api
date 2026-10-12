@@ -190,9 +190,11 @@ export default function AsientoDetailPage() {
               >
                 Aprobar y avisarme de rectificar el 303
               </button>
-              <Link href={rectificar303.enlace} className="font-semibold underline">
-                Ver el 303{rectificar303.periodo ? ` del ${textoPeriodoModelo(rectificar303.ejercicio, rectificar303.periodo)}` : ''}
-              </Link>
+              {rectificar303.enlace && (
+                <Link href={rectificar303.enlace} className="font-semibold underline">
+                  Ver el 303{rectificar303.periodo ? ` del ${textoPeriodoModelo(rectificar303.ejercicio, rectificar303.periodo)}` : ''}
+                </Link>
+              )}
             </div>
           )}
         </div>
