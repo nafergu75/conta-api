@@ -228,6 +228,8 @@ export interface VistaCarga {
   } | null;
   inmovilizado: { activos: number; coste: number; amortAcumulada: number; seImporta: boolean } | null;
   llevanzaExterna: boolean;
+  /** La carga fijará el inicio de los impuestos en la app el 1 de enero (no estaba indicado). */
+  fijaInicioEnApp?: boolean;
   retirados: Record<string, number>;
   sustituyeVersion: number | null;
   bancos: BancoComprobar[] | null;
