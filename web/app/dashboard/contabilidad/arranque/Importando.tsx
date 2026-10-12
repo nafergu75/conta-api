@@ -99,6 +99,16 @@ export function Importando({
         ) : (
           <Nota tipo="bien">{final.hecho}</Nota>
         )}
+        <details className="rounded-xl border border-slate-200 bg-white p-4 text-sm">
+          <summary className="cursor-pointer font-medium text-slate-700">Qué se ha hecho, fase a fase</summary>
+          <ul className="mt-2 space-y-1.5">
+            {fases.map((f) => (
+              <li key={f.fase} className="text-slate-700">
+                <span className="font-medium text-slate-900">{nombres[f.fase] ?? f.fase}:</span> {f.estado === 'OMITIDA' ? 'nada que hacer.' : (f.resultado ?? 'hecho.')}
+              </li>
+            ))}
+          </ul>
+        </details>
         <button type="button" className={boton} onClick={onTerminada}>
           Ver la contabilidad traída
         </button>
