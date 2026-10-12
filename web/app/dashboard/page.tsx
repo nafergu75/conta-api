@@ -1,14 +1,17 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Plus } from '@phosphor-icons/react';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { ApiError, apiFetch, companyPath, errorMessage } from '@/lib/api';
-import { proximosVencimientos } from '@/lib/aeatCalendar';
+import { anioEspana } from '@/lib/anios';
+import { useAniosEmpresa } from '@/lib/useAniosEmpresa';
+import { useVencimientosAeat } from '@/lib/useVencimientosAeat';
+import SelectorAnio from '@/components/SelectorAnio';
 import { AlertCard } from '@/components/dashboard/AlertCard';
 import { CobrosClientes } from '@/components/dashboard/CobrosClientes';
-import { getQuartersForYear, getCurrentQuarter, isDateInQuarter } from '@/lib/quarters';
+import { getQuartersForYear, getCurrentQuarter, isDateInQuarter, PATRON_TRIMESTRE } from '@/lib/quarters';
 import NewMovementModal from '@/components/dashboard/NewMovementModal';
 import { IncomeExpenseChart } from '@/components/charts/IncomeExpenseChart';
 import { IncomeAnalysisChart } from '@/components/charts/IncomeAnalysisChart';
@@ -92,18 +95,20 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [userEmail, setUserEmail] = useState<string>('');
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  // Año en curso en España por defecto; la lista, los años de la empresa más los que tienen movimientos.
+  const [selectedYear, setSelectedYear] = useState(() => anioEspana());
   const [periodType, setPeriodType] = useState<'year' | 'quarters' | 'months'>('quarters');
   const [selectedPeriod, setSelectedPeriod] = useState(getCurrentQuarter());
-  const [availableYears, setAvailableYears] = useState<number[]>([]);
-  const [availableQuarters, setAvailableQuarters] = useState<Array<{ value: string; label: string }>>([]);
-  const [availableMonths, setAvailableMonths] = useState<Array<{ value: string; label: string }>>([]);
+  const [aniosConMovimientos, setAniosConMovimientos] = useState<number[]>([]);
+  const aniosEmpresa = useAniosEmpresa();
+  const availableYears = aniosEmpresa.anios([...aniosConMovimientos, selectedYear]);
   const [fiscal, setFiscal] = useState<ResumenFiscal | null>(null);
   const [incomeExpenseViewType, setIncomeExpenseViewType] = useState<'income-expense' | 'result'>('income-expense');
   const [selectedAnalysisPeriod, setSelectedAnalysisPeriod] = useState<string>(''); // Período único para análisis
-  const [vencimientosAeat] = useState(() => proximosVencimientos());
   // Lo que deja ver su acceso en la empresa activa (se lee al montar: la sesion vive en el navegador).
   const [acceso, setAcceso] = useState<{ cobros: boolean; aeat: boolean; nuevoMovimiento: boolean } | null>(null);
+  // Plazos de la AEAT del servidor (día hábil, ajustes fiscales); sin permiso de impuestos, el calendario general.
+  const { vencimientos: vencimientosAeat } = useVencimientosAeat(4, !!acceso?.aeat);
 
   const loadData = useCallback(async () => {
     try {
@@ -150,34 +155,8 @@ export default function DashboardPage() {
       setClientes(cls.items ?? []);
       setError(otroFallo === undefined ? null : errorMessage(otroFallo));
 
-      // Calcular años disponibles basados en los meses de datos
-      const years = new Set<number>();
-      const monthsByYear = new Map<number, string[]>();
-      byMonth.forEach((m: MonthRow) => {
-        const year = parseInt(m.month.split('-')[0]);
-        const month = m.month;
-        years.add(year);
-        if (!monthsByYear.has(year)) monthsByYear.set(year, []);
-        monthsByYear.get(year)!.push(month);
-      });
-
-      const yearsList = Array.from(years).sort((a, b) => b - a);
-      setAvailableYears(yearsList.length > 0 ? yearsList : [new Date().getFullYear()]);
-
-      // Trimestres para el año seleccionado
-      const quarters = getQuartersForYear(selectedYear).map((q) => ({
-        value: q.value,
-        label: q.label,
-      }));
-      setAvailableQuarters(quarters);
-
-      // Meses para el año seleccionado
-      const monthsForYear = monthsByYear.get(selectedYear) || [];
-      const monthOptions = monthsForYear.map((m) => ({
-        value: m,
-        label: new Date(m + '-01').toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }),
-      }));
-      setAvailableMonths(monthOptions);
+      // Años con movimientos: se unen a los de la empresa en el selector.
+      setAniosConMovimientos(Array.from(new Set(byMonth.map((m: MonthRow) => parseInt(m.month.slice(0, 4), 10)))).filter((y) => Number.isInteger(y)));
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -197,6 +176,25 @@ export default function DashboardPage() {
     loadData();
   }, [loadData]);
 
+  // Trimestres y meses del año elegido (los doce, tenga o no datos).
+  const availableQuarters = useMemo(() => getQuartersForYear(selectedYear).map((q) => ({ value: q.value, label: q.label })), [selectedYear]);
+  const availableMonths = useMemo(
+    () =>
+      Array.from({ length: 12 }, (_, i) => {
+        const value = `${selectedYear}-${String(i + 1).padStart(2, '0')}`;
+        return { value, label: new Date(selectedYear, i, 1).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }) };
+      }),
+    [selectedYear],
+  );
+
+  /** Al cambiar de año se mantiene el mismo trimestre o mes del año nuevo (o «Todo el año»). */
+  const cambiarAnio = (y: number) => {
+    const mover = (p: string) => (PATRON_TRIMESTRE.test(p) || /^\d{4}-\d{2}$/.test(p) ? `${y}${p.slice(4)}` : p);
+    setSelectedYear(y);
+    setSelectedPeriod((p) => mover(p));
+    setSelectedAnalysisPeriod((p) => mover(p));
+  };
+
   // Filtrar datos por período seleccionado
   const getFilteredData = () => {
     const yearStr = selectedYear.toString();
@@ -210,7 +208,7 @@ export default function DashboardPage() {
     }
 
     // Detectar si es un trimestre (formato: 2026-Q1) o un mes (formato: 2026-01)
-    if (selectedPeriod.match(/^202\d-Q[1-4]$/)) {
+    if (PATRON_TRIMESTRE.test(selectedPeriod)) {
       // Es un trimestre
       return {
         months: months.filter((m) => isDateInQuarter(m.month, selectedPeriod)),
@@ -237,7 +235,7 @@ export default function DashboardPage() {
   let analysisMovements = filteredMovements;
 
   if (selectedAnalysisPeriod) {
-    if (selectedAnalysisPeriod.match(/^202\d-Q[1-4]$/)) {
+    if (PATRON_TRIMESTRE.test(selectedAnalysisPeriod)) {
       // Es un trimestre (formato: 2026-Q1)
       analysisMovements = filteredMovements.filter((m) => isDateInQuarter(m.date.slice(0, 10), selectedAnalysisPeriod));
     } else if (selectedAnalysisPeriod.match(/^\d{2}$/)) {
@@ -420,14 +418,20 @@ export default function DashboardPage() {
               Próximos plazos AEAT
             </h2>
             <p className="text-xs text-slate-500">
-              Plazo general. Si cae en festivo, pasa al siguiente día hábil.
+              Si el último día cae en fin de semana o festivo nacional, ya sale el siguiente día hábil.
             </p>
           </div>
-          <div className="grid gap-3 md:grid-cols-2">
-            {vencimientosAeat.map((alerta) => (
-              <AlertCard key={alerta.id} alert={alerta} />
-            ))}
-          </div>
+          {vencimientosAeat === null ? (
+            <div className="h-24 animate-pulse rounded-lg bg-white border border-slate-200" />
+          ) : vencimientosAeat.length === 0 ? (
+            <p className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600">No tienes modelos pendientes de presentar.</p>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2">
+              {vencimientosAeat.map((alerta) => (
+                <AlertCard key={alerta.id} alert={alerta} />
+              ))}
+            </div>
+          )}
         </section>
         )}
 
@@ -436,21 +440,15 @@ export default function DashboardPage() {
         {/* Filtros: Año y Período */}
         <section className="flex items-center gap-4 flex-wrap bg-white rounded-lg border border-slate-200 p-4">
           <div className="flex items-center gap-2">
-            <label className="text-sm font-medium text-slate-700">Año:</label>
-            <select
-              value={selectedYear}
-              onChange={(e) => {
-                setSelectedYear(parseInt(e.target.value));
-                if (periodType === 'months') setSelectedPeriod(availableMonths[0]?.value || '');
-              }}
+            <span className="text-sm font-medium text-slate-700" aria-hidden>Año:</span>
+            <SelectorAnio
+              id="panel-anio"
+              etiqueta=""
+              valor={selectedYear}
+              anios={availableYears}
+              onChange={(y) => y !== null && cambiarAnio(y)}
               className="px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900 bg-white hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-accent-600"
-            >
-              {availableYears.map((y) => (
-                <option key={y} value={y}>
-                  {y}
-                </option>
-              ))}
-            </select>
+            />
           </div>
 
           <div className="flex items-center gap-2">
@@ -461,8 +459,8 @@ export default function DashboardPage() {
                 const newType = e.target.value as 'year' | 'quarters' | 'months';
                 setPeriodType(newType);
                 if (newType === 'year') setSelectedPeriod('');
-                else if (newType === 'quarters') setSelectedPeriod(availableQuarters[0]?.value || getCurrentQuarter());
-                else setSelectedPeriod(availableMonths[0]?.value || '');
+                else if (newType === 'quarters') setSelectedPeriod(selectedYear === anioEspana() ? getCurrentQuarter() : availableQuarters[0].value);
+                else setSelectedPeriod(availableMonths[0].value);
               }}
               className="px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900 bg-white hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-accent-600"
             >
@@ -636,17 +634,14 @@ export default function DashboardPage() {
 
           {/* Filtros del gráfico */}
           <div className="flex items-center gap-4 mb-6 flex-wrap">
-            <select
-              value={selectedYear}
-              onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+            <SelectorAnio
+              id="grafico-anio"
+              etiqueta=""
+              valor={selectedYear}
+              anios={availableYears}
+              onChange={(y) => y !== null && cambiarAnio(y)}
               className="px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900 bg-white hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-accent-600"
-            >
-              {availableYears.map((y) => (
-                <option key={y} value={y}>
-                  {y}
-                </option>
-              ))}
-            </select>
+            />
 
             <select
               value={selectedPeriod}
@@ -696,17 +691,14 @@ export default function DashboardPage() {
 
           {/* Filtros */}
           <div className="flex items-center gap-4 mb-6 flex-wrap">
-            <select
-              value={selectedYear}
-              onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+            <SelectorAnio
+              id="ingresos-anio"
+              etiqueta=""
+              valor={selectedYear}
+              anios={availableYears}
+              onChange={(y) => y !== null && cambiarAnio(y)}
               className="px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900 bg-white hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-accent-600"
-            >
-              {availableYears.map((y) => (
-                <option key={y} value={y}>
-                  {y}
-                </option>
-              ))}
-            </select>
+            />
 
             <select
               value={selectedAnalysisPeriod}
@@ -760,17 +752,14 @@ export default function DashboardPage() {
 
           {/* Filtros */}
           <div className="flex items-center gap-4 mb-6 flex-wrap">
-            <select
-              value={selectedYear}
-              onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+            <SelectorAnio
+              id="gastos-anio"
+              etiqueta=""
+              valor={selectedYear}
+              anios={availableYears}
+              onChange={(y) => y !== null && cambiarAnio(y)}
               className="px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900 bg-white hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-accent-600"
-            >
-              {availableYears.map((y) => (
-                <option key={y} value={y}>
-                  {y}
-                </option>
-              ))}
-            </select>
+            />
 
             <select
               value={selectedAnalysisPeriod}
