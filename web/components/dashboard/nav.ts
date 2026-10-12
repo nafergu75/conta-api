@@ -223,6 +223,30 @@ export const NAV_GROUPS: NavGroup[] = [
         requiredRoles: ['contabilidad:read'],
       },
       {
+        // Solo empresas españolas: el servidor no deja traer la contabilidad de otra gestoría a las demás.
+        label: 'Traer la contabilidad de 2026',
+        slug: 'contabilidad/arranque',
+        soloEspana: true,
+        description: 'Sube los ficheros de la gestoría (plan, sumas y saldos, diario, cartera, inmovilizado) y empieza 2027 con sus saldos.',
+        implemented: true,
+        endpoints: [
+          'GET /companies/:id/arranque/2027',
+          'POST /companies/:id/arranque/2027/cargas',
+          'POST /companies/:id/arranque/2027/cargas/:id/confirmar',
+          'POST /companies/:id/arranque/2027/cargas/:id/aplicar',
+          'DELETE /companies/:id/arranque/2027/cargas/:id',
+        ],
+        requiredRoles: ['contabilidad:read'],
+      },
+      {
+        label: 'Inmovilizado',
+        slug: 'contabilidad/inmovilizado',
+        description: 'Bienes de la empresa, su amortización mes a mes y el valor que les queda.',
+        implemented: true,
+        endpoints: ['GET /companies/:id/inmovilizado', 'POST /companies/:id/inmovilizado', 'POST /companies/:id/inmovilizado/dotaciones'],
+        requiredRoles: ['contabilidad:read'],
+      },
+      {
         label: 'Puesta en marcha',
         slug: 'contabilidad/puesta-en-marcha',
         description: 'Importar el balance de apertura, el diario del año y los saldos de ejercicios anteriores desde otro programa.',
