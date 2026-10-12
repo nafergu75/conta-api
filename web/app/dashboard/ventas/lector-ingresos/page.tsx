@@ -8,6 +8,7 @@ import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import PanelLectura from '@/components/lector/PanelLectura';
 import { CuentaLinea } from '@/components/contabilidad/CuentaLinea';
 import { useCuentasLinea } from '@/lib/subcuentas';
+import { useAvisoPlanAnterior } from '@/components/contabilidad/AvisoPlanAnterior';
 import {
   ALTA_MANUAL,
   anuncioLecturaTerminada,
@@ -72,6 +73,7 @@ export default function LectorIngresosPage() {
   const [info, setInfo] = useState<InfoLectura | null>(null);
   const [revisado, setRevisado] = useState(false);
   const [guardando, setGuardando] = useState(false);
+  const avisoPlan = useAvisoPlanAnterior();
   const [errorGuardar, setErrorGuardar] = useState('');
   const [registrada, setRegistrada] = useState<Registrada | null>(null);
   // «Cambiar cuenta»: la cuenta elegida para cada linea (null = la de por defecto) y la que rechazo el servidor.
@@ -183,11 +185,14 @@ export default function LectorIngresosPage() {
     setCuentaMal(null);
     try {
       // El id y la cuenta de cada linea: el servidor registra la factura con los datos que leyo.
-      const r = await apiFetch<Registrada>(companyPath('/ingresos-extractor/confirmar'), {
-        method: 'POST',
-        body: JSON.stringify({ documentId: ingreso.documentId, revisado, lineas: cuentas.map((cuenta) => ({ cuenta })) }),
-      });
-      setRegistrada(r);
+      // Primer cliente de una empresa española sin el plan de la gestoría: se pregunta antes.
+      const r = await avisoPlan.intentar((extra) =>
+        apiFetch<Registrada>(companyPath('/ingresos-extractor/confirmar'), {
+          method: 'POST',
+          body: JSON.stringify({ documentId: ingreso.documentId, revisado, lineas: cuentas.map((cuenta) => ({ cuenta })), ...extra }),
+        }),
+      );
+      if (r) setRegistrada(r);
     } catch (err) {
       setErrorGuardar(errorMessage(err));
       // Una cuenta que el servidor no admite: se marca su linea y el foco va a su «Cambiar cuenta».
@@ -238,6 +243,7 @@ export default function LectorIngresosPage() {
 
   return (
     <div>
+      {avisoPlan.dialogo}
       <header className="sticky top-0 z-40 h-16 border-b border-slate-200 bg-white">
         <div className="mx-auto flex h-full max-w-7xl items-center gap-3 px-4 md:px-8">
           <Link href="/dashboard/facturas" className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900" aria-label="Volver a Facturas">
