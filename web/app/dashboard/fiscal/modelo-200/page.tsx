@@ -42,9 +42,12 @@ interface Borrador200 {
   paginasPendientes: Array<{ codigo: string; motivo: string }>;
   advertencias: string[];
   errores: string[];
+  /** Cifra de negocios del año anterior: escrita a mano, de la contabilidad o sin dato. */
+  cifraNegociosAnterior?: { importe: number | null; origen: 'manual' | 'contabilidad' | 'ninguno' };
 }
 
 interface Datos {
+  incnAnterior: string;
   bins: string;
   pf1: string;
   pf2: string;
@@ -53,11 +56,12 @@ interface Datos {
   nuevaCreacion: boolean;
 }
 
-const VACIO: Datos = { bins: '', pf1: '', pf2: '', pf3: '', retenciones: '', nuevaCreacion: false };
+const VACIO: Datos = { incnAnterior: '', bins: '', pf1: '', pf2: '', pf3: '', retenciones: '', nuevaCreacion: false };
 
 /** "1.234,56" -> "1234.56" (el backend espera el punto decimal). */
 const cifra = (s: string) => (s.includes(',') ? s.replace(/\./g, '').replace(',', '.') : s).trim();
 const parametrosDe = (d: Datos) => ({
+  incnAnterior: cifra(d.incnAnterior),
   bins: cifra(d.bins),
   pf1: cifra(d.pf1),
   pf2: cifra(d.pf2),
@@ -116,6 +120,16 @@ export default function Modelo200Page() {
   const b = borrador;
   const l = b.liquidacion;
   const clave = b.paginasPendientes.filter((p) => CLAVE_PYME.has(p.codigo));
+  // La cifra de negocios del año anterior decide el tipo de gravamen. 2027 es el
+  // primer año en la app: sin la contabilidad de 2026, hay que escribirla.
+  const anterior = ejercicio - 1;
+  const incn = b.cifraNegociosAnterior;
+  const ayudaIncn =
+    incn?.origen === 'contabilidad' && incn.importe !== null
+      ? `Sale de la contabilidad de ${anterior}: ${eur.format(incn.importe)}. Escríbela solo si no es correcta. De ella depende el tipo de gravamen.`
+      : incn?.origen === 'manual'
+        ? 'Es la que has escrito. De ella depende el tipo de gravamen.'
+        : `La app no tiene la contabilidad de ${anterior}. Escribe el importe neto de la cifra de negocios de sus cuentas anuales: de él depende el tipo de gravamen.`;
   const resto = b.paginasPendientes.filter((p) => !CLAVE_PYME.has(p.codigo));
   const campo = (k: keyof Datos, etiqueta: string, ayuda?: string) => (
     <label className="block text-sm font-medium text-slate-700">
@@ -148,6 +162,7 @@ export default function Modelo200Page() {
           </label>
         </div>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {campo('incnAnterior', `Cifra de negocios de ${anterior}`, ayudaIncn)}
           {campo('bins', 'Bases negativas de años anteriores pendientes', 'Se compensan con el límite del art. 26 LIS [00547].')}
           {campo('retenciones', 'Retenciones e ingresos a cuenta [01766]')}
           {campo('pf1', 'Primer pago fraccionado (abril) [00601]')}
