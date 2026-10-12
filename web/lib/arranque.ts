@@ -398,7 +398,10 @@ export interface PartidaVista {
   fechaVencimiento: string | null;
   importeOriginal: number | null;
   importeInicial: number;
+  /** Cobrado o pagado, contando los abonos del proveedor ya descontados. */
   liquidado: number;
+  /** De lo liquidado, lo descontado con abonos del proveedor (sin movimiento de dinero). */
+  compensado: number;
   pendiente: number;
   moneda: string;
   sinDetalle: boolean;
