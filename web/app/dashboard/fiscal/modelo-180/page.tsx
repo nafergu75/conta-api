@@ -40,6 +40,8 @@ interface FacturaAlquiler {
 interface Borrador180 {
   ejercicio: number;
   estado: string;
+  /** «Presentado · complementaria en preparación» cuando hay una presentada y otra en curso (el estado de la fila dice 'vigente'). */
+  estadoTexto?: string | null;
   /** Tipo y anterior: los pone el historial de declaraciones. */
   opciones: { tipoDeclaracion: 'C' | 'S' | null; declaracionAnterior: string | null };
   /** Número identificativo; null hasta la primera descarga o la presentación. */
@@ -54,7 +56,7 @@ interface Borrador180 {
     base115: number;
     retenciones115: number;
     faltan: string[];
-    periodos: Array<{ periodo: string; base: number; retenciones: number; fuente: 'guardado' | 'calculado'; estado: string }>;
+    periodos: Array<{ periodo: string; base: number; retenciones: number; fuente: 'guardado' | 'calculado'; estado: string; estadoTexto?: string | null }>;
   };
   facturas: FacturaAlquiler[];
   sinInmueble: FacturaAlquiler[];
@@ -283,7 +285,7 @@ export default function Modelo180Page() {
                         <td className="py-2 text-right font-mono">{eur(p.base)}</td>
                         <td className="py-2 text-right font-mono">{eur(p.retenciones)}</td>
                         <td className="py-2 pl-3 text-xs text-slate-600">
-                          {p.fuente === 'guardado' ? 'Guardado en la app' : 'Calculado con las facturas'} · {ESTADO_MODELO[p.estado] ?? p.estado}
+                          {p.fuente === 'guardado' ? 'Guardado en la app' : 'Calculado con las facturas'} · {p.estadoTexto ?? ESTADO_MODELO[p.estado] ?? p.estado}
                         </td>
                       </tr>
                     ))}
@@ -308,7 +310,7 @@ export default function Modelo180Page() {
               <>
                 <Seccion
                   titulo={`Declarante – ${b.ejercicio}`}
-                  extra={<span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-medium text-slate-700">{ESTADO_MODELO[b.estado] ?? b.estado}</span>}
+                  extra={<span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-medium text-slate-700">{b.estadoTexto ?? ESTADO_MODELO[b.estado] ?? b.estado}</span>}
                 >
                   <CamposRegistro campos={b.pantalla.declarante} />
                 </Seccion>
