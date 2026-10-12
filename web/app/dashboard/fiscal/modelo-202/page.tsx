@@ -8,7 +8,8 @@ import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { formatoImporte } from '@/lib/moneda';
 import { AvisosBorrador, CamposRegistro, DescargarFichero, ESTADO_MODELO, Seccion, type CampoLeido } from '../components/RegistroAeat';
 import SelectorAnio from '@/components/SelectorAnio';
-import { anioDeTexto, anioEspana, mesEspana } from '@/lib/anios';
+import { anioDeTexto, hoyIso } from '@/lib/anios';
+import { pago202APresentar } from '@/lib/aeatCalendar';
 import { useAniosEmpresa, useElegido } from '@/lib/useAniosEmpresa';
 import { CargandoModelo, ErrorModelo } from '../components/BorradorAeat';
 import { Declaraciones } from '../components/Declaraciones';
@@ -47,15 +48,6 @@ const PERIODOS: Array<[string, string]> = [
 ];
 const eur = (n: number) => formatoImporte(n, 'EUR');
 
-/** Periodo del 202 que toca según la fecha de España: abril (1P), octubre (2P) o diciembre (3P). */
-function periodoQueToca(ahora = new Date()): { ejercicio: number; periodo: string } {
-  const mes = mesEspana(ahora);
-  const ejercicio = anioEspana(ahora);
-  if (mes <= 4) return { ejercicio, periodo: '1P' };
-  if (mes <= 10) return { ejercicio, periodo: '2P' };
-  return { ejercicio, periodo: '3P' };
-}
-
 const IDENTIFICACION = ['tipoDeclaracion', 'nif', 'denominacion', 'territorioForal', 'ejercicio', 'periodo', 'fechaInicioPeriodo', 'cnae'];
 const MODALIDAD_A = ['modalidad', 'c01', 'c02', 'c03'];
 
@@ -68,13 +60,15 @@ export default function Modelo202Page() {
 }
 
 function Modelo202() {
-  // Periodo de la URL (?ejercicio=2027&periodo=1P) o el que toca ahora. Años: los de la empresa hasta el actual.
+  // Periodo de la URL (?ejercicio=2027&periodo=1P) o el que toca ahora. Años: los de la empresa hasta el actual (y el del pago que toca).
   const sp = useSearchParams();
   const aniosEmpresa = useAniosEmpresa();
   const periodoUrl = PERIODOS.some(([k]) => k === sp?.get('periodo')) ? (sp?.get('periodo') as string) : null;
-  const [ejercicio, setEjercicio] = useElegido(anioDeTexto(sp?.get('ejercicio')), periodoQueToca().ejercicio);
-  const [periodo, setPeriodo] = useElegido(periodoUrl, periodoQueToca().periodo);
-  const anios = aniosEmpresa.aniosModelos([ejercicio]);
+  // El pago cuyo plazo no ha vencido, nunca antes del primer año de la empresa.
+  const queToca = pago202APresentar(hoyIso(), aniosEmpresa.primeroReal);
+  const [ejercicio, setEjercicio] = useElegido(anioDeTexto(sp?.get('ejercicio')), queToca.ejercicio);
+  const [periodo, setPeriodo] = useElegido(periodoUrl, queToca.periodo);
+  const anios = aniosEmpresa.aniosModelos([ejercicio, queToca.ejercicio]);
   const [b, setB] = useState<Borrador202 | null>(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');

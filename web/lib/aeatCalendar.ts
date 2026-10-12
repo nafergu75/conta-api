@@ -202,3 +202,19 @@ export function ejercicioAnualAPresentar(hoy: string = hoyIso(), primero?: numbe
   const r = anio - 1;
   return primero !== undefined && r < primero ? primero : r;
 }
+
+/**
+ * Pago fraccionado del 202 que toca: el primero cuyo plazo (20 de abril, de
+ * octubre o de diciembre, pasado al día hábil) no ha vencido. Del 21 de
+ * diciembre en adelante, el 1P del año siguiente. Nunca antes de `primero`: una
+ * empresa que empieza en 2027 abre el 1P de 2027.
+ */
+export function pago202APresentar(hoy: string = hoyIso(), primero?: number): { ejercicio: number; periodo: '1P' | '2P' | '3P' } {
+  const anio = Math.max(Number(hoy.slice(0, 4)), primero ?? 0);
+  for (const ejercicio of [anio, anio + 1]) {
+    for (const [periodo, mes] of [['1P', '04'], ['2P', '10'], ['3P', '12']] as const) {
+      if (plazoAeat(`${ejercicio}-${mes}-20`) >= hoy) return { ejercicio, periodo };
+    }
+  }
+  return { ejercicio: anio + 1, periodo: '1P' };
+}
