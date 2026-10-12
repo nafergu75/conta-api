@@ -192,7 +192,7 @@ export default function BloqueRectificacion({ valor: e, onCambio, proveedorId, e
             ))}
           </select>
           {e.causa === 'ERROR_IVA' ? (
-            <p className="mt-1 text-xs text-violet-800">
+            <p className="mt-1 text-xs text-violet-700">
               {sustitucion
                 ? 'Cambia el tipo de IVA en la factura corregida (las líneas de abajo): la app registra solo la diferencia de IVA. La base no cambia.'
                 : 'La base no cambia: escribe la línea con el IVA equivocado y debajo la misma con el IVA correcto y el signo menos.'}
