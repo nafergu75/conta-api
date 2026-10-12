@@ -56,6 +56,12 @@ interface Factura {
   proformaId?: string;
   /** Proforma aceptada: la factura que se creo al pasarla a factura. */
   facturaGeneradaId?: string;
+  /** Rectificativas emitidas de esta factura. */
+  rectificadaPor?: Array<{ id: string; numeroCompleto: string | null; totalFactura: number; tipoRectificativa: string | null }>;
+  /** Sus rectificativas la dejan a cero: ya no se cobra ni se rectifica otra vez. */
+  anuladaPorCompleto?: boolean;
+  /** Asiento de la factura (no el de sus cobros); null si aún no tiene. */
+  asiento?: { id: string; numero: string | null; estado: string } | null;
   lineas: Linea[];
   /** Fecha de la operacion si es distinta de la de emision. */
   fechaOperacion?: string;
@@ -249,7 +255,18 @@ export default function FacturaDetallePage() {
   const esBorrador = factura.estadoDocumento === 'BORRADOR';
   const esFinal = factura.estadoDocumento === 'FINAL';
   const proformaPendiente = esProforma && factura.estado === 'PENDIENTE';
-  const cobro = ESTADO_COBRO[factura.estado];
+  const rectificadaPor = factura.rectificadaPor ?? [];
+  const anulada = esFinal && factura.anuladaPorCompleto === true;
+  // Una rectificativa en negativo no se cobra: resta de la factura que rectifica.
+  const abono = esFinal && factura.esRectificativa && factura.totalFactura < 0;
+  const cobro = anulada
+    ? {
+        texto: `Anulada con ${rectificadaPor.map((r) => r.numeroCompleto).filter(Boolean).join(', ') || 'su rectificativa'}`,
+        clase: 'bg-slate-100 text-slate-700 border-slate-300',
+      }
+    : abono
+      ? { texto: 'Abono', clase: 'bg-slate-100 text-slate-700 border-slate-300' }
+      : ESTADO_COBRO[factura.estado];
   const estadoProforma = ESTADO_PROFORMA[factura.estado];
   const listado = esProforma ? '/dashboard/proformas' : '/dashboard/facturas';
   const titulo = esProforma
@@ -429,9 +446,12 @@ export default function FacturaDetallePage() {
                 <Copy size={16} /> Duplicar
               </button>
             )}
-            <button type="button" disabled={ocupado} onClick={() => setRectificando(true)} className={boton}>
-              Hacer rectificativa
-            </button>
+            {/* Una rectificativa no se rectifica, y una factura ya anulada entera tampoco (el servidor da 400 o 409). */}
+            {!factura.esRectificativa && !anulada && (
+              <button type="button" disabled={ocupado} onClick={() => setRectificando(true)} className={boton}>
+                Hacer rectificativa
+              </button>
+            )}
           </>
         )}
       </div>
@@ -611,7 +631,23 @@ export default function FacturaDetallePage() {
         </section>
       </div>
 
-      {esFinal && factura.totalFactura > 0 && (
+      {esFinal && rectificadaPor.length > 0 && (
+        <p className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+          {anulada ? 'Anulada por completo con ' : 'Rectificada con '}
+          {rectificadaPor.map((r, i) => (
+            <span key={r.id}>
+              {i > 0 && ', '}
+              <Link href={`/dashboard/facturas/${r.id}`} className="font-semibold underline">
+                {r.numeroCompleto ?? 'su rectificativa'}
+              </Link>{' '}
+              ({fmtCuenta(r.totalFactura)})
+            </span>
+          ))}
+          .{anulada ? ' No hay nada que cobrar.' : ''}
+        </p>
+      )}
+
+      {esFinal && factura.totalFactura > 0 && !anulada && (
         <CobrosFactura
           tipo="INGRESO"
           facturaId={id}
@@ -630,13 +666,25 @@ export default function FacturaDetallePage() {
       {esFinal && (
         <section className="rounded-xl border border-blue-200 bg-blue-50 p-5">
           <h2 className="mb-1 font-semibold text-blue-900">Contabilidad</h2>
-          <p className="mb-3 text-sm text-blue-900/80">Al emitirla se contabiliza sola. Si no se pudo (por ejemplo, sin plan contable), hazlo aquí.</p>
-          <ContabilizarButton
-            invoiceId={id}
-            companyId={getCompanyId()}
-            tipo="INGRESO"
-            onSuccess={(journalId) => setTimeout(() => router.push(`/dashboard/motor-contable/${journalId}`), 1000)}
-          />
+          {factura.asiento ? (
+            <p className="text-sm text-blue-900">
+              Contabilizada con el asiento{' '}
+              <Link href={`/dashboard/motor-contable/${factura.asiento.id}`} className="font-semibold underline">
+                {factura.asiento.numero ?? 'de la factura'}
+              </Link>
+              {factura.asiento.estado !== 'POSTED' ? ' (pendiente de aprobar en el Motor contable)' : ''}.
+            </p>
+          ) : (
+            <>
+              <p className="mb-3 text-sm text-blue-900/80">Al emitirla se contabiliza sola. Si no se pudo (por ejemplo, sin plan contable), hazlo aquí.</p>
+              <ContabilizarButton
+                invoiceId={id}
+                companyId={getCompanyId()}
+                tipo="INGRESO"
+                onSuccess={(journalId) => setTimeout(() => router.push(`/dashboard/motor-contable/${journalId}`), 1000)}
+              />
+            </>
+          )}
         </section>
       )}
 
