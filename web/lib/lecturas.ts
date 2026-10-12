@@ -100,6 +100,8 @@ export interface IngresoExtraido {
   confianza: number;
   /** Problemas que impiden registrarla. */
   errores: string[];
+  /** Las lineas con que se registrara (una por tipo de IVA): la cuenta de cada una se puede cambiar. */
+  lineas?: Array<{ descripcion: string; base: number; tipoIva: number }>;
 }
 
 /** Base y cuota de cada tipo de IVA de una factura de gasto (una linea del formulario por tramo). */

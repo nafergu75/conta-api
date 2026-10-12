@@ -3,9 +3,11 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, CheckCircle, FileArrowUp, WarningCircle } from '@phosphor-icons/react';
-import { apiFetch, companyPath, errorMessage } from '@/lib/api';
+import { apiFetch, campoDelError, companyPath, errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import PanelLectura from '@/components/lector/PanelLectura';
+import { CuentaLinea } from '@/components/contabilidad/CuentaLinea';
+import { useCuentasLinea } from '@/lib/subcuentas';
 import {
   ALTA_MANUAL,
   anuncioLecturaTerminada,
@@ -16,6 +18,7 @@ import {
   euros,
   fechaLegible,
   leerFactura,
+  porcentaje,
   type IngresoExtraido,
   type InfoLectura,
 } from '@/lib/lecturas';
@@ -45,6 +48,9 @@ function Dato({ etiqueta, children, mono }: { etiqueta: string; children: React.
   );
 }
 
+/** Cuenta de ingresos de una linea sin cuenta propia: la que pone el servidor (700). */
+const POR_DEFECTO = { codigo: '700', texto: 'la de ventas' };
+
 const importe = (n: number | null) => (n === null || n === undefined || !Number.isFinite(Number(n)) ? 'sin leer' : euros(Number(n)));
 
 export default function LectorIngresosPage() {
@@ -63,6 +69,11 @@ export default function LectorIngresosPage() {
   const [guardando, setGuardando] = useState(false);
   const [errorGuardar, setErrorGuardar] = useState('');
   const [registrada, setRegistrada] = useState<Registrada | null>(null);
+  // «Cambiar cuenta»: la cuenta elegida para cada linea (null = la de por defecto) y la que rechazo el servidor.
+  const [cuentas, setCuentas] = useState<Array<string | null>>([]);
+  const [cuentaMal, setCuentaMal] = useState<number | null>(null);
+  const catalogo = useCuentasLinea('venta', !!ingreso);
+  const puedeCrearCuenta = tieneAlgunPermiso(getUser(), ['ventas:write', 'contabilidad:write']);
   const lecturaIdRef = useRef<string | null>(null);
   const cortarRef = useRef<AbortController | null>(null);
   const panelRef = useRef<HTMLElement>(null);
@@ -106,6 +117,8 @@ export default function LectorIngresosPage() {
     setInfo(null);
     setRevisado(false);
     setRegistrada(null);
+    setCuentas([]);
+    setCuentaMal(null);
     setError('');
     setErrorGuardar('');
     setAlternativa(null);
@@ -144,6 +157,8 @@ export default function LectorIngresosPage() {
       if (cortar.signal.aborted) return;
       setIngreso(r.ingreso);
       setInfo(r.lectura);
+      setCuentas((r.ingreso.lineas ?? []).map(() => null));
+      setCuentaMal(null);
     } catch (err) {
       if (esCancelada(err) || cortar.signal.aborted) return;
       setError(errorMessage(err));
@@ -160,15 +175,23 @@ export default function LectorIngresosPage() {
     if (!ingreso) return;
     setGuardando(true);
     setErrorGuardar('');
+    setCuentaMal(null);
     try {
-      // Solo el id: el servidor registra la factura con los datos que leyo.
+      // El id y la cuenta de cada linea: el servidor registra la factura con los datos que leyo.
       const r = await apiFetch<Registrada>(companyPath('/ingresos-extractor/confirmar'), {
         method: 'POST',
-        body: JSON.stringify({ documentId: ingreso.documentId, revisado }),
+        body: JSON.stringify({ documentId: ingreso.documentId, revisado, lineas: cuentas.map((cuenta) => ({ cuenta })) }),
       });
       setRegistrada(r);
     } catch (err) {
       setErrorGuardar(errorMessage(err));
+      // Una cuenta que el servidor no admite: se marca su linea y el foco va a su «Cambiar cuenta».
+      const m = /^lineas\.(\d+)\.cuenta$/.exec(campoDelError(err) ?? '');
+      if (m) {
+        const i = Number(m[1]);
+        setCuentaMal(i);
+        requestAnimationFrame(() => document.getElementById(`li-cuenta-${i}`)?.focus());
+      }
     } finally {
       setGuardando(false);
     }
@@ -348,15 +371,49 @@ export default function LectorIngresosPage() {
                   <Dato etiqueta="Número de factura">{ingreso.numeroFactura || 'sin leer'}</Dato>
                   <Dato etiqueta="Fecha">{ingreso.fecha ? fechaLegible(ingreso.fecha) : 'sin leer'}</Dato>
                   <Dato etiqueta="Concepto">{ingreso.concepto || 'sin leer'}</Dato>
-                  <Dato etiqueta="Cuenta de ventas" mono>
-                    {ingreso.cuentaContable || '700'}
-                  </Dato>
                   <Dato etiqueta="Base imponible">{importe(ingreso.base)}</Dato>
                   <Dato etiqueta="IVA">{importe(ingreso.iva)}</Dato>
                   {(ingreso.retencion ?? 0) > 0 && <Dato etiqueta="Retención de IRPF">− {importe(ingreso.retencion)}</Dato>}
                   <Dato etiqueta="Total">{importe(ingreso.total)}</Dato>
                 </dl>
               </div>
+
+              {/* Lineas con que se registrara, cada una con su cuenta de ingresos. */}
+              {(ingreso.lineas?.length ?? 0) > 0 && (
+                <div className="rounded-lg border border-slate-200 bg-white p-4">
+                  <h2 className="font-semibold text-slate-900">{ingreso.lineas!.length === 1 ? 'Línea de la factura' : 'Líneas de la factura'}</h2>
+                  <p className="mt-0.5 text-sm text-slate-600">
+                    {ingreso.lineas!.length === 1 ? 'Se registra' : 'Se registran'} con la cuenta de ventas. Si va a otra (por ejemplo, la 705 de servicios), cámbiala aquí.
+                  </p>
+                  <ul className="mt-3 flex flex-col divide-y divide-slate-100">
+                    {ingreso.lineas!.map((l, i) => (
+                      <li key={i} className="flex flex-col gap-1 py-3 first:pt-0 last:pb-0">
+                        <p className="flex flex-wrap items-baseline justify-between gap-x-3 text-sm">
+                          <span className="min-w-0 break-words text-slate-800">{l.descripcion}</span>
+                          <span className="font-mono text-slate-900">
+                            {euros(l.base)} <span className="font-sans text-slate-500">· {l.tipoIva === 0 ? 'exenta' : `IVA ${porcentaje(l.tipoIva)}`}</span>
+                          </span>
+                        </p>
+                        <CuentaLinea
+                          tipo="venta"
+                          catalogo={catalogo}
+                          valor={cuentas[i]}
+                          onCambiar={(codigo) => {
+                            setCuentas((cs) => cs.map((c, j) => (j === i ? codigo : c)));
+                            if (cuentaMal === i) setCuentaMal(null);
+                          }}
+                          porDefecto={POR_DEFECTO}
+                          linea={i + 1}
+                          id={`li-cuenta-${i}`}
+                          puedeCrear={puedeCrearCuenta}
+                          invalido={cuentaMal === i}
+                          disabled={guardando}
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
               {bloqueada && (
                 <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
@@ -382,7 +439,7 @@ export default function LectorIngresosPage() {
               {!bloqueada && info.requiereRevision && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
                   <p>
-                    Aquí no se pueden cambiar los datos. Si alguno está mal, no la registres desde el lector:{' '}
+                    Aquí solo se puede cambiar la cuenta de cada línea. Si algún otro dato está mal, no la registres desde el lector:{' '}
                     <Link href={ALTA_MANUAL.ventas.ruta} className="font-semibold underline">
                       {ALTA_MANUAL.ventas.texto}
                     </Link>
