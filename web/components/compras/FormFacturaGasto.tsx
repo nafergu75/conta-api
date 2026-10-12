@@ -145,6 +145,75 @@ const campoBase =
 const etiqueta = 'block text-sm font-medium text-slate-700 mb-1';
 const ayuda = 'mt-1 text-xs text-slate-500';
 
+/**
+ * Conceptos: se colocan segun el ancho del bloque, no el de la ventana (container
+ * queries de CSS, con variantes arbitrarias de Tailwind). El mismo formulario va
+ * en una columna estrecha (lector de gastos, movil) y a todo lo ancho (Compras >
+ * Nueva o Modificar):
+ *
+ * - Menos de 24rem: tarjeta con la descripcion a lo ancho y debajo, en dos
+ *   columnas, Cantidad y Precio; despues IVA e IRPF.
+ * - De 24rem a 46rem: tarjeta con Cantidad, Precio (sin IVA) e IVA en una fila.
+ *   El IRPF, si lo hay, debajo del IVA; desde 34rem, en la misma fila.
+ * - Desde 46rem: tabla, con una fila de cabeceras y columnas de ancho fijo para
+ *   que nada se solape; las etiquetas de cada campo siguen ahi para el lector
+ *   de pantalla.
+ *
+ * Anchos: la cantidad cabe con tres cifras y el IVA ensena «21 %» o «Exento» enteros.
+ * Las clases van escritas enteras para que Tailwind las encuentre.
+ */
+const CONCEPTOS = {
+  /** El bloque que se mide. */
+  contenedor: 'flex flex-col gap-3 [container-name:conceptos] [container-type:inline-size]',
+  sinIrpf: {
+    cabecera:
+      'hidden [@container_conceptos_(min-width:46rem)]:grid [@container_conceptos_(min-width:46rem)]:grid-cols-[minmax(0,1fr)_4.5rem_7rem_6.5rem_6.5rem_2.25rem]',
+    linea:
+      '[@container_conceptos_(min-width:24rem)_and_(max-width:45.99rem)]:grid-cols-[5rem_minmax(0,1fr)_7.5rem] [@container_conceptos_(min-width:46rem)]:grid-cols-[minmax(0,1fr)_4.5rem_7rem_6.5rem_6.5rem_2.25rem]',
+  },
+  conIrpf: {
+    cabecera:
+      'hidden [@container_conceptos_(min-width:46rem)]:grid [@container_conceptos_(min-width:46rem)]:grid-cols-[minmax(0,1fr)_4.5rem_7rem_6.5rem_5.5rem_6.5rem_2.25rem]',
+    linea:
+      '[@container_conceptos_(min-width:24rem)_and_(max-width:33.99rem)]:grid-cols-[5rem_minmax(0,1fr)_7.5rem] [@container_conceptos_(min-width:34rem)_and_(max-width:45.99rem)]:grid-cols-[5rem_minmax(0,1fr)_7.5rem_6.5rem] [@container_conceptos_(min-width:46rem)]:grid-cols-[minmax(0,1fr)_4.5rem_7rem_6.5rem_5.5rem_6.5rem_2.25rem]',
+  },
+  /** Tarjeta (estrecho) o fila de la tabla (ancho). */
+  fila:
+    'grid grid-cols-2 gap-3 rounded-lg border border-slate-200 p-3 [@container_conceptos_(min-width:46rem)]:items-center [@container_conceptos_(min-width:46rem)]:gap-x-3 [@container_conceptos_(min-width:46rem)]:gap-y-2 [@container_conceptos_(min-width:46rem)]:rounded-none [@container_conceptos_(min-width:46rem)]:border-0 [@container_conceptos_(min-width:46rem)]:border-b [@container_conceptos_(min-width:46rem)]:px-0 [@container_conceptos_(min-width:46rem)]:pt-0 [@container_conceptos_(min-width:46rem)]:pb-3',
+  /** Cabecera de la tabla: una celda (solo se ve en ancho). */
+  titulo: 'text-xs font-medium leading-tight text-slate-500',
+  /** Descripcion: a lo ancho en la tarjeta, primera columna en la tabla. */
+  descripcion: 'col-span-full [@container_conceptos_(min-width:46rem)]:col-span-1',
+  /** IRPF: en la tarjeta de tres columnas, debajo del IVA. */
+  irpf: '[@container_conceptos_(min-width:24rem)_and_(max-width:33.99rem)]:col-start-3',
+  /** Etiqueta de cada campo: visible en la tarjeta; en la tabla la sustituye la cabecera. */
+  etiqueta: 'block text-sm font-medium text-slate-700 mb-1 [@container_conceptos_(min-width:46rem)]:sr-only',
+  /** Base y papelera: una fila al pie de la tarjeta; en la tabla, dos columnas. */
+  pie: 'col-span-full flex items-center justify-between gap-2 [@container_conceptos_(min-width:46rem)]:contents',
+  base: 'text-sm text-slate-600 [@container_conceptos_(min-width:46rem)]:text-right [@container_conceptos_(min-width:46rem)]:font-mono',
+  palabraBase: '[@container_conceptos_(min-width:46rem)]:sr-only',
+  papelera:
+    'rounded-lg p-2 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-600 disabled:opacity-40 [@container_conceptos_(min-width:46rem)]:justify-self-end',
+};
+
+/**
+ * Pie del formulario (nota y botones): tambien segun el ancho del formulario.
+ * En estrecho la nota va encima y los botones debajo; en un movil, uno sobre
+ * otro y a todo lo ancho. Los botones no se parten en dos lineas. El margen de
+ * abajo deja sitio a los botones flotantes (Carmen y, en el movil, el menu) para
+ * que no tapen «Registrar factura» al llegar al final de la pagina.
+ */
+const PIE = {
+  formulario: 'flex flex-col gap-6 [container-name:fgform] [container-type:inline-size]',
+  pie: 'mb-12 flex flex-col gap-3 [@container_fgform_(min-width:40rem)]:flex-row [@container_fgform_(min-width:40rem)]:items-center [@container_fgform_(min-width:40rem)]:justify-end',
+  nota: 'min-w-0 text-sm text-slate-500 [@container_fgform_(min-width:40rem)]:mr-auto',
+  botones: 'flex flex-col-reverse gap-3 [@container_fgform_(min-width:22rem)]:flex-row [@container_fgform_(min-width:22rem)]:justify-end [@container_fgform_(min-width:40rem)]:shrink-0',
+  boton: 'whitespace-nowrap',
+};
+
+/** Texto del tipo de IVA en el desplegable: el 0 % es «Exento» (o «Sin IVA» si no lleva IVA español). */
+const textoTipoIva = (t: number, extranjero: boolean) => (t !== 0 ? `${t} %` : extranjero ? 'Sin IVA' : 'Exento');
+
 let siguienteClave = 1;
 const lineaVacia = (tipoIva = 21): LineaForm => ({ clave: siguienteClave++, descripcion: '', cantidad: '1', precio: '', descuento: 0, tipoIva, tipoRetencion: 0 });
 
@@ -447,39 +516,17 @@ export default function FormFacturaGasto({
 
   const textoBoton = modo === 'editar' ? 'Guardar cambios' : modo === 'lector' ? 'Registrar factura' : 'Guardar factura';
   /**
-   * Rejillas del formulario. En el lector ocupa media pantalla, pero las
-   * rejillas de siempre cambian con el ancho de la ventana: a 1280 px la fecha
-   * se cortaba y la cantidad de cada linea no se veia. Ahi va siempre en la
-   * disposicion estrecha (fechas en dos columnas, lineas apiladas).
+   * Rejillas de los datos de la factura. En el lector el formulario ocupa media
+   * pantalla, pero estas rejillas cambian con el ancho de la ventana: a 1280 px
+   * la fecha se cortaba. Ahi van siempre en dos columnas.
+   * (Los conceptos y el pie no dependen de esto: miran el ancho del propio
+   * formulario: ver CONCEPTOS y PIE, al principio del fichero.)
    */
   const R =
     modo === 'lector'
-      ? {
-          datos: 'grid grid-cols-1 gap-4 sm:grid-cols-2',
-          datosAncho: 'sm:col-span-2',
-          linea: 'grid grid-cols-2 gap-2 rounded-lg border border-slate-200 p-3',
-          descripcion: 'col-span-2',
-          estrecha: '',
-          media: '',
-          etiquetaOculta: '',
-          hueco: 'hidden',
-          pie: 'col-span-2 flex items-center justify-between gap-2',
-          base: 'text-sm text-slate-600',
-          cuenta: 'col-span-2',
-        }
-      : {
-          datos: 'grid grid-cols-1 gap-4 lg:grid-cols-3',
-          datosAncho: 'lg:col-span-3',
-          linea: 'grid grid-cols-2 gap-2 rounded-lg border border-slate-200 p-3 xl:grid-cols-12 xl:items-end xl:border-0 xl:p-0',
-          descripcion: 'col-span-2 xl:col-span-4',
-          estrecha: 'xl:col-span-1',
-          media: 'xl:col-span-2',
-          etiquetaOculta: 'xl:sr-only',
-          hueco: 'hidden xl:col-span-2 xl:block',
-          pie: 'col-span-2 flex items-center justify-between gap-2 xl:col-span-1 xl:justify-end',
-          base: 'text-sm text-slate-600 xl:hidden',
-          cuenta: 'col-span-2 xl:col-span-12',
-        };
+      ? { datos: 'grid grid-cols-1 gap-4 sm:grid-cols-2', datosAncho: 'sm:col-span-2' }
+      : { datos: 'grid grid-cols-1 gap-4 lg:grid-cols-3', datosAncho: 'lg:col-span-3' };
+  const L = conRetencion ? CONCEPTOS.conIrpf : CONCEPTOS.sinIrpf;
   const nota =
     modo === 'lector'
       ? 'Quedará pendiente de revisar: su asiento se aprueba en el Motor contable.'
@@ -488,7 +535,7 @@ export default function FormFacturaGasto({
         : null;
 
   return (
-    <form onSubmit={guardar} noValidate className="flex flex-col gap-6">
+    <form onSubmit={guardar} noValidate className={PIE.formulario}>
       {modo === 'lector' && marcas && Object.values(marcas).some(Boolean) && (
         <p id="fg-marcas-lector" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
           Los datos que el lector no ha podido confirmar van marcados en el formulario: en ámbar, los que conviene comprobar con la factura; en rojo, los que faltan o no
@@ -674,13 +721,23 @@ export default function FormFacturaGasto({
       {/* 3. Lineas */}
       <section className="rounded-xl border border-slate-200 bg-white p-4 md:p-6">
         <h2 className="mb-4 text-base font-semibold text-slate-900">Conceptos</h2>
-        <div className="flex flex-col gap-3">
+        <div className={CONCEPTOS.contenedor}>
+          {/* Cabeceras de la tabla (solo en ancho). Cada campo lleva ademas su etiqueta para el lector de pantalla. */}
+          <div aria-hidden="true" className={`${L.cabecera} items-end gap-x-3`}>
+            <span className={CONCEPTOS.titulo}>Descripción</span>
+            <span className={`${CONCEPTOS.titulo} text-right`}>Cantidad</span>
+            <span className={`${CONCEPTOS.titulo} text-right`}>Precio (sin IVA)</span>
+            <span className={CONCEPTOS.titulo}>IVA</span>
+            {conRetencion && <span className={CONCEPTOS.titulo}>IRPF</span>}
+            <span className={`${CONCEPTOS.titulo} text-right`}>Base</span>
+            <span />
+          </div>
           {lineas.map((l, i) => {
             const c = `lineas.${i}`;
             return (
-              <div key={l.clave} className={R.linea}>
-                <div className={R.descripcion}>
-                  <label htmlFor={`fg-desc-${l.clave}`} className={`${etiqueta} ${i > 0 ? R.etiquetaOculta : ''}`}>
+              <div key={l.clave} className={`${CONCEPTOS.fila} ${L.linea}`}>
+                <div className={CONCEPTOS.descripcion}>
+                  <label htmlFor={`fg-desc-${l.clave}`} className={CONCEPTOS.etiqueta}>
                     Descripción
                   </label>
                   <input
@@ -691,8 +748,8 @@ export default function FormFacturaGasto({
                     className={campoBase}
                   />
                 </div>
-                <div className={R.estrecha}>
-                  <label htmlFor={`fg-cant-${l.clave}`} className={`${etiqueta} ${i > 0 ? R.etiquetaOculta : ''}`}>
+                <div>
+                  <label htmlFor={`fg-cant-${l.clave}`} className={CONCEPTOS.etiqueta}>
                     Cantidad
                   </label>
                   <input
@@ -704,8 +761,8 @@ export default function FormFacturaGasto({
                     className={`${campoBase} text-right`}
                   />
                 </div>
-                <div className={R.media}>
-                  <label htmlFor={`fg-precio-${l.clave}`} className={`${etiqueta} ${i > 0 ? R.etiquetaOculta : ''}`}>
+                <div>
+                  <label htmlFor={`fg-precio-${l.clave}`} className={CONCEPTOS.etiqueta}>
                     Precio (sin IVA)
                   </label>
                   <input
@@ -718,8 +775,8 @@ export default function FormFacturaGasto({
                     className={`${campoBase} text-right`}
                   />
                 </div>
-                <div className={R.media}>
-                  <label htmlFor={`fg-iva-${l.clave}`} className={`${etiqueta} ${i > 0 ? R.etiquetaOculta : ''}`}>
+                <div>
+                  <label htmlFor={`fg-iva-${l.clave}`} className={CONCEPTOS.etiqueta}>
                     IVA
                   </label>
                   <select
@@ -732,14 +789,14 @@ export default function FormFacturaGasto({
                   >
                     {TIPOS_IVA_GASTO.map((t) => (
                       <option key={t} value={t}>
-                        {t} %
+                        {textoTipoIva(t, extranjero)}
                       </option>
                     ))}
                   </select>
                 </div>
-                {conRetencion ? (
-                  <div className={R.media}>
-                    <label htmlFor={`fg-irpf-${l.clave}`} className={`${etiqueta} ${i > 0 ? R.etiquetaOculta : ''}`}>
+                {conRetencion && (
+                  <div className={CONCEPTOS.irpf}>
+                    <label htmlFor={`fg-irpf-${l.clave}`} className={CONCEPTOS.etiqueta}>
                       IRPF
                     </label>
                     <select
@@ -759,25 +816,24 @@ export default function FormFacturaGasto({
                       )}
                     </select>
                   </div>
-                ) : (
-                  <div className={R.hueco} />
                 )}
-                <div className={R.pie}>
-                  <span className={R.base}>
-                    Base {fmt(Number.isFinite(valores[i].cantidad) && Number.isFinite(valores[i].precioUnitario) ? calcularTotales([valores[i]]).base : 0)}
+                <div className={CONCEPTOS.pie}>
+                  <span className={CONCEPTOS.base}>
+                    <span className={CONCEPTOS.palabraBase}>Base </span>
+                    {fmt(Number.isFinite(valores[i].cantidad) && Number.isFinite(valores[i].precioUnitario) ? calcularTotales([valores[i]]).base : 0)}
                   </span>
                   <button
                     type="button"
                     onClick={() => setLineas((ls) => (ls.length > 1 ? ls.filter((x) => x.clave !== l.clave) : ls))}
                     disabled={lineas.length === 1}
-                    className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40"
+                    className={CONCEPTOS.papelera}
                     aria-label={`Quitar la línea ${i + 1}`}
                     title="Quitar la línea"
                   >
                     <Trash size={18} />
                   </button>
                 </div>
-                <div className={R.cuenta}>
+                <div className="col-span-full">
                   <CuentaLinea
                     tipo="gasto"
                     catalogo={catalogo}
@@ -905,20 +961,26 @@ export default function FormFacturaGasto({
       )}
       {bloqueado && <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{bloqueado}</p>}
 
-      <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-end">
-        {nota && <p className="text-sm text-slate-500 sm:mr-auto">{nota}</p>}
-        {onCancelar && (
-          <button type="button" onClick={onCancelar} className="rounded-lg border border-slate-300 px-4 py-2.5 font-semibold text-slate-700 transition-colors hover:bg-slate-50">
-            Cancelar
+      <div className={PIE.pie}>
+        {nota && <p className={PIE.nota}>{nota}</p>}
+        <div className={PIE.botones}>
+          {onCancelar && (
+            <button
+              type="button"
+              onClick={onCancelar}
+              className={`${PIE.boton} rounded-lg border border-slate-300 px-4 py-2.5 font-semibold text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-600`}
+            >
+              Cancelar
+            </button>
+          )}
+          <button
+            type="submit"
+            disabled={guardando || !!bloqueado}
+            className={`${PIE.boton} rounded-lg bg-accent-600 px-5 py-2.5 font-semibold text-white transition-all hover:bg-accent-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-600 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-black active:scale-[0.98] disabled:pointer-events-none disabled:opacity-60`}
+          >
+            {guardando ? 'Guardando...' : textoBoton}
           </button>
-        )}
-        <button
-          type="submit"
-          disabled={guardando || !!bloqueado}
-          className="rounded-lg bg-accent-600 px-5 py-2.5 font-semibold text-white transition-all hover:bg-accent-700 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-60"
-        >
-          {guardando ? 'Guardando...' : textoBoton}
-        </button>
+        </div>
       </div>
     </form>
   );
