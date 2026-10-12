@@ -407,14 +407,14 @@ export default function LectorGastosPage() {
                           Los importes vienen en positivo: elige si la rectificativa es por diferencias (trae solo lo que cambia) o por sustitución (trae la factura corregida entera).
                         </p>
                       )}
-                      <button type="button" onClick={() => setComoAbono(false)} className="font-semibold text-blue-600 hover:underline">
+                      <button type="button" onClick={() => setComoAbono(false)} className="text-left font-semibold text-blue-600 hover:underline">
                         No es una rectificativa: registrarla como factura normal
                       </button>
                     </>
                   ) : (
                     <>
                       <p>Se registrará como una factura normal, no como abono. Queda anotado que lo has indicado tú.</p>
-                      <button type="button" onClick={() => setComoAbono(true)} className="font-semibold text-blue-600 hover:underline">
+                      <button type="button" onClick={() => setComoAbono(true)} className="text-left font-semibold text-blue-600 hover:underline">
                         Volver a registrarla como abono
                       </button>
                     </>
