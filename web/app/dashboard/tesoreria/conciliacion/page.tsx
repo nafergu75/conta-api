@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
+import { ANIO_GESTORIA, partidasApi, type PartidaVista } from '@/lib/arranque';
 import { TablaMovimientos } from '../components/TablaMovimientos';
 
 interface CuentaBancaria {
@@ -39,6 +40,8 @@ function ConciliacionPageInner() {
     tipoOrigen: 'factura_ingreso',
     origenId: '',
   });
+  /** Facturas de 2026 que la gestoría dejó pendientes (partidas), para casar el movimiento con una. */
+  const [partidas, setPartidas] = useState<PartidaVista[] | null>(null);
 
   useEffect(() => {
     fetchCuentas();
@@ -85,6 +88,12 @@ function ConciliacionPageInner() {
     if (mov) {
       setModalMovimiento(mov);
       setReconciliando(movimientoId);
+      // Las de cobro para un abono y las de pago para un cargo (sin las de 2026, si la empresa no tiene, la opción no sale).
+      setPartidas(null);
+      partidasApi
+        .listar({ tipo: mov.importe > 0 ? 'COBRO' : 'PAGO', estado: 'ABIERTAS' })
+        .then((r) => setPartidas(r.partidas))
+        .catch(() => setPartidas([]));
     }
   };
 
@@ -93,13 +102,18 @@ function ConciliacionPageInner() {
 
     setErrorConciliacion('');
     try {
-      await apiFetch(companyPath(`/treasury/movements/${reconciliando}/reconcile`), {
-        method: 'POST',
-        body: JSON.stringify({
-          tipoOrigen: formReconciliacion.tipoOrigen,
-          origenId: formReconciliacion.origenId,
-        }),
-      });
+      if (formReconciliacion.tipoOrigen === 'partida_2026') {
+        // Cobro o pago de una factura de 2026 que dejó pendiente la gestoría.
+        await partidasApi.conciliar(reconciliando, formReconciliacion.origenId);
+      } else {
+        await apiFetch(companyPath(`/treasury/movements/${reconciliando}/reconcile`), {
+          method: 'POST',
+          body: JSON.stringify({
+            tipoOrigen: formReconciliacion.tipoOrigen,
+            origenId: formReconciliacion.origenId,
+          }),
+        });
+      }
       setReconciliando(null);
       setModalMovimiento(null);
       setFormReconciliacion({ tipoOrigen: 'factura_ingreso', origenId: '' });
@@ -230,16 +244,38 @@ function ConciliacionPageInner() {
                 <select
                   value={formReconciliacion.tipoOrigen}
                   onChange={(e) =>
-                    setFormReconciliacion({ ...formReconciliacion, tipoOrigen: e.target.value })
+                    setFormReconciliacion({ ...formReconciliacion, tipoOrigen: e.target.value, origenId: '' })
                   }
                   className="block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
                 >
                   <option value="factura_ingreso">Factura de ingreso (cobro)</option>
+                  {partidas && partidas.length > 0 && <option value="partida_2026">Factura de {ANIO_GESTORIA} pendiente (de la gestoría)</option>}
                   <option value="factura_gasto" disabled>Factura de gasto (aún no disponible)</option>
                   <option value="asiento" disabled>Asiento contable (aún no disponible)</option>
                 </select>
               </div>
 
+              {formReconciliacion.tipoOrigen === 'partida_2026' ? (
+              <div>
+                <label htmlFor="conc-partida" className="block text-sm font-medium text-slate-700 mb-2">
+                  Factura de {ANIO_GESTORIA}
+                </label>
+                <select
+                  id="conc-partida"
+                  value={formReconciliacion.origenId}
+                  onChange={(e) => setFormReconciliacion({ ...formReconciliacion, origenId: e.target.value })}
+                  className="block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                >
+                  <option value="">Elige la factura…</option>
+                  {(partidas ?? []).map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.tercero || p.subcuenta} · {p.sinDetalle ? 'saldo sin detalle' : p.numeroDocumento} · queda {eur.format(p.pendiente)}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-slate-500">Se apunta como cobro o pago de esa factura, con la fecha y el importe del movimiento.</p>
+              </div>
+              ) : (
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">
                   ID de la factura
@@ -254,6 +290,7 @@ function ConciliacionPageInner() {
                   className="block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
                 />
               </div>
+              )}
             </div>
 
             {errorConciliacion && (
