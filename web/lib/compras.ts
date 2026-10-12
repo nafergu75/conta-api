@@ -265,11 +265,8 @@ export function fechaCorta(iso: string | null | undefined): string {
   return m ? `${m[3]}/${m[2]}/${m[1]}` : '';
 }
 
-/** Hoy en la hora del navegador, como AAAA-MM-DD. */
-export function hoyIso(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
+/** Hoy en España, como AAAA-MM-DD (la regla común de lib/anios). */
+export { hoyIso } from './anios';
 
 /** Suma dias a una fecha AAAA-MM-DD (en UTC, sin cambios de hora). '' si no es una fecha. */
 export function sumarDias(iso: string, dias: number): string {
