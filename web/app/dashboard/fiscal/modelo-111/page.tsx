@@ -2,15 +2,16 @@
 
 import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
-import { trimestreAPresentar, ejerciciosSeleccionables } from '@/lib/aeatCalendar';
 import { CaretLeft } from '@phosphor-icons/react';
+import SelectorAnio from '@/components/SelectorAnio';
+import { usePeriodoTrimestral } from '../components/periodoModelo';
+import { CargandoModelo, ErrorModelo } from '../components/BorradorAeat';
 import { FormularioRetenciones, type FormularioRetencionesDatos } from '../components/FormularioRetenciones';
 import { Declaraciones } from '../components/Declaraciones';
 import { Tooltip } from '../components/Tooltip';
 import { AvisosModelo } from '../components/AvisosModelo';
-import { mesFinalPeriodo, normalizarPeriodo, SelectorPeriodoRetenciones } from '../components/SelectorPeriodoRetenciones';
+import { mesFinalPeriodo, SelectorPeriodoRetenciones } from '../components/SelectorPeriodoRetenciones';
 import { formatoImporte } from '@/lib/moneda';
 
 interface Modelo111 {
@@ -40,19 +41,16 @@ export default function Modelo111Page() {
 }
 
 function Modelo111Contenido() {
-  const params = useSearchParams();
   const [modelo, setModelo] = useState<Modelo111 | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [recarga, setRecarga] = useState(0);
-  // Se abre en el periodo de la URL (desde Nominas) o en el trimestre que toca presentar (en octubre, el 3T).
-  const [ejercicio, setEjercicio] = useState(() => Number(params.get('ejercicio')) || trimestreAPresentar().ejercicio);
-  const [periodo, setPeriodo] = useState(() => {
-    const t = Number(params.get('trimestre'));
-    return normalizarPeriodo(params.get('periodo')) ?? (t >= 1 && t <= 4 ? `${t}T` : `${trimestreAPresentar().trimestre}T`);
-  });
+  // Se abre en el periodo de la URL (desde Nominas) o en el trimestre que toca presentar (en octubre, el 3T),
+  // nunca antes del primer año de la empresa en la app.
+  const { ejercicio, setEjercicio, periodo, setPeriodo, anios, listo } = usePeriodoTrimestral();
 
   useEffect(() => {
+    if (!listo) return;
     const fetchModelo = async () => {
       try {
         setLoading(true);
@@ -66,65 +64,43 @@ function Modelo111Contenido() {
     };
 
     fetchModelo();
-  }, [ejercicio, periodo, recarga]);
+  }, [listo, ejercicio, periodo, recarga]);
 
   const eur = { format: (n: number) => formatoImporte(n, 'EUR') };
 
-  if (loading) {
-    return (
-      <div className="space-y-4">
-        <div className="h-10 w-32 animate-pulse rounded-lg bg-slate-200" />
-        <div className="h-96 animate-pulse rounded-lg bg-slate-200" />
-      </div>
-    );
-  }
+  const cabecera = (
+    <div>
+      <Link href="/dashboard/fiscal" className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700 mb-4">
+        <CaretLeft size={20} />
+        Volver a Fiscal
+      </Link>
+      <h1 className="text-3xl font-bold text-slate-900">Modelo 111 – Retenciones e Ingresos a Cuenta</h1>
+      <p className="mt-2 text-slate-600">Resumen de retenciones practicadas en el período</p>
+    </div>
+  );
 
-  if (error || !modelo) {
+  // Periodo siempre a la vista: si el modelo da error, se puede elegir otro.
+  const selectorPeriodo = (
+    <div className="flex flex-wrap gap-4 rounded-lg border border-slate-200 bg-white p-4">
+      <SelectorAnio id="m111-ej" valor={ejercicio} anios={anios} onChange={(a) => a !== null && setEjercicio(a)} />
+      <SelectorPeriodoRetenciones id="m111-periodo" valor={periodo} onChange={setPeriodo} />
+    </div>
+  );
+
+  if (loading || error || !modelo) {
     return (
-      <div className="space-y-4">
-        <Link href="/dashboard/fiscal" className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700">
-          <CaretLeft size={20} />
-          Volver a Fiscal
-        </Link>
-        <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center">
-          <p className="text-red-800">{error || 'Modelo no encontrado'}</p>
-        </div>
+      <div className="space-y-6">
+        {cabecera}
+        {selectorPeriodo}
+        {error ? <ErrorModelo mensaje={error} /> : <CargandoModelo />}
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <Link href="/dashboard/fiscal" className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700 mb-4">
-          <CaretLeft size={20} />
-          Volver a Fiscal
-        </Link>
-        <h1 className="text-3xl font-bold text-slate-900">Modelo 111 – Retenciones e Ingresos a Cuenta</h1>
-        <p className="mt-2 text-slate-600">Resumen de retenciones practicadas en el período</p>
-      </div>
-
-      {/* Período Selector */}
-      <div className="flex flex-wrap gap-4 rounded-lg border border-slate-200 bg-white p-4">
-        <div>
-          <label htmlFor="m111-ej" className="block text-sm font-medium text-slate-700">Ejercicio</label>
-          <select
-            id="m111-ej"
-            value={ejercicio}
-            onChange={(e) => setEjercicio(parseInt(e.target.value))}
-            className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          >
-            {ejerciciosSeleccionables().map((year) => (
-              <option key={year} value={year}>
-                {year}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <SelectorPeriodoRetenciones id="m111-periodo" valor={periodo} onChange={setPeriodo} />
-      </div>
+      {cabecera}
+      {selectorPeriodo}
 
       <AvisosModelo avisos={modelo.avisos} ejercicio={modelo.ejercicio} mes={mesFinalPeriodo(modelo.periodo ?? periodo)} />
 

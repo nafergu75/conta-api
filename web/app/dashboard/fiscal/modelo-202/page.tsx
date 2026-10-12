@@ -1,11 +1,17 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { CaretLeft } from '@phosphor-icons/react';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { formatoImporte } from '@/lib/moneda';
-import { AvisosBorrador, CamposRegistro, DescargarFichero, ESTADO_MODELO, Seccion, ejerciciosBorrador, type CampoLeido } from '../components/RegistroAeat';
+import { AvisosBorrador, CamposRegistro, DescargarFichero, ESTADO_MODELO, Seccion, type CampoLeido } from '../components/RegistroAeat';
+import SelectorAnio from '@/components/SelectorAnio';
+import { anioDeTexto, hoyIso } from '@/lib/anios';
+import { pago202APresentar } from '@/lib/aeatCalendar';
+import { useAniosEmpresa, useElegido } from '@/lib/useAniosEmpresa';
+import { CargandoModelo, ErrorModelo } from '../components/BorradorAeat';
 import { Declaraciones } from '../components/Declaraciones';
 
 /**
@@ -42,20 +48,32 @@ const PERIODOS: Array<[string, string]> = [
 ];
 const eur = (n: number) => formatoImporte(n, 'EUR');
 
-/** Periodo del 202 que toca según la fecha: abril (1P), octubre (2P) o diciembre (3P). */
-function periodoQueToca(hoy = new Date()): { ejercicio: number; periodo: string } {
-  const mes = hoy.getMonth() + 1;
-  if (mes <= 4) return { ejercicio: hoy.getFullYear(), periodo: '1P' };
-  if (mes <= 10) return { ejercicio: hoy.getFullYear(), periodo: '2P' };
-  return { ejercicio: hoy.getFullYear(), periodo: '3P' };
-}
-
 const IDENTIFICACION = ['tipoDeclaracion', 'nif', 'denominacion', 'territorioForal', 'ejercicio', 'periodo', 'fechaInicioPeriodo', 'cnae'];
 const MODALIDAD_A = ['modalidad', 'c01', 'c02', 'c03'];
 
 export default function Modelo202Page() {
-  const [ejercicio, setEjercicio] = useState(() => periodoQueToca().ejercicio);
-  const [periodo, setPeriodo] = useState(() => periodoQueToca().periodo);
+  return (
+    <Suspense fallback={<CargandoModelo />}>
+      <Modelo202 />
+    </Suspense>
+  );
+}
+
+function Modelo202() {
+  // Periodo de la URL (?ejercicio=2027&periodo=1P) o el que toca ahora. Años: los de la empresa hasta el actual (y el del pago que toca).
+  const sp = useSearchParams();
+  const aniosEmpresa = useAniosEmpresa();
+  const periodoUrl = PERIODOS.some(([k]) => k === sp?.get('periodo')) ? (sp?.get('periodo') as string) : null;
+  // El pago cuyo plazo no ha vencido, nunca antes del primer año de la empresa.
+  const queToca = pago202APresentar(hoyIso(), aniosEmpresa.primeroReal);
+  const [ejercicio, elegirEjercicio] = useElegido(anioDeTexto(sp?.get('ejercicio')), queToca.ejercicio, 'ejercicio');
+  const [periodo, setPeriodo, periodoElegido] = useElegido(periodoUrl, queToca.periodo, 'periodo');
+  // Al cambiar de año se queda el mismo pago.
+  const setEjercicio = (e: number) => {
+    if (!periodoElegido) setPeriodo(periodo);
+    elegirEjercicio(e);
+  };
+  const anios = aniosEmpresa.aniosModelos([ejercicio, queToca.ejercicio]);
   const [b, setB] = useState<Borrador202 | null>(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
@@ -65,6 +83,7 @@ export default function Modelo202Page() {
   const [mensaje, setMensaje] = useState('');
 
   useEffect(() => {
+    if (!aniosEmpresa.listo) return;
     let vivo = true;
     setCargando(true);
     setError('');
@@ -80,7 +99,7 @@ export default function Modelo202Page() {
     return () => {
       vivo = false;
     };
-  }, [ejercicio, periodo, recarga]);
+  }, [aniosEmpresa.listo, ejercicio, periodo, recarga]);
 
   const importe = (texto: string): number | null => {
     // "12.345,67" (con coma decimal) o "12345.67".
@@ -143,18 +162,7 @@ export default function Modelo202Page() {
       </div>
 
       <div className="flex flex-wrap gap-4 rounded-lg border border-slate-200 bg-white p-4">
-        <div>
-          <label htmlFor="m202-ej" className="block text-sm font-medium text-slate-700">
-            Ejercicio
-          </label>
-          <select id="m202-ej" value={ejercicio} onChange={(e) => setEjercicio(parseInt(e.target.value))} className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm">
-            {ejerciciosBorrador().map((y) => (
-              <option key={y} value={y}>
-                {y}
-              </option>
-            ))}
-          </select>
-        </div>
+        <SelectorAnio id="m202-ej" valor={ejercicio} anios={anios} onChange={(a) => a !== null && setEjercicio(a)} />
         <div>
           <label htmlFor="m202-pe" className="block text-sm font-medium text-slate-700">
             Periodo
@@ -170,11 +178,9 @@ export default function Modelo202Page() {
       </div>
 
       {cargando && !b ? (
-        <div className="h-96 animate-pulse rounded-lg bg-slate-200" />
+        <CargandoModelo />
       ) : error ? (
-        <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-6 text-center text-red-800">
-          {error}
-        </div>
+        <ErrorModelo mensaje={error} />
       ) : (
         b && (
           <div className={`space-y-6 ${cargando ? 'opacity-60' : ''}`}>

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { X } from '@phosphor-icons/react';
 import { getToken, getCompanyId } from '@/lib/auth';
+import { hoyIso } from '@/lib/anios';
 
 const API = '/api/conta';
 
@@ -34,7 +35,7 @@ export default function NewMovementModal({
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('ventas');
   const [description, setDescription] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(hoyIso());
   const [referenceDocument, setReferenceDocument] = useState('');
   const [status, setStatus] = useState('draft');
   const [saving, setSaving] = useState(false);

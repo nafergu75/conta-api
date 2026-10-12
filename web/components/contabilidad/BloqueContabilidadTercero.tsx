@@ -7,6 +7,7 @@ import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { enlaceLibroMayor, enlaceMayorTerceros, type TipoFicha } from '@/lib/subcuentas';
 import { importe } from '@/app/dashboard/informes/TablaInforme';
+import { hoyIso } from '@/lib/anios';
 
 /**
  * Bloque «Contabilidad» de la ficha de un cliente o proveedor: su subcuenta
@@ -22,6 +23,8 @@ interface Props {
   subcuentas: Array<{ codigo: string | null | undefined; etiqueta?: string }>;
   /** Las que ya estan en el plan contable (las demas aun no tienen movimientos). */
   subcuentasEnPlan?: string[];
+  /** Año elegido en la ficha: los enlaces al mayor se abren en él (null o sin dar: el actual). */
+  ejercicio?: number | null;
 }
 
 interface Detalle {
@@ -29,12 +32,8 @@ interface Detalle {
   totalPendiente: number;
 }
 
-const hoyIso = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-};
 
-export function BloqueContabilidadTercero({ tipo, id, subcuentas, subcuentasEnPlan }: Props) {
+export function BloqueContabilidadTercero({ tipo, id, subcuentas, subcuentasEnPlan, ejercicio }: Props) {
   const [veContabilidad, setVeContabilidad] = useState(false);
   const [detalle, setDetalle] = useState<Detalle | null>(null);
   const [error, setError] = useState('');
@@ -133,10 +132,10 @@ export function BloqueContabilidadTercero({ tipo, id, subcuentas, subcuentasEnPl
 
       {veContabilidad ? (
         <div className="mt-4 flex flex-col gap-2 text-sm sm:flex-row sm:flex-wrap sm:gap-x-5">
-          <Link href={enlaceLibroMayor(tipo, id)} className="inline-flex min-h-[44px] items-center gap-1 font-medium text-emerald-700 hover:underline sm:min-h-0">
+          <Link href={enlaceLibroMayor(tipo, id, ejercicio)} className="inline-flex min-h-[44px] items-center gap-1 font-medium text-emerald-700 hover:underline sm:min-h-0">
             {conCodigo.length > 1 ? 'Ver el mayor de sus subcuentas' : 'Ver el mayor de su subcuenta'} <ArrowRight size={14} />
           </Link>
-          <Link href={enlaceMayorTerceros(tipo, id)} className="inline-flex min-h-[44px] items-center gap-1 font-medium text-emerald-700 hover:underline sm:min-h-0">
+          <Link href={enlaceMayorTerceros(tipo, id, ejercicio)} className="inline-flex min-h-[44px] items-center gap-1 font-medium text-emerald-700 hover:underline sm:min-h-0">
             Ver en el mayor de {tipo === 'cliente' ? 'clientes' : 'proveedores'} <ArrowRight size={14} />
           </Link>
         </div>

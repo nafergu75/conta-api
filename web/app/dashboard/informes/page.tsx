@@ -8,6 +8,9 @@ import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { TablaInforme, type Tabla } from './TablaInforme';
 import { BuscadorTercero } from '@/components/contabilidad/BuscadorTercero';
 import { BuscadorCuenta } from '@/components/contabilidad/BuscadorCuenta';
+import SelectorAnio from '@/components/SelectorAnio';
+import { anioDeTexto, anioEspana, rangoAnios } from '@/lib/anios';
+import { ponerEnUrl } from '@/lib/urlEstado';
 
 /**
  * Informes contables de cualquier ejercicio (tambien los ya cerrados), en
@@ -132,11 +135,13 @@ function InformesContables() {
   const claveMayorUrl = mayorUrl ? JSON.stringify([mayorUrl.tercero?.id, mayorUrl.tercero?.tipo, mayorUrl.cuentaDesde, mayorUrl.cuentaHasta]) : '';
   const mayorVisto = useRef(claveMayorUrl);
   const router = useRouter();
-  const anioActual = new Date().getFullYear();
+  // Año en curso en España; el de la URL (?ejercicio=2026), si viene, manda.
+  const anioActual = anioEspana();
+  const ejercicioUrl = anioDeTexto(sp?.get('ejercicio'));
   const [ejercicios, setEjercicios] = useState<number[]>([anioActual]);
   const [form, setForm] = useState<Consulta>({
     tipo: 'balance',
-    ejercicio: anioActual,
+    ejercicio: ejercicioUrl ?? anioActual,
     desde: '',
     hasta: '',
     nivel: 'subcuenta',
@@ -155,21 +160,24 @@ function InformesContables() {
   const [descargando, setDescargando] = useState<'' | 'pdf' | 'xlsx'>('');
   const [error, setError] = useState('');
 
-  // Ejercicios con asientos y, si se llega con un enlace, el informe pedido (?tipo=pyg).
+  // Ejercicios del servidor (con asientos, dados de alta, el actual y el siguiente) y, si se llega
+  // con un enlace, el informe pedido (?tipo=pyg). Se abre en el año en curso, no en el siguiente.
   useEffect(() => {
     const inicial = tipoVisto.current ?? (mayorUrl ? 'mayor' : 'balance');
     const delEnlace = mayorUrl ?? {};
+    const elegido = ejercicioUrl ?? anioActual;
     apiFetch<number[]>(companyPath('/informes-contables/ejercicios'))
       .then((lista) => {
-        const anios = lista.length ? lista : [anioActual];
-        setEjercicios(anios);
-        const c = { ...form, ...delEnlace, tipo: inicial, ejercicio: anios[0] };
+        setEjercicios(rangoAnios({ primero: anioActual, actual: anioActual, incluir: lista }));
+        const c = { ...form, ...delEnlace, tipo: inicial, ejercicio: elegido };
         setForm(c);
         setAplicada(c);
       })
       .catch((e) => {
         setError(errorMessage(e));
-        const c = { ...form, ...delEnlace, tipo: inicial };
+        // Sin la lista del servidor, la de respaldo: de actual − 4 a actual + 1.
+        setEjercicios(rangoAnios({ primero: anioActual - 4, actual: anioActual }));
+        const c = { ...form, ...delEnlace, tipo: inicial, ejercicio: elegido };
         setForm(c);
         setAplicada(c);
       });
@@ -277,7 +285,7 @@ function InformesContables() {
             onClick={() => {
               // La URL sigue al informe elegido: un enlace posterior a ?tipo=... siempre es un cambio.
               tipoVisto.current = i.id;
-              router.replace(`/dashboard/informes?tipo=${i.id}`, { scroll: false });
+              router.replace(`/dashboard/informes?tipo=${i.id}&ejercicio=${form.ejercicio}`, { scroll: false });
               cambiarYAplicar({ tipo: i.id });
             }}
             className={`-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium sm:px-4 ${form.tipo === i.id ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
@@ -295,12 +303,19 @@ function InformesContables() {
         className="grid grid-cols-2 gap-3 rounded-lg border border-slate-200 bg-white p-4 sm:flex sm:flex-wrap sm:items-end"
       >
         <div className="col-span-2 sm:col-span-1 sm:w-32">
-          <label htmlFor="inf-ej" className="block text-xs font-medium text-slate-600">Ejercicio</label>
-          <select id="inf-ej" value={form.ejercicio} onChange={(e) => cambiarYAplicar({ ejercicio: Number(e.target.value) })} className={campo}>
-            {ejercicios.map((a) => (
-              <option key={a} value={a}>{a}</option>
-            ))}
-          </select>
+          <SelectorAnio
+            id="inf-ej"
+            valor={form.ejercicio}
+            anios={ejercicios}
+            onChange={(a) => {
+              if (a === null) return;
+              // El año va a la URL: al volver atrás, el informe sigue en él.
+              ponerEnUrl({ ejercicio: a });
+              cambiarYAplicar({ ejercicio: a });
+            }}
+            className={campo}
+            claseEtiqueta="block text-xs font-medium text-slate-600"
+          />
         </div>
         {form.tipo !== 'balance' && (
           <div className="sm:w-40">

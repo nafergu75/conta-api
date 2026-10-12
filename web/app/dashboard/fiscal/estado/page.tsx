@@ -1,305 +1,302 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { apiFetch, companyPath, errorMessage } from '@/lib/api';
-import { ejerciciosSeleccionables } from '@/lib/aeatCalendar';
-import { CheckCircle, Clock, WarningCircle, ArrowRight, Calendar, MagnifyingGlass, X } from '@phosphor-icons/react';
+import { useSearchParams } from 'next/navigation';
+import { Calendar, CheckCircle, Clock, WarningCircle } from '@phosphor-icons/react';
+import { ApiError, apiFetch, companyPath, errorMessage } from '@/lib/api';
+import { getUser, tieneAlgunPermiso } from '@/lib/auth';
+import { anioDeTexto, hoyIso } from '@/lib/anios';
+import { enlaceModelo, textoPeriodoModelo, trimestreAPresentar } from '@/lib/aeatCalendar';
+import { useAniosEmpresa, useElegido } from '@/lib/useAniosEmpresa';
+import { leerModelosImpuesto, useVencimientosAeat, type ModeloImpuestoResumen } from '@/lib/useVencimientosAeat';
+import SelectorAnio from '@/components/SelectorAnio';
+import { AlertCard } from '@/components/dashboard/AlertCard';
+import { ConfirmationModal } from '@/components/dashboard/ConfirmationModal';
 
-interface ModeloEstado {
-  codigo: string;
-  nombre: string;
-  periodo?: string;
-  estado: 'vigente' | 'presentado' | 'no-generado';
-}
+/**
+ * Estado fiscal: el calendario de modelos de un ejercicio tal como lo calcula
+ * el servidor (GET /impuestos/modelos), con la fecha límite ya pasada al día
+ * hábil, y los próximos plazos.
+ *
+ * Lo que presentó otro (la gestoría, antes de usar la app) se marca como
+ * «presentado fuera de la app», uno a uno o todo lo terminado del ejercicio.
+ * Se puede deshacer. Ver: impuestos:read; marcar: impuestos:write.
+ */
 
-const MODELOS_INFO: Record<string, { nombre: string; color: string }> = {
-  '303': { nombre: 'IVA Trimestral', color: 'blue' },
-  '111': { nombre: 'Retenciones Trimestral', color: 'amber' },
-  '200': { nombre: 'Impuesto de Sociedades', color: 'emerald' },
-  '347': { nombre: 'Operaciones con Terceros', color: 'violet' },
-  '115': { nombre: 'Arrendamientos', color: 'rose' },
-  '390': { nombre: 'Resumen Anual IVA', color: 'cyan' },
-  '190': { nombre: 'Resumen Retenciones', color: 'indigo' },
-};
+const fechaCorta = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
 
-const VENCIMIENTOS = [
-  { modelo: '303 Q1', fecha: '30 de abril', diasRestantes: 90 },
-  { modelo: '111 Q1', fecha: '30 de abril', diasRestantes: 90 },
-  { modelo: '347', fecha: '1 de febrero', diasRestantes: 160 },
-  { modelo: '390', fecha: '1 de febrero', diasRestantes: 160 },
-  { modelo: '190', fecha: '1 de febrero', diasRestantes: 160 },
-  { modelo: '200', fecha: '25 de junio', diasRestantes: 328 },
-];
+type Confirmar = { tipo: 'modelo'; modelo: ModeloImpuestoResumen } | { tipo: 'ejercicio' } | null;
 
 export default function EstadoFiscalPage() {
-  const [ejercicio, setEjercicio] = useState(new Date().getFullYear());
-  const [estados, setEstados] = useState<Record<number, ModeloEstado[]>>({});
-  const [loading, setLoading] = useState(true);
+  return (
+    <Suspense fallback={<div className="h-96 animate-pulse rounded-lg bg-slate-200" />}>
+      <EstadoFiscal />
+    </Suspense>
+  );
+}
+
+function EstadoFiscal() {
+  const sp = useSearchParams();
+  const aniosEmpresa = useAniosEmpresa();
+  const { listo, actual, primeroReal } = aniosEmpresa;
+  // El ejercicio del último trimestre terminado (en enero, el anterior), nunca antes del primero de la empresa.
+  const [ejercicio, setEjercicio] = useElegido(anioDeTexto(sp?.get('ejercicio')), trimestreAPresentar(hoyIso(), primeroReal).ejercicio, 'ejercicio');
+  const [pendientes, setPendientes] = useState<ModeloImpuestoResumen[]>([]);
+  const [presentados, setPresentados] = useState<ModeloImpuestoResumen[]>([]);
+  const [omitidos, setOmitidos] = useState<ModeloImpuestoResumen[]>([]);
+  const [cargando, setCargando] = useState(true);
   const [errorCarga, setErrorCarga] = useState('');
-  const [busqueda, setBusqueda] = useState('');
-  const [filtroEstado, setFiltroEstado] = useState<'todos' | 'presentado' | 'borrador' | 'no-generado'>('todos');
+  const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
+  const [confirmar, setConfirmar] = useState<Confirmar>(null);
+  const [ocupado, setOcupado] = useState(false);
+  const [puedeMarcar, setPuedeMarcar] = useState(false);
+  const { vencimientos, vencidosPorAnio } = useVencimientosAeat(6);
 
   useEffect(() => {
-    const fetchEstados = async () => {
-      try {
-        setLoading(true);
-        setErrorCarga('');
-        const lista = await apiFetch<any[]>(companyPath('/tax-models'));
-        const grouped: Record<number, ModeloEstado[]> = {};
-
-        (lista || []).forEach((modelo: any) => {
-          if (!grouped[modelo.ejercicio]) grouped[modelo.ejercicio] = [];
-          grouped[modelo.ejercicio].push({
-            codigo: modelo.codigo,
-            nombre: modelo.nombre,
-            estado: modelo.estado || 'vigente',
-            periodo: `${modelo.ejercicio}${modelo.trimestre ? ` Q${modelo.trimestre}` : ''}`,
-          });
-        });
-
-        setEstados(grouped);
-      } catch (err) {
-        setErrorCarga(errorMessage(err));
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchEstados();
+    setPuedeMarcar(tieneAlgunPermiso(getUser(), ['impuestos:write']));
   }, []);
 
-  const ejercicioModelos = estados[ejercicio] || [];
-  const modelosCodigos = Object.keys(MODELOS_INFO);
-  const modelosGenerados = ejercicioModelos.length;
-  const modelosPresentados = ejercicioModelos.filter(m => m.estado === 'presentado').length;
+  const cargar = useCallback(async () => {
+    setCargando(true);
+    setErrorCarga('');
+    try {
+      const [p, pr, o] = await Promise.all([
+        leerModelosImpuesto(ejercicio, 'activos'),
+        leerModelosImpuesto(ejercicio, 'presentados'),
+        leerModelosImpuesto(ejercicio, 'omitidos'),
+      ]);
+      setPendientes(p);
+      setPresentados(pr);
+      setOmitidos(o);
+    } catch (e) {
+      setPendientes([]);
+      setPresentados([]);
+      setOmitidos([]);
+      setErrorCarga(
+        e instanceof ApiError && e.status === 403 ? 'Para ver el calendario de modelos necesitas permiso de impuestos en esta empresa.' : errorMessage(e),
+      );
+    } finally {
+      setCargando(false);
+    }
+  }, [ejercicio]);
 
-  // Lógica de filtrado
-  const modelosFiltrados = modelosCodigos.filter((codigo) => {
-    const modelo = ejercicioModelos.find(m => m.codigo === codigo);
-    const matchesBusqueda = codigo.includes(busqueda) || MODELOS_INFO[codigo].nombre.toLowerCase().includes(busqueda.toLowerCase());
-    const matchesEstado = filtroEstado === 'todos' ||
-      (filtroEstado === 'presentado' && modelo?.estado === 'presentado') ||
-      (filtroEstado === 'borrador' && modelo?.estado === 'vigente') ||
-      (filtroEstado === 'no-generado' && !modelo);
-    return matchesBusqueda && matchesEstado;
-  });
+  useEffect(() => {
+    if (listo) cargar();
+  }, [listo, cargar]);
 
-  if (loading) {
-    return <div className="h-96 animate-pulse rounded-lg bg-slate-200" />;
-  }
+  const vencidos = pendientes.filter((m) => m.estado === 'expirado');
+  // El servidor marca solo los periodos ya terminados; los que siguen en curso se quedan como están.
+  const puedeMarcarEjercicio = puedeMarcar && ejercicio <= actual && pendientes.length > 0;
+
+  const marcarModelo = async (m: ModeloImpuestoResumen) => {
+    setOcupado(true);
+    setAviso(null);
+    try {
+      await apiFetch(companyPath(`/impuestos/modelos/${encodeURIComponent(m.id)}/presentado-fuera-app`), { method: 'POST', body: '{}' });
+      setAviso({ ok: true, texto: `Modelo ${m.codigo} (${textoPeriodoModelo(m.ejercicio, m.periodo)}) marcado como presentado fuera de la app.` });
+      await cargar();
+    } catch (e) {
+      setAviso({ ok: false, texto: errorMessage(e) });
+    } finally {
+      setOcupado(false);
+      setConfirmar(null);
+    }
+  };
+
+  const marcarEjercicio = async () => {
+    setOcupado(true);
+    setAviso(null);
+    try {
+      const r = await apiFetch<{ ejercicio: number; marcados: ModeloImpuestoResumen[] }>(
+        companyPath(`/impuestos/ejercicios/${ejercicio}/presentado-fuera-app`),
+        { method: 'POST', body: '{}' },
+      );
+      const n = r.marcados.length;
+      setAviso({
+        ok: true,
+        texto: n
+          ? `${n === 1 ? 'Se ha marcado 1 modelo' : `Se han marcado ${n} modelos`} de ${ejercicio} como presentados fuera de la app.`
+          : `No había nada terminado y sin presentar en ${ejercicio}.`,
+      });
+      await cargar();
+    } catch (e) {
+      setAviso({ ok: false, texto: errorMessage(e) });
+    } finally {
+      setOcupado(false);
+      setConfirmar(null);
+    }
+  };
+
+  const deshacer = async (m: ModeloImpuestoResumen) => {
+    setOcupado(true);
+    setAviso(null);
+    try {
+      await apiFetch(companyPath(`/impuestos/modelos/${encodeURIComponent(m.id)}/no-presentado`), { method: 'POST', body: '{}' });
+      setAviso({ ok: true, texto: `Modelo ${m.codigo} (${textoPeriodoModelo(m.ejercicio, m.periodo)}) vuelve a estar pendiente.` });
+      await cargar();
+    } catch (e) {
+      setAviso({ ok: false, texto: errorMessage(e) });
+    } finally {
+      setOcupado(false);
+    }
+  };
+
+  const fila = (m: ModeloImpuestoResumen) => {
+    const vencido = m.estado === 'expirado';
+    const fueraApp = m.estado === 'presentado' && m.origen === 'fuera-app';
+    return (
+      <li key={m.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 text-sm">
+        <Link href={enlaceModelo(m.codigo, m.ejercicio, m.periodo)} className="w-14 font-mono font-semibold text-blue-700 hover:underline">
+          {m.codigo}
+        </Link>
+        <span className="w-32 text-slate-700">{textoPeriodoModelo(m.ejercicio, m.periodo)}</span>
+        <span className="min-w-0 flex-1 basis-40 text-slate-600">{m.descripcion}</span>
+        <span className={`text-xs ${vencido ? 'font-medium text-red-700' : 'text-slate-500'}`}>
+          {m.estado === 'presentado' ? (fueraApp ? 'Presentado fuera de la app' : 'Presentado') : m.estado === 'omitido' ? 'No se presenta' : `${vencido ? 'Venció' : 'Vence'} el ${fechaCorta(m.fechaVencimiento)}`}
+        </span>
+        {puedeMarcar && (m.estado === 'vigente' || m.estado === 'expirado') && (
+          <button
+            type="button"
+            onClick={() => setConfirmar({ tipo: 'modelo', modelo: m })}
+            disabled={ocupado}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          >
+            Ya lo presenté fuera de la app
+          </button>
+        )}
+        {puedeMarcar && fueraApp && (
+          <button
+            type="button"
+            onClick={() => deshacer(m)}
+            disabled={ocupado}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          >
+            Deshacer
+          </button>
+        )}
+      </li>
+    );
+  };
+
+  const bloque = (titulo: string, lista: ModeloImpuestoResumen[], vacio: string) => (
+    <section className="rounded-lg border border-slate-200 bg-white">
+      <h2 className="border-b border-slate-200 px-4 py-3 font-semibold text-slate-900">
+        {titulo} <span className="font-normal text-slate-500">({lista.length})</span>
+      </h2>
+      {lista.length === 0 ? <p className="px-4 py-4 text-sm text-slate-500">{vacio}</p> : <ul className="divide-y divide-slate-100">{lista.map(fila)}</ul>}
+    </section>
+  );
 
   return (
     <div className="space-y-8">
-      {errorCarga && (
-        <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
-          {errorCarga}
-        </div>
-      )}
       <div>
-        <h1 className="text-4xl font-bold text-slate-900">Estado Fiscal</h1>
-        <p className="mt-2 text-lg text-slate-600">Visión global de modelos generados, presentados y próximos vencimientos</p>
+        <h1 className="text-3xl font-bold text-slate-900 md:text-4xl">Estado fiscal</h1>
+        <p className="mt-2 text-slate-600">Los modelos de cada ejercicio: lo que falta por presentar, lo presentado y los próximos plazos.</p>
       </div>
 
-      <div className="flex items-end gap-4 rounded-lg border border-slate-200 bg-white p-4">
-        <div>
-          <label className="block text-sm font-medium text-slate-700">Ejercicio</label>
-          <select
-            value={ejercicio}
-            onChange={(e) => setEjercicio(parseInt(e.target.value))}
-            className="mt-2 rounded-lg border border-slate-300 px-4 py-2 text-base font-medium"
+      <div className="flex flex-wrap items-end gap-4 rounded-lg border border-slate-200 bg-white p-4">
+        <SelectorAnio
+          id="estado-ejercicio"
+          valor={ejercicio}
+          anios={aniosEmpresa.aniosModelos([ejercicio])}
+          onChange={(a) => a !== null && setEjercicio(a)}
+          // Qué año tiene modelos vencidos sin presentar: el elegido, con lo que se ve
+          // ahora (cambia al marcar); los demás, el año pasado y este según el panel.
+          sufijo={(a) => {
+            const n = a === ejercicio && !cargando ? vencidos.length : vencidosPorAnio[a] ?? 0;
+            return n ? `(${n} ${n === 1 ? 'vencido' : 'vencidos'})` : '';
+          }}
+        />
+        {puedeMarcarEjercicio && (
+          <button
+            type="button"
+            onClick={() => setConfirmar({ tipo: 'ejercicio' })}
+            disabled={ocupado}
+            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
           >
-            {ejerciciosSeleccionables().map((year) => (
-              <option key={year} value={year}>{year}</option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-emerald-600">Modelos Generados</p>
-              <p className="mt-2 text-3xl font-bold text-emerald-900">{modelosGenerados}</p>
-              <p className="mt-1 text-xs text-emerald-600">de {modelosCodigos.length} total</p>
-            </div>
-            <CheckCircle size={40} className="text-emerald-600" />
-          </div>
-        </div>
-
-        <div className="rounded-lg border border-blue-200 bg-blue-50 p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-blue-600">Presentados</p>
-              <p className="mt-2 text-3xl font-bold text-blue-900">{modelosPresentados}</p>
-              <p className="mt-1 text-xs text-blue-600">a Hacienda</p>
-            </div>
-            <CheckCircle size={40} className="text-blue-600" />
-          </div>
-        </div>
-
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-amber-600">Pendientes</p>
-              <p className="mt-2 text-3xl font-bold text-amber-900">{modelosCodigos.length - modelosGenerados}</p>
-              <p className="mt-1 text-xs text-amber-600">por generar</p>
-            </div>
-            <WarningCircle size={40} className="text-amber-600" />
-          </div>
-        </div>
-      </div>
-
-      <div className="rounded-lg border border-slate-200 bg-white p-6">
-        <h2 className="mb-4 text-xl font-semibold text-slate-900">Estado de Modelos – {ejercicio}</h2>
-
-        {/* Búsqueda y Filtros */}
-        <div className="mb-6 space-y-4">
-          {/* Barra de Búsqueda */}
-          <div className="relative">
-            <MagnifyingGlass className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-            <input
-              type="text"
-              placeholder="Buscar por código o nombre (ej. 303, IVA)..."
-              value={busqueda}
-              onChange={(e) => setBusqueda(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 pl-10 pr-10 py-2 text-sm placeholder-slate-400 focus:border-blue-500 focus:outline-none transition"
-            />
-            {busqueda && (
-              <button
-                onClick={() => setBusqueda('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-              >
-                <X size={18} />
-              </button>
-            )}
-          </div>
-
-          {/* Filtros de Estado */}
-          <div className="flex flex-wrap gap-2">
-            {(['todos', 'presentado', 'borrador', 'no-generado'] as const).map((filtro) => (
-              <button
-                key={filtro}
-                onClick={() => setFiltroEstado(filtro)}
-                className={`px-3 py-1 rounded-full text-xs font-medium transition ${
-                  filtroEstado === filtro
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                }`}
-              >
-                {filtro === 'todos' ? 'Todos' : filtro === 'presentado' ? 'Presentados' : filtro === 'borrador' ? 'Borradores' : 'No generados'}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Grid de Modelos */}
-        {modelosFiltrados.length === 0 ? (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 p-6 text-center">
-            <WarningCircle size={32} className="mx-auto mb-2 text-amber-600" />
-            <p className="text-sm font-medium text-amber-900">No se encontraron modelos</p>
-            <p className="mt-1 text-xs text-amber-700">
-              {busqueda || filtroEstado !== 'todos'
-                ? 'Intenta ajustar la búsqueda o los filtros'
-                : 'No hay modelos fiscales para este ejercicio'}
-            </p>
-          </div>
-        ) : (
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4 transition-all duration-300">
-            {modelosFiltrados.map((codigo) => {
-            const modelo = ejercicioModelos.find(m => m.codigo === codigo);
-            const info = MODELOS_INFO[codigo];
-            const colorMap: Record<string, string> = {
-              blue: 'border-blue-200 bg-blue-50',
-              amber: 'border-amber-200 bg-amber-50',
-              emerald: 'border-emerald-200 bg-emerald-50',
-              violet: 'border-violet-200 bg-violet-50',
-              rose: 'border-rose-200 bg-rose-50',
-              cyan: 'border-cyan-200 bg-cyan-50',
-              indigo: 'border-indigo-200 bg-indigo-50',
-            };
-
-            return (
-              <Link
-                key={codigo}
-                href={`/dashboard/fiscal/modelo-${codigo}`}
-                className={`group rounded-lg border-2 p-4 transition hover:shadow-md ${colorMap[info.color]}`}
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <p className="font-semibold text-slate-900">Modelo {codigo}</p>
-                    <p className="text-xs text-slate-600">{info.nombre}</p>
-                  </div>
-                  {modelo?.estado === 'presentado' ? (
-                    <CheckCircle size={20} className="text-green-600" weight="fill" />
-                  ) : modelo ? (
-                    <Clock size={20} className="text-amber-600" weight="fill" />
-                  ) : (
-                    <WarningCircle size={20} className="text-red-600" weight="fill" />
-                  )}
-                </div>
-
-                {modelo ? (
-                  <div className="mt-3">
-                    <span
-                      className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${
-                        modelo.estado === 'presentado'
-                          ? 'bg-green-100 text-green-700'
-                          : 'bg-amber-100 text-amber-700'
-                      }`}
-                    >
-                      {modelo.estado === 'presentado' ? '✓ Presentado' : '⏳ Borrador'}
-                    </span>
-                  </div>
-                ) : (
-                  <div className="mt-3">
-                    <span className="inline-flex rounded-full bg-red-100 px-2 py-1 text-xs font-medium text-red-700">
-                      ✕ No generado
-                    </span>
-                  </div>
-                )}
-              </Link>
-            );
-          })}
-          </div>
+            Marcar todo lo terminado de {ejercicio} como presentado fuera de la app
+          </button>
         )}
       </div>
 
-      <div className="rounded-lg border border-slate-200 bg-white p-6">
+      {aviso && (
+        <p role={aviso.ok ? 'status' : 'alert'} className={`rounded-lg border p-3 text-sm ${aviso.ok ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-800'}`}>
+          {aviso.texto}
+        </p>
+      )}
+
+      {errorCarga ? (
+        <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+          {errorCarga}
+        </div>
+      ) : cargando && !pendientes.length && !presentados.length ? (
+        <div className="h-64 animate-pulse rounded-lg bg-slate-200" />
+      ) : (
+        <>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Resumen icono={<Clock size={32} className="text-amber-600" />} titulo="Sin presentar" valor={pendientes.length} nota={`del ejercicio ${ejercicio}`} />
+            <Resumen icono={<WarningCircle size={32} className="text-red-600" />} titulo="Plazo vencido" valor={vencidos.length} nota="sin presentar" />
+            <Resumen icono={<CheckCircle size={32} className="text-emerald-600" />} titulo="Presentados" valor={presentados.length} nota="en la app o fuera" />
+          </div>
+
+          <div className={`space-y-6 ${cargando ? 'opacity-60' : ''}`}>
+            {bloque('Sin presentar', pendientes, `No queda nada por presentar de ${ejercicio}.`)}
+            {bloque('Presentados', presentados, `Todavía no hay nada presentado de ${ejercicio}.`)}
+            {omitidos.length > 0 && bloque('No se presentan', omitidos, '')}
+          </div>
+        </>
+      )}
+
+      <section className="rounded-lg border border-slate-200 bg-white p-4 md:p-6">
         <h2 className="mb-4 flex items-center gap-2 text-xl font-semibold text-slate-900">
           <Calendar size={24} className="text-blue-600" />
-          Próximos Vencimientos
+          Próximos plazos
         </h2>
+        {vencimientos === null ? (
+          <div className="h-24 animate-pulse rounded-lg bg-slate-100" />
+        ) : vencimientos.length === 0 ? (
+          <p className="text-sm text-slate-500">No tienes modelos pendientes de presentar.</p>
+        ) : (
+          <div className="grid gap-3 md:grid-cols-2">
+            {vencimientos.map((v) => (
+              <AlertCard key={v.id} alert={v} />
+            ))}
+          </div>
+        )}
+        <p className="mt-3 text-xs text-slate-500">Si el último día cae en fin de semana o fiesta nacional, el plazo acaba el siguiente día hábil, y así sale aquí.</p>
+      </section>
 
-        <div className="space-y-3">
-          {VENCIMIENTOS.map((v, idx) => {
-            const urgencia = v.diasRestantes <= 30 ? 'rojo' : v.diasRestantes <= 90 ? 'ámbar' : 'verde';
-            const colorBg = urgencia === 'rojo' ? 'border-l-red-500 bg-red-50' : urgencia === 'ámbar' ? 'border-l-amber-500 bg-amber-50' : 'border-l-green-500 bg-green-50';
+      <ConfirmationModal
+        isOpen={confirmar !== null}
+        title={
+          confirmar?.tipo === 'modelo'
+            ? `Modelo ${confirmar.modelo.codigo} (${textoPeriodoModelo(confirmar.modelo.ejercicio, confirmar.modelo.periodo)}) presentado fuera de la app`
+            : `Todo lo terminado de ${ejercicio}, presentado fuera de la app`
+        }
+        message={
+          confirmar?.tipo === 'modelo'
+            ? 'Úsalo si este modelo lo presentó otra persona (tu gestoría, por ejemplo) o lo presentaste en la sede de la AEAT sin la app. Deja de salir como pendiente. Se puede deshacer.'
+            : `Se marcan como presentados todos los modelos de ${ejercicio} cuyo periodo ya ha terminado y que siguen sin presentar, también los de antes de empezar a usar la app. Úsalo con un año que llevó otra persona. Cada uno se puede deshacer después.`
+        }
+        confirmLabel="Sí, marcar como presentado"
+        isLoading={ocupado}
+        onConfirm={() => (confirmar?.tipo === 'modelo' ? marcarModelo(confirmar.modelo) : marcarEjercicio())}
+        onCancel={() => setConfirmar(null)}
+      />
+    </div>
+  );
+}
 
-            return (
-              <div key={idx} className={`flex items-center justify-between rounded-lg border-l-4 p-4 ${colorBg}`}>
-                <div className="flex-1">
-                  <p className="font-semibold text-slate-900">Modelo {v.modelo}</p>
-                  <p className="text-sm text-slate-600">Vencimiento: {v.fecha}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-xs font-semibold text-slate-600">{v.diasRestantes} días</p>
-                  <p className="text-xs text-slate-500">
-                    {urgencia === 'rojo' ? '🔴 Urgente' : urgencia === 'ámbar' ? '🟡 Próximo' : '🟢 Tiempo'}
-                  </p>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+function Resumen({ icono, titulo, valor, nota }: { icono: React.ReactNode; titulo: string; valor: number; nota: string }) {
+  return (
+    <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-white p-5">
+      <div>
+        <p className="text-sm text-slate-600">{titulo}</p>
+        <p className="mt-1 text-3xl font-bold text-slate-900">{valor}</p>
+        <p className="mt-1 text-xs text-slate-500">{nota}</p>
       </div>
-
-      <div className="rounded-lg border-l-4 border-l-blue-500 bg-blue-50 p-4">
-        <p className="text-sm text-blue-900">
-          <strong>Consejo:</strong> Revisa esta página regularmente para asegurar que todos tus modelos estén generados y presentados a tiempo.
-        </p>
-      </div>
+      {icono}
     </div>
   );
 }

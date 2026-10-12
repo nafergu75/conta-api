@@ -20,6 +20,9 @@ import {
 import { Tooltip } from '@/app/dashboard/components/Tooltip';
 import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
+import { anioDeTexto, anioEspana, hoyIso } from '@/lib/anios';
+import { refrescarAniosEmpresa } from '@/lib/useAniosEmpresa';
+import { diasEntre } from '@/lib/aeatCalendar';
 import { DatosMemoria } from './DatosMemoria';
 
 /**
@@ -31,6 +34,21 @@ import { DatosMemoria } from './DatosMemoria';
  * Contabilidad > Cierre y traspaso de saldos (regularizacion, cierre y
  * apertura): aqui solo se enlaza.
  */
+
+/**
+ * Ejercicio que se abre: el de la URL (?ejercicio=2026) si existe; si no, el
+ * último cerrado (es el que toca legalizar y depositar); sin ninguno cerrado,
+ * el del año pasado si existe, y si no, el más reciente.
+ */
+function ejercicioPorDefecto(lista: Ejercicio[]): string {
+  const pedido = typeof window === 'undefined' ? null : anioDeTexto(new URLSearchParams(window.location.search).get('ejercicio'));
+  const deUrl = pedido !== null ? lista.find((e) => e.label === String(pedido)) : undefined;
+  if (deUrl) return deUrl.id;
+  const cerrado = lista.filter((e) => e.estado === 'CLOSED').sort((a, b) => b.label.localeCompare(a.label))[0];
+  if (cerrado) return cerrado.id;
+  const anterior = lista.find((e) => e.label === String(anioEspana() - 1));
+  return anterior?.id ?? [...lista].sort((a, b) => b.label.localeCompare(a.label))[0]?.id ?? '';
+}
 
 const enlaceCierre = (anio: string) => `/dashboard/contabilidad/cierre-ejercicio?ejercicio=${encodeURIComponent(anio)}`;
 
@@ -119,11 +137,10 @@ function fecha(iso: string | null | undefined): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('es-ES');
 }
 
+/** Días que faltan hasta la fecha límite, contando desde hoy en España. */
 function diasHasta(iso: string | null): number | null {
   if (!iso) return null;
-  const hoy = new Date();
-  hoy.setHours(0, 0, 0, 0);
-  return Math.round((new Date(`${iso}T00:00:00`).getTime() - hoy.getTime()) / 86_400_000);
+  return diasEntre(hoyIso(), iso.slice(0, 10));
 }
 
 function Plazo({ titulo, fechaLimite, hecho }: { titulo: string; fechaLimite: string | null; hecho: boolean }) {
@@ -172,9 +189,9 @@ export default function RegistroMercantilPage() {
   const ejercicio = useMemo(() => ejercicios.find((e) => e.id === fyId) ?? null, [ejercicios, fyId]);
 
   const cargarEjercicios = useCallback(async (seleccionar?: string) => {
-    const lista = await apiFetch<Ejercicio[]>(companyPath('/fiscal-years'));
+    const lista = (await apiFetch<Ejercicio[]>(companyPath('/fiscal-years'))).sort((a, b) => b.label.localeCompare(a.label));
     setEjercicios(lista);
-    setFyId((actual) => seleccionar ?? (lista.some((e) => e.id === actual) ? actual : lista[0]?.id ?? ''));
+    setFyId((actual) => seleccionar ?? (lista.some((e) => e.id === actual) ? actual : ejercicioPorDefecto(lista)));
   }, []);
 
   const cargarDetalle = useCallback(async (id: string) => {
@@ -225,6 +242,7 @@ export default function RegistroMercantilPage() {
         method: 'POST',
         body: JSON.stringify({ anio: Number(anio) }),
       });
+      refrescarAniosEmpresa();
       await cargarEjercicios(fy.id);
       setAviso({ tipo: 'ok', texto: `Ejercicio ${anio} creado.` });
     } catch (e) {
@@ -276,8 +294,9 @@ export default function RegistroMercantilPage() {
   const librosGenerados = libros.filter((l) => l.filePath).length;
   const legalizado = expedientes.some((x) => x.status === 'ACCEPTED');
   const depositado = cuentas.some((c) => c.status === 'APROBADO');
-  const anioActual = new Date().getFullYear();
-  const aniosLibres = [anioActual - 1, anioActual, anioActual - 2].map(String).filter((a) => !ejercicios.some((e) => e.label === a));
+  // Años que se pueden crear: del siguiente a dos atrás (en hora de España).
+  const anioActual = anioEspana();
+  const aniosLibres = [anioActual + 1, anioActual, anioActual - 1, anioActual - 2].map(String).filter((a) => !ejercicios.some((e) => e.label === a));
 
   return (
     <div className="space-y-6">
@@ -623,7 +642,7 @@ function DialogoRegistro({
 }) {
   const [entrada, setEntrada] = useState('');
   const [csv, setCsv] = useState('');
-  const [fechaPresentacion, setFechaPresentacion] = useState(new Date().toISOString().slice(0, 10));
+  const [fechaPresentacion, setFechaPresentacion] = useState(hoyIso());
   const [resolucion, setResolucion] = useState('APROBADO');
   const [archivo, setArchivo] = useState<File | null>(null);
   const [falta, setFalta] = useState('');

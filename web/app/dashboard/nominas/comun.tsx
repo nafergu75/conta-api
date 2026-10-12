@@ -6,6 +6,9 @@ import { usePathname } from 'next/navigation';
 import { CaretLeft, CaretRight, CheckCircle, LockKey, X, XCircle } from '@phosphor-icons/react';
 import { apiFetch, companyPath } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
+import { hoyIso } from '@/lib/anios';
+import { useAniosEmpresa } from '@/lib/useAniosEmpresa';
+import { paramDeUrl } from '@/lib/urlEstado';
 
 /**
  * Piezas comunes de las pantallas de nominas: tipos de la API, formatos,
@@ -208,6 +211,21 @@ const SECCIONES: Array<{ href: string; texto: string; escribir?: boolean }> = [
   { href: '/dashboard/nominas/coste', texto: 'Coste de personal' },
 ];
 
+/**
+ * Enlace a otra pantalla de nóminas con el año y el mes que se están viendo
+ * (?ejercicio=&mes= de la URL actual), para no volver al mes de hoy al cambiar
+ * de pestaña.
+ */
+function conPeriodoDeLaUrl(href: string): string {
+  const q = new URLSearchParams();
+  const ejercicio = paramDeUrl('ejercicio');
+  const mes = paramDeUrl('mes');
+  if (ejercicio) q.set('ejercicio', ejercicio);
+  if (ejercicio && mes) q.set('mes', mes);
+  const texto = q.toString();
+  return texto ? `${href}?${texto}` : href;
+}
+
 export function CabeceraNominas({ titulo, subtitulo, acciones }: { titulo: string; subtitulo: string; acciones?: ReactNode }) {
   const pathname = usePathname();
   const { escribir } = permisosNominas();
@@ -226,7 +244,7 @@ export function CabeceraNominas({ titulo, subtitulo, acciones }: { titulo: strin
           return (
             <Link
               key={s.href}
-              href={s.href}
+              href={conPeriodoDeLaUrl(s.href)}
               aria-current={activa ? 'page' : undefined}
               className={`-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium ${activa ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
             >
@@ -354,8 +372,8 @@ export function Modal({ titulo, onCerrar, children, ancho = 'max-w-lg' }: { titu
 // ---------------------------------------------------------------------------
 
 export function SelectorMes({ ejercicio, mes, onCambiar }: { ejercicio: number; mes: number; onCambiar: (ejercicio: number, mes: number) => void }) {
-  const anio = new Date().getFullYear();
-  const anios = Array.from(new Set([anio + 1, anio, anio - 1, anio - 2, anio - 3, ejercicio])).sort((a, b) => b - a);
+  // Del primer año de la empresa al siguiente al actual (hora de España), con el elegido siempre.
+  const anios = useAniosEmpresa().anios([ejercicio]);
   const mover = (d: number) => {
     const t = ejercicio * 12 + (mes - 1) + d;
     onCambiar(Math.floor(t / 12), (t % 12) + 1);
@@ -420,10 +438,8 @@ interface CargoExtracto {
   cuenta: string;
 }
 
-export const hoyIso = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-};
+/** Hoy en España (AAAA-MM-DD). */
+export { hoyIso };
 
 /** Cuerpo de la peticion de pago a partir de lo elegido (con un cargo, la fecha y la cuenta son las suyas). */
 export function cuerpoMedioPago(m: MedioPago): { fecha?: string; caja?: boolean; cuentaBancariaId?: string; movimientoId?: string } {

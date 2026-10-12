@@ -139,6 +139,10 @@ export interface AjustesFiscales {
   guardado: boolean;
   autonomo: boolean;
   actualizadoEn: string | null;
+  /** Día (AAAA-MM-DD) desde el que se lleva la contabilidad en la app; lo de antes lo presentó otro. */
+  inicioEnApp?: string | null;
+  /** Sin inicioEnApp, el que da por bueno la app: primer día con datos o, sin datos, el del alta (AAAA-MM-DD). */
+  inicioDeducido?: string | null;
   calendario: { ejercicio: number; modelos: ModeloPrevisto[] };
 }
 

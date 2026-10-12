@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Money, X } from '@phosphor-icons/react';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { formatoImporte, formatoTipo, parseImporte, parseTipo, redondear2, textoTipo } from '@/lib/moneda';
+import { hoyIso } from '@/lib/anios';
 
 /**
  * Cobros de una factura de venta o pagos de una factura de gasto: lo pendiente,
@@ -71,11 +72,8 @@ interface TipoCambioApi {
   aviso?: string;
 }
 const fecha = (iso: string) => (iso ? new Date(`${iso.slice(0, 10)}T00:00:00`).toLocaleDateString('es-ES') : '');
-/** Hoy en la hora del navegador (toISOString da la fecha en UTC: de 00:00 a 02:00 en España saldría ayer). */
-const hoy = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-};
+/** Hoy en España (toISOString da la fecha en UTC: de 00:00 a 02:00 en España saldría ayer). */
+const hoy = () => hoyIso();
 
 const boton =
   'inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50';

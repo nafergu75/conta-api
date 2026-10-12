@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
+import { useAniosEmpresa } from '@/lib/useAniosEmpresa';
 import {
   Alerta,
   aNumero,
@@ -69,6 +70,7 @@ export function NominaModal({
   const [empleados, setEmpleados] = useState<Empleado[] | null>(null);
   const [empleadoId, setEmpleadoId] = useState(nomina?.empleadoId ?? '');
   const [periodo, setPeriodo] = useState({ ejercicio: nomina?.ejercicio ?? ejercicio, mes: nomina?.mes ?? mes });
+  const aniosEmpresa = useAniosEmpresa();
   const [tipo, setTipo] = useState(nomina?.tipo ?? 'ORDINARIA');
   // Atrasos de otro año: el ejercicio al que corresponden (el 190 los declara aparte).
   const [ejercicioDevengo, setEjercicioDevengo] = useState(nomina?.ejercicioDevengo ? String(nomina.ejercicioDevengo) : '');
@@ -158,7 +160,8 @@ export function NominaModal({
     </div>
   );
 
-  const anio = new Date().getFullYear();
+  // Años de la empresa hasta el siguiente al actual (hora de España), con el de la nómina siempre.
+  const aniosNomina = aniosEmpresa.anios([periodo.ejercicio]);
   const conDevengo = tipo === 'ATRASOS' || !!nomina?.ejercicioDevengo;
   const devengoMal = conDevengo && ejercicioDevengo.trim() !== '' && !(/^\d{4}$/.test(ejercicioDevengo.trim()) && Number(ejercicioDevengo) <= periodo.ejercicio);
 
@@ -205,15 +208,18 @@ export function NominaModal({
                   </option>
                 ))}
               </select>
-              <input
+              <select
                 aria-label="Ejercicio"
-                type="number"
-                min={2000}
-                max={anio + 1}
                 value={periodo.ejercicio}
                 onChange={(e) => setPeriodo({ ...periodo, ejercicio: Number(e.target.value) })}
                 className={`${campo} mt-0 w-28`}
-              />
+              >
+                {aniosNomina.map((a) => (
+                  <option key={a} value={a}>
+                    {a}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
           <div className="sm:col-span-2">

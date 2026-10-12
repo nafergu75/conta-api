@@ -1,13 +1,15 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
-import { ejercicioAnualAPresentar, ejerciciosSeleccionables } from '@/lib/aeatCalendar';
+import SelectorAnio from '@/components/SelectorAnio';
+import { useEjercicioAnual } from '../components/periodoModelo';
+import { CargandoModelo } from '../components/BorradorAeat';
 import { CaretLeft, Info, Download } from '@phosphor-icons/react';
 import { Declaraciones, descargarConNumero } from '../components/Declaraciones';
-import { AvisosModelo } from '../components/AvisosModelo';
+import { AvisoEjercicioEnCurso, AvisosModelo } from '../components/AvisosModelo';
 import { formatoImporte } from '@/lib/moneda';
 
 interface Modelo190 {
@@ -98,6 +100,14 @@ function retencionesPorTipo(desglose: Modelo190['desgloseTrimestral']) {
 }
 
 export default function Modelo190Page() {
+  return (
+    <Suspense fallback={<CargandoModelo />}>
+      <Modelo190Contenido />
+    </Suspense>
+  );
+}
+
+function Modelo190Contenido() {
   const [modelo, setModelo] = useState<Modelo190 | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -109,10 +119,11 @@ export default function Modelo190Page() {
   // Presentado: aviso de los perceptores nuevos desde la presentación (no salen en la lista).
   const [avisoCongelada, setAvisoCongelada] = useState<string | null>(null);
   const [recarga, setRecarga] = useState(0);
-  // Modelo anual: se presenta por el ejercicio anterior.
-  const [ejercicio, setEjercicio] = useState(ejercicioAnualAPresentar);
+  // Modelo anual: se presenta por el ejercicio anterior (nunca antes del primer año de la empresa).
+  const { ejercicio, setEjercicio, anios, listo } = useEjercicioAnual();
 
   useEffect(() => {
+    if (!listo) return;
     const fetchModelo = async () => {
       try {
         setLoading(true);
@@ -126,7 +137,7 @@ export default function Modelo190Page() {
     };
 
     fetchModelo();
-  }, [ejercicio, recarga]);
+  }, [listo, ejercicio, recarga]);
 
   // El fichero y el informe por perceptor llevan datos de cada trabajador: solo con permiso de nominas.
   const conNominas = tieneAlgunPermiso(getUser(), ['nominas:read']);
@@ -183,11 +194,19 @@ export default function Modelo190Page() {
     }
   };
 
+  // Ejercicio siempre a la vista: si el modelo da error, se puede elegir otro.
+  const selectorEjercicio = (
+    <div className="flex flex-wrap gap-4 rounded-lg border border-slate-200 bg-white p-4">
+      <SelectorAnio id="m190-ej" valor={ejercicio} anios={anios} onChange={(a) => a !== null && setEjercicio(a)} />
+      <AvisoEjercicioEnCurso ejercicio={ejercicio} />
+    </div>
+  );
+
   if (loading) {
     return (
       <div className="space-y-4">
-        <div className="h-10 w-32 animate-pulse rounded-lg bg-slate-200" />
-        <div className="h-96 animate-pulse rounded-lg bg-slate-200" />
+        {selectorEjercicio}
+        <CargandoModelo />
       </div>
     );
   }
@@ -207,6 +226,8 @@ export default function Modelo190Page() {
             Volver
           </Link>
         </div>
+
+        {selectorEjercicio}
 
         {/* Estado: No disponible */}
         <div className={`rounded-lg border-l-4 p-6 ${isNotAvailable ? 'border-l-amber-500 bg-amber-50' : 'border-l-red-500 bg-red-50'}`}>
@@ -284,23 +305,7 @@ export default function Modelo190Page() {
       </div>
 
       {/* Período Selector */}
-      <div className="flex flex-wrap gap-4 rounded-lg border border-slate-200 bg-white p-4">
-        <div>
-          <label htmlFor="m190-ej" className="block text-sm font-medium text-slate-700">Ejercicio</label>
-          <select
-            id="m190-ej"
-            value={ejercicio}
-            onChange={(e) => setEjercicio(parseInt(e.target.value))}
-            className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          >
-            {ejerciciosSeleccionables().map((year) => (
-              <option key={year} value={year}>
-                {year}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
+      {selectorEjercicio}
 
       <AvisosModelo avisos={modelo.avisos} ejercicio={modelo.ejercicio} />
 

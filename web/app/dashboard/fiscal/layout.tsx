@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react';
 import { useEmpresaEspanola } from '@/lib/fiscal';
+import MargenPagina from '@/components/MargenPagina';
 
 /**
  * Los modelos fiscales son los de la AEAT (303, 111, 115, 347, 390, 190, 200):
@@ -23,5 +24,5 @@ export default function FiscalLayout({ children }: { children: ReactNode }) {
       </div>
     );
   }
-  return <>{children}</>;
+  return <MargenPagina>{children}</MargenPagina>;
 }

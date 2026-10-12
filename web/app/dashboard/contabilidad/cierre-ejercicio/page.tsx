@@ -7,6 +7,9 @@ import { Tooltip } from '@/app/dashboard/components/Tooltip';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { boton, botonSecundario, campo, Dato, eur, fechaEs, Mensajes, num } from '../importacion';
+import SelectorAnio from '@/components/SelectorAnio';
+import { anioDeTexto, anioEspana, rangoAnios } from '@/lib/anios';
+import { useAniosEmpresa } from '@/lib/useAniosEmpresa';
 
 /**
  * Cierre del ejercicio y traspaso de saldos: regularizacion (6/7 a la 129),
@@ -53,19 +56,26 @@ const NOMBRE_TIPO: Record<string, string> = {
   APERTURA: 'Apertura',
 };
 
-const anioActual = new Date().getFullYear();
-
 export default function CierreEjercicioPage() {
   const puedeEditar = tieneAlgunPermiso(getUser(), ['contabilidad:write']);
-  const [ejercicio, setEjercicio] = useState(anioActual - 1);
+  // Año en curso en España, calculado al abrir la pantalla (no al cargar el módulo).
+  const anioActual = anioEspana();
+  const aniosEmpresa = useAniosEmpresa();
+  // Por defecto, el año pasado, pero nunca antes del primer ejercicio dado de alta
+  // (una empresa que empieza este año abre este año); sin ejercicios, el actual.
+  const primerAlta = aniosEmpresa.ejercicios.length ? Math.min(...aniosEmpresa.ejercicios.map((e) => e.anio)) : null;
+  const porDefecto = primerAlta === null ? anioActual : Math.max(primerAlta, anioActual - 1);
+  const [elegido, setEjercicio] = useState<number | null>(null);
+  const ejercicio = elegido ?? porDefecto;
   // Desde Configuración o Registro Mercantil se llega con ?ejercicio=AAAA. Hasta
-  // leerlo no se carga nada (si no, llegarían dos vistas y podría quedar la otra).
+  // leerlo (y saber los ejercicios de la empresa) no se carga nada: si no,
+  // llegarían dos vistas y podría quedar la otra.
   const [urlLeida, setUrlLeida] = useState(false);
   useEffect(() => {
-    const pedido = Number(new URLSearchParams(window.location.search).get('ejercicio'));
-    if (Number.isInteger(pedido) && pedido >= 1990 && pedido <= anioActual + 1) setEjercicio(pedido);
+    const pedido = anioDeTexto(new URLSearchParams(window.location.search).get('ejercicio'));
+    if (pedido !== null && pedido <= anioActual + 1) setEjercicio(pedido);
     setUrlLeida(true);
-  }, []);
+  }, [anioActual]);
   const [reemplazarApertura, setReemplazarApertura] = useState(false);
   const [vista, setVista] = useState<VistaCierre | null>(null);
   const [cargando, setCargando] = useState(false);
@@ -88,8 +98,8 @@ export default function CierreEjercicioPage() {
   }, [ejercicio, reemplazarApertura]);
 
   useEffect(() => {
-    if (urlLeida) cargar();
-  }, [cargar, urlLeida]);
+    if (urlLeida && aniosEmpresa.listo) cargar();
+  }, [cargar, urlLeida, aniosEmpresa.listo]);
 
   const cerrar = async () => {
     setOcupado(true);
@@ -106,6 +116,7 @@ export default function CierreEjercicioPage() {
       );
       setConfirmando(false);
       setReemplazarApertura(false);
+      aniosEmpresa.recargar();
       await cargar();
     } catch (e) {
       setError(errorMessage(e));
@@ -121,6 +132,7 @@ export default function CierreEjercicioPage() {
     try {
       const r = await apiFetch<{ anulados: number }>(companyPath(`/periodos/cierre?ejercicio=${ejercicio}`), { method: 'DELETE' });
       setAviso(`Cierre del ${ejercicio} deshecho: ${r.anulados} asientos anulados. El ejercicio vuelve a estar abierto.`);
+      aniosEmpresa.recargar();
       await cargar();
     } catch (e) {
       setError(errorMessage(e));
@@ -129,8 +141,18 @@ export default function CierreEjercicioPage() {
     }
   };
 
-  const anios = Array.from({ length: 8 }, (_, i) => anioActual + 1 - i);
-  if (!anios.includes(ejercicio)) anios.push(ejercicio);
+  // Del primer ejercicio dado de alta (o el primer año con datos) al siguiente al actual, con su estado.
+  const estadoDe = new Map(aniosEmpresa.ejercicios.map((e) => [e.anio, e.estado]));
+  const primerEjercicio = aniosEmpresa.ejercicios.length ? Math.min(...aniosEmpresa.ejercicios.map((e) => e.anio)) : aniosEmpresa.primero;
+  const anios = rangoAnios({ primero: Math.min(primerEjercicio, anioActual - 1), actual: anioActual, extra: 1, incluir: [ejercicio] });
+  // Sin la lista de la empresa (respaldo) no se sabe qué años están dados de alta.
+  const conoceEjercicios = aniosEmpresa.listo && !aniosEmpresa.respaldo;
+  const sufijo = (a: number) => {
+    const e = estadoDe.get(a);
+    return e === 'ABIERTO' ? '(abierto)' : e ? '(cerrado)' : conoceEjercicios ? '(sin crear)' : '';
+  };
+  // El año elegido no está dado de alta: no hay nada que cerrar todavía.
+  const sinCrear = conoceEjercicios && !estadoDe.has(ejercicio);
 
   return (
     <div className="space-y-6">
@@ -143,26 +165,21 @@ export default function CierreEjercicioPage() {
       </div>
 
       <div className="flex flex-wrap items-end gap-3">
-        <label className="block text-sm font-medium text-slate-700">
-          Ejercicio
-          <select
-            className={`${campo} w-40`}
-            value={ejercicio}
-            onChange={(e) => {
-              setEjercicio(Number(e.target.value));
-              setAviso('');
-              setConfirmando(false);
-              setReemplazarApertura(false);
-            }}
-          >
-            {anios.map((a) => (
-              <option key={a} value={a}>
-                {a}
-              </option>
-            ))}
-          </select>
-        </label>
-        {vista && (
+        <SelectorAnio
+          id="cierre-ejercicio"
+          valor={ejercicio}
+          anios={anios}
+          sufijo={sufijo}
+          onChange={(a) => {
+            if (a === null) return;
+            setEjercicio(a);
+            setAviso('');
+            setConfirmando(false);
+            setReemplazarApertura(false);
+          }}
+          className={`${campo} w-44`}
+        />
+        {vista && !sinCrear && (
           <span
             className={`mb-1 inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm font-medium ${
               vista.estado === 'CERRADO' ? 'bg-slate-100 text-slate-700' : 'bg-emerald-50 text-emerald-700'
@@ -182,7 +199,17 @@ export default function CierreEjercicioPage() {
       {error && <Mensajes errores={[error]} />}
       {cargando && !vista && <p className="text-sm text-slate-500">Calculando...</p>}
 
-      {vista && vista.estado === 'ABIERTO' && (
+      {sinCrear && (
+        <p className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600">
+          No hay ejercicio {ejercicio} dado de alta, así que no hay nada que cerrar. Si lo necesitas, créalo en{' '}
+          <Link href="/dashboard/configuracion/ejercicios" className="font-medium text-blue-700 underline">
+            Configuración &gt; Ejercicios
+          </Link>
+          .
+        </p>
+      )}
+
+      {vista && !sinCrear && vista.estado === 'ABIERTO' && (
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <Dato titulo="Ingresos (grupo 7)" valor={eur.format(vista.ingresos)} />

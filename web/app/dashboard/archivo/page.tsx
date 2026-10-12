@@ -17,6 +17,7 @@ import {
 } from '@phosphor-icons/react';
 import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
+import { anioEspana, hoyIso, trimestreEspana } from '@/lib/anios';
 
 /**
  * Archivo de facturas por año y trimestre: todo el historial de ventas y
@@ -76,10 +77,9 @@ const eur = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' 
 const fechaEs = (f: string) => (/^\d{4}-\d{2}-\d{2}/.test(f) ? `${f.slice(8, 10)}/${f.slice(5, 7)}/${f.slice(0, 4)}` : f);
 const NOMBRE_T = ['', 'Enero – marzo', 'Abril – junio', 'Julio – septiembre', 'Octubre – diciembre'];
 
-/** Trimestre de hoy: es el que se abre al entrar si tiene algo. */
+/** Trimestre de hoy en España: es el que se abre al entrar si tiene algo. */
 function trimestreActual(): Seleccion {
-  const hoy = new Date();
-  return { anio: hoy.getFullYear(), trimestre: Math.floor(hoy.getMonth() / 3) + 1 };
+  return { anio: anioEspana(), trimestre: trimestreEspana() };
 }
 
 export default function ArchivoPage() {
@@ -567,7 +567,7 @@ function SubirFacturaModal({
   onSubida: (fecha: string, tipo: Pestana, texto: string) => void;
 }) {
   const [tipo, setTipo] = useState<Pestana>(tipoInicial);
-  const [fecha, setFecha] = useState(adjuntarA?.fecha ?? new Date().toISOString().slice(0, 10));
+  const [fecha, setFecha] = useState(adjuntarA?.fecha ?? hoyIso());
   const [numero, setNumero] = useState(adjuntarA?.numero ?? '');
   const [tercero, setTercero] = useState(adjuntarA?.tercero ?? '');
   const [nif, setNif] = useState(adjuntarA?.nif ?? '');

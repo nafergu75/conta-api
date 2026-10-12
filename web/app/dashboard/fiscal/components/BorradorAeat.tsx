@@ -5,7 +5,7 @@ import { useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { CaretDown, CaretLeft, CaretRight, Download, WarningCircle } from '@phosphor-icons/react';
 import { apiDownload, companyPath, errorMessage } from '@/lib/api';
-import { ejerciciosSeleccionables } from '@/lib/aeatCalendar';
+import SelectorAnio from '@/components/SelectorAnio';
 import { AvisosModelo } from './AvisosModelo';
 import { formatoImporte } from '@/lib/moneda';
 
@@ -53,19 +53,9 @@ export function CabeceraBorrador({ titulo, subtitulo, diseno }: { titulo: string
   );
 }
 
-export function SelectorEjercicio({ ejercicio, onChange }: { ejercicio: number; onChange: (e: number) => void }) {
-  return (
-    <label className="block text-sm font-medium text-slate-700">
-      Ejercicio
-      <select value={ejercicio} onChange={(e) => onChange(parseInt(e.target.value, 10))} className="mt-1 block rounded-lg border border-slate-300 px-3 py-2 text-sm">
-        {ejerciciosSeleccionables().map((year) => (
-          <option key={year} value={year}>
-            {year}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
+/** Ejercicio del modelo: los años de la empresa hasta el actual (useEjercicioAnual o usePeriodoTrimestral). */
+export function SelectorEjercicio({ ejercicio, anios, onChange, id = 'ejercicio-modelo' }: { ejercicio: number; anios: number[]; onChange: (e: number) => void; id?: string }) {
+  return <SelectorAnio id={id} valor={ejercicio} anios={anios} onChange={(a) => a !== null && onChange(a)} />;
 }
 
 /** Errores (impiden descargar el fichero) en rojo y avisos en ámbar. */
@@ -222,4 +212,22 @@ export function Cifra({ etiqueta, valor, nota }: { etiqueta: string; valor: stri
       {nota && <p className="mt-1 text-xs text-slate-500">{nota}</p>}
     </div>
   );
+}
+
+/**
+ * Error del modelo debajo del selector de periodo (el selector sigue a la
+ * vista: con un año sin datos se puede elegir otro).
+ */
+export function ErrorModelo({ mensaje }: { mensaje: string }) {
+  return (
+    <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-6 text-center">
+      <p className="text-red-800">{mensaje}</p>
+      <p className="mt-2 text-sm text-red-700">Puedes elegir otro ejercicio o periodo arriba.</p>
+    </div>
+  );
+}
+
+/** Hueco gris mientras se prepara el modelo (con el selector ya a la vista). */
+export function CargandoModelo() {
+  return <div className="h-96 animate-pulse rounded-lg bg-slate-200" aria-label="Cargando el modelo" />;
 }

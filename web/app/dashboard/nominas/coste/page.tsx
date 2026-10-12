@@ -4,6 +4,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { FileXls } from '@phosphor-icons/react';
 import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { Alerta, Avisos, botonSecundario, CabeceraNominas, Dato, eur, num, pagina, permisosNominas, SinPermiso } from '../comun';
+import { anioEspana } from '@/lib/anios';
+import { useAniosEmpresa } from '@/lib/useAniosEmpresa';
+import SelectorAnio from '@/components/SelectorAnio';
+import { anioOTodosDeUrl, ponerEnUrl } from '@/lib/urlEstado';
 
 /**
  * Coste de personal del ejercicio por mes o por trabajador: bruto, dietas,
@@ -43,8 +47,9 @@ type Agrupar = 'mes' | 'empleado';
 
 export default function CostePersonalPage() {
   const { leer } = permisosNominas();
-  const anioActual = new Date().getFullYear();
-  const [ejercicio, setEjercicio] = useState(anioActual);
+  // El año de la URL (al venir de Nóminas del mes o volver atrás) o el actual; se guarda en la URL.
+  const [ejercicio, setEjercicio] = useState(() => anioOTodosDeUrl() ?? anioEspana());
+  const aniosEmpresa = useAniosEmpresa();
   const [agrupar, setAgrupar] = useState<Agrupar>('mes');
   const [inf, setInf] = useState<InformeCoste | null>(null);
   const [error, setError] = useState('');
@@ -88,7 +93,7 @@ export default function CostePersonalPage() {
   const conIndemnizaciones = !!t && (t.indemnizaciones > 0 || t.dietas > 0);
   const conIngresos = !!t && t.ingresosACuentaNoRepercutidos > 0;
   const filas = inf?.filas ?? [];
-  const anios = [anioActual + 1, anioActual, anioActual - 1, anioActual - 2, anioActual - 3];
+  const anios = aniosEmpresa.anios([ejercicio]);
 
   return (
     <div className={pagina}>
@@ -103,16 +108,18 @@ export default function CostePersonalPage() {
       />
 
       <div className="flex flex-wrap items-center gap-3">
-        <label className="sr-only" htmlFor="co-anio">
-          Ejercicio
-        </label>
-        <select id="co-anio" value={ejercicio} onChange={(e) => setEjercicio(Number(e.target.value))} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
-          {anios.map((a) => (
-            <option key={a} value={a}>
-              {a}
-            </option>
-          ))}
-        </select>
+        <SelectorAnio
+          id="co-anio"
+          etiqueta=""
+          valor={ejercicio}
+          anios={anios}
+          onChange={(a) => {
+            if (a === null) return;
+            setEjercicio(a);
+            ponerEnUrl({ ejercicio: a, mes: null });
+          }}
+          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+        />
         <div className="inline-flex rounded-lg border border-slate-300 bg-white p-0.5" role="group" aria-label="Agrupar">
           {(
             [

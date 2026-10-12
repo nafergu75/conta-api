@@ -5,6 +5,9 @@ import { useSearchParams } from 'next/navigation';
 import { ArrowLeft, CaretRight, FilePdf, FileXls, MagnifyingGlass, X } from '@phosphor-icons/react';
 import { Tooltip } from '@/app/dashboard/components/Tooltip';
 import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
+import { anioDeTexto, anioEspana, rangoAnios } from '@/lib/anios';
+import { ponerEnUrl } from '@/lib/urlEstado';
+import SelectorAnio from '@/components/SelectorAnio';
 import { TablaInforme, fecha, importe, type Tabla } from '../informes/TablaInforme';
 
 /**
@@ -66,14 +69,16 @@ export default function MayorTercerosPage() {
 }
 
 function MayorTerceros() {
-  const anioActual = new Date().getFullYear();
+  const anioActual = anioEspana();
   // Desde la ficha de un cliente o proveedor (o Carmen): ?tipo=clientes&tercero=<id> abre su detalle.
   const sp = useSearchParams();
   const tipoUrl = sp?.get('tipo') === 'proveedores' || sp?.get('tipo') === 'proveedor' ? 'proveedores' : sp?.get('tipo') ? 'clientes' : null;
   const terceroUrl = sp?.get('tercero') ?? '';
   const [tipo, setTipo] = useState<Tipo>(tipoUrl ?? 'clientes');
   const [ejercicios, setEjercicios] = useState<number[]>([anioActual]);
-  const [ejercicio, setEjercicio] = useState(anioActual);
+  // Año de la URL (?ejercicio=) o el actual en España. No se carga nada hasta tener la lista.
+  const [ejercicio, setEjercicio] = useState(() => anioDeTexto(sp?.get('ejercicio')) ?? anioActual);
+  const [listaLeida, setListaLeida] = useState(false);
   const [hasta, setHasta] = useState('');
   const [soloConSaldo, setSoloConSaldo] = useState(true);
   const [q, setQ] = useState('');
@@ -92,14 +97,10 @@ function MayorTerceros() {
 
   useEffect(() => {
     apiFetch<number[]>(companyPath('/informes-contables/ejercicios'))
-      .then((l) => {
-        if (l.length) {
-          setEjercicios(l);
-          setEjercicio(l[0]);
-        }
-      })
-      .catch(() => undefined);
-  }, []);
+      .then((l) => setEjercicios(rangoAnios({ primero: anioActual, actual: anioActual, incluir: l })))
+      .catch(() => setEjercicios(rangoAnios({ primero: anioActual - 4, actual: anioActual })))
+      .finally(() => setListaLeida(true));
+  }, [anioActual]);
 
   const periodo = useCallback(() => {
     const p = new URLSearchParams();
@@ -127,8 +128,8 @@ function MayorTerceros() {
   }, [tipo, periodo, soloConSaldo, busqueda]);
 
   useEffect(() => {
-    cargar();
-  }, [cargar]);
+    if (listaLeida) cargar();
+  }, [cargar, listaLeida]);
 
   const descargar = async (formato: 'pdf' | 'xlsx') => {
     const p = periodo();
@@ -186,20 +187,20 @@ function MayorTerceros() {
           <input id="mt-q" value={q} onChange={(e) => setQ(e.target.value)} onBlur={() => setBusqueda(q.trim())} placeholder="Nombre, NIF o subcuenta" className="mt-1 w-full rounded-lg border border-slate-300 py-2 pl-9 pr-3 text-sm" />
         </form>
         <div className="sm:w-28">
-          <label htmlFor="mt-ej" className="block text-xs font-medium text-slate-600">Ejercicio</label>
-          <select
+          <SelectorAnio
             id="mt-ej"
-            value={ejercicio}
-            onChange={(e) => {
-              setEjercicio(Number(e.target.value));
+            valor={ejercicio}
+            anios={ejercicios}
+            onChange={(a) => {
+              if (a === null) return;
+              setEjercicio(a);
               setHasta('');
+              // El año va a la URL: al volver atrás, el mayor sigue en él.
+              ponerEnUrl({ ejercicio: a });
             }}
             className={campo}
-          >
-            {ejercicios.map((a) => (
-              <option key={a} value={a}>{a}</option>
-            ))}
-          </select>
+            claseEtiqueta="block text-xs font-medium text-slate-600"
+          />
         </div>
         <div className="sm:w-40">
           <label htmlFor="mt-hasta" className="block text-xs font-medium text-slate-600">Hasta (opcional)</label>

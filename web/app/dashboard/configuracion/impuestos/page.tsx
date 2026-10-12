@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Info, Percent } from '@phosphor-icons/react';
 import { ConfirmationModal } from '@/components/dashboard/ConfirmationModal';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
+import { hoyIso } from '@/lib/anios';
 import {
   claseBoton,
   claseCampo,
@@ -91,7 +92,7 @@ const ESTADO_MODELO: Record<string, { texto: string; tono: 'verde' | 'gris' | 'r
 const NOMBRE_TRIMESTRE: Record<string, string> = { '01': '1.er trimestre', '04': '2.º trimestre', '07': '3.er trimestre', '10': '4.º trimestre' };
 
 /** Hoy en España (AAAA-MM-DD), que es lo que usa el servidor. */
-const hoyEspana = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Madrid' });
+const hoyEspana = () => hoyIso();
 
 /**
  * Trimestres del año en curso que ya han empezado: a esos se puede adelantar el
@@ -109,6 +110,8 @@ function nombrePeriodo(m: ModeloPrevisto): string {
   if (m.periodo === '0A') return 'Anual';
   const t = /^([1-4])T$/.exec(m.periodo);
   if (t) return `${t[1]}.${t[1] === '1' || t[1] === '3' ? 'er' : 'º'} trimestre`;
+  const pago = /^([1-3])P$/.exec(m.periodo);
+  if (pago) return `${pago[1]}.${pago[1] === '2' ? 'º' : 'er'} pago`;
   const mes = /^(0[1-9]|1[0-2])$/.test(m.periodo) ? MESES[Number(m.periodo) - 1] : null;
   return mes ?? m.periodoEtiqueta;
 }
@@ -137,8 +140,13 @@ export default function ImpuestosPage() {
   const [aplicadoDesde, setAplicadoDesde] = useState<string | null | undefined>(undefined);
   const [avisoVista, setAvisoVista] = useState<string | null>(null);
   const [confirmar, setConfirmar] = useState(false);
+  // Fecha de inicio en la app ('' = sin fecha: todo se lleva en la app).
+  const [inicio, setInicio] = useState('');
   const peticion = useRef(0);
   const hoy = hoyEspana();
+  const anioHoy = Number(hoy.slice(0, 4));
+  // Calendario que se enseña: el de este año o el del que viene.
+  const [anioCalendario, setAnioCalendario] = useState(anioHoy);
   const empezados = trimestresEmpezados(hoy);
 
   useEffect(() => {
@@ -148,16 +156,17 @@ export default function ImpuestosPage() {
       .then((a) => {
         setAjustes(a);
         setValores(valoresDe(a));
+        setInicio(a.inicioEnApp ?? '');
         setModelos(a.calendario.modelos);
         setEjercicio(a.calendario.ejercicio);
       })
       .catch((e) => setErrorCarga(errorMessage(e)));
   }, [listo, ver, empresaLeida, espanola]);
 
-  // Vista previa del calendario con los valores aun sin guardar (no escribe nada).
+  // Vista previa del calendario con los valores aun sin guardar, o del año que viene (no escribe nada).
   useEffect(() => {
     if (!ajustes || !valores) return;
-    if (iguales(valores, valoresDe(ajustes)) && !aplicarDesde) {
+    if (iguales(valores, valoresDe(ajustes)) && !aplicarDesde && anioCalendario === ajustes.calendario.ejercicio) {
       peticion.current++; // la vista previa que estuviera en camino ya no vale
       setCargandoVista(false);
       setModelos(ajustes.calendario.modelos);
@@ -173,7 +182,7 @@ export default function ImpuestosPage() {
         companyPath('/ajustes-fiscales/vista-previa'),
         {
           method: 'POST',
-          body: JSON.stringify(aplicarDesde ? { ...valores, aplicarDesde } : valores),
+          body: JSON.stringify({ ...valores, ...(aplicarDesde ? { aplicarDesde } : {}), ...(anioCalendario !== anioHoy ? { ejercicio: anioCalendario } : {}) }),
         },
       )
         .then((r) => {
@@ -187,7 +196,7 @@ export default function ImpuestosPage() {
         .finally(() => n === peticion.current && setCargandoVista(false));
     }, 300);
     return () => clearTimeout(t);
-  }, [valores, ajustes, aplicarDesde]);
+  }, [valores, ajustes, aplicarDesde, anioCalendario, anioHoy]);
 
   const cambiar = (cambio: Partial<Valores>) => {
     if (!valores) return;
@@ -210,10 +219,17 @@ export default function ImpuestosPage() {
     try {
       const r = await apiFetch<AjustesFiscales & { aviso: string | null }>(companyPath('/ajustes-fiscales'), {
         method: 'PUT',
-        body: JSON.stringify(aplicarDesde ? { ...valores, aplicarDesde } : valores),
+        body: JSON.stringify({
+          ...valores,
+          ...(aplicarDesde ? { aplicarDesde } : {}),
+          // Solo si ha cambiado: vacía, se quita.
+          ...(inicio !== (ajustes?.inicioEnApp ?? '') ? { inicioEnApp: inicio || null } : {}),
+        }),
       });
       setAjustes(r);
       setValores(valoresDe(r));
+      setInicio(r.inicioEnApp ?? '');
+      setAnioCalendario(r.calendario.ejercicio);
       setModelos(r.calendario.modelos);
       setEjercicio(r.calendario.ejercicio);
       setExplicacion(null);
@@ -386,11 +402,73 @@ export default function ImpuestosPage() {
             )}
           </section>
 
+          <section aria-labelledby="inicio-app" className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 md:p-5">
+            <h2 id="inicio-app" className="font-semibold text-slate-900">
+              Fecha de inicio en la app
+            </h2>
+            <p className="text-sm text-slate-600">
+              El día desde el que llevas la contabilidad aquí. Los modelos de periodos que terminaron antes no salen como pendientes: los presentó otra
+              persona (tu gestoría, por ejemplo).
+            </p>
+            {!ajustes.inicioEnApp && ajustes.inicioDeducido && (
+              <p className="text-sm text-slate-600">
+                Si la dejas vacía, la app cuenta desde el {ajustes.inicioDeducido.split('-').reverse().join('/')}: el primer día con datos de la empresa
+                o, si todavía no tiene ninguno, el día en que se dio de alta.
+              </p>
+            )}
+            <div className="flex flex-wrap items-end gap-3">
+              <label htmlFor="inicio-en-app" className="block text-sm font-medium text-slate-700">
+                Empiezo a usar la app el
+                <input
+                  id="inicio-en-app"
+                  type="date"
+                  min="1990-01-01"
+                  max={`${anioHoy + 1}-12-31`}
+                  value={inicio}
+                  onChange={(e) => setInicio(e.target.value)}
+                  disabled={off}
+                  className={`${claseCampo} max-w-xs`}
+                />
+              </label>
+              {inicio && !off && (
+                <button type="button" onClick={() => setInicio('')} className="mb-2 text-sm font-medium text-blue-700 hover:text-blue-800">
+                  Quitar la fecha
+                </button>
+              )}
+            </div>
+            {inicio !== (ajustes.inicioEnApp ?? '') && <p className="text-sm text-amber-900">Pulsa «Guardar» para que el calendario la tenga en cuenta.</p>}
+            <p className="text-sm text-slate-600">
+              ¿Algún modelo ya presentado fuera de la app sigue saliendo como pendiente? Márcalo en{' '}
+              <Link href="/dashboard/fiscal/estado" className="font-medium text-blue-700 underline">
+                Fiscal &gt; Estado fiscal
+              </Link>
+              , uno a uno o todo un año.
+            </p>
+          </section>
+
           <section aria-labelledby="calendario" className="rounded-xl border border-slate-200 bg-white">
             <header className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-3 md:px-5">
-              <h2 id="calendario" className="font-semibold text-slate-900">
-                Modelos de {ejercicio ?? ''} {cambiado ? 'con estos cambios' : ''}
-              </h2>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 id="calendario" className="font-semibold text-slate-900">
+                  Modelos de
+                </h2>
+                <label htmlFor="anio-calendario" className="sr-only">
+                  Año del calendario
+                </label>
+                <select
+                  id="anio-calendario"
+                  value={anioCalendario}
+                  onChange={(e) => setAnioCalendario(Number(e.target.value))}
+                  className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm font-semibold text-slate-900"
+                >
+                  {[anioHoy + 1, anioHoy].map((a) => (
+                    <option key={a} value={a}>
+                      {a}
+                    </option>
+                  ))}
+                </select>
+                {cambiado && <span className="font-semibold text-slate-900">con estos cambios</span>}
+              </div>
               {cargandoVista && <span className="text-xs text-slate-500">Calculando…</span>}
             </header>
             {!modelos || modelos.length === 0 ? (
@@ -403,7 +481,7 @@ export default function ImpuestosPage() {
                     <li key={`${m.codigo}-${m.periodo}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 text-sm md:px-5">
                       <span className="w-12 font-mono font-semibold text-slate-900">{m.codigo}</span>
                       <span className="w-28 text-slate-700">{nombrePeriodo(m)}</span>
-                      <span className="min-w-0 flex-1 text-slate-600">{m.descripcion}</span>
+                      <span className="min-w-0 basis-full text-slate-600 sm:basis-0 sm:flex-1">{m.descripcion}</span>
                       {m.rellenoManual && <Etiqueta tono="ambar">Se rellena a mano</Etiqueta>}
                       {estado && <Etiqueta tono={estado.tono}>{estado.texto}</Etiqueta>}
                       <span className="text-xs text-slate-500">

@@ -1,16 +1,18 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { apiFetch, errorMessage } from '@/lib/api';
-import { ejercicioAnualAPresentar } from '@/lib/aeatCalendar';
 import { Declaraciones } from '../components/Declaraciones';
+import { AvisoEjercicioEnCurso } from '../components/AvisosModelo';
+import { useEjercicioAnual } from '../components/periodoModelo';
 import { importeParaEnviar } from '@/lib/moneda';
 import {
   CabeceraBorrador,
   Cargando,
+  CargandoModelo,
   Cifra,
   DescargarFichero,
-  ErrorCarga,
+  ErrorModelo,
   ErroresYAvisos,
   eur,
   PaginaCasillas,
@@ -89,8 +91,16 @@ const RESULTADO: Record<string, string> = { I: 'A ingresar', N: 'Resultado cero'
 const CLAVE_PYME = new Set(['02000', '09000', '10000', '11000', '13000', '15000', '20B00', '20D00']);
 
 export default function Modelo200Page() {
-  // Modelo anual: se presenta por el ejercicio anterior.
-  const [ejercicio, setEjercicio] = useState(ejercicioAnualAPresentar);
+  return (
+    <Suspense fallback={<Cargando />}>
+      <Modelo200 />
+    </Suspense>
+  );
+}
+
+function Modelo200() {
+  // Modelo anual: se presenta por el ejercicio anterior (nunca antes del primer año de la empresa).
+  const { ejercicio, setEjercicio, anios, listo } = useEjercicioAnual();
   const [datos, setDatos] = useState<Datos>(VACIO);
   const [aplicados, setAplicados] = useState<Datos>(VACIO);
   const [borrador, setBorrador] = useState<Borrador200 | null>(null);
@@ -102,6 +112,7 @@ export default function Modelo200Page() {
   const parametros = parametrosDe(aplicados);
 
   useEffect(() => {
+    if (!listo) return;
     let vivo = true;
     setLoading(true);
     setError('');
@@ -112,11 +123,29 @@ export default function Modelo200Page() {
     return () => {
       vivo = false;
     };
-  }, [ejercicio, aplicados, recarga]);
+  }, [listo, ejercicio, aplicados, recarga]);
 
-  if (loading && !borrador) return <Cargando />;
-  if (error && !borrador) return <ErrorCarga mensaje={error} />;
-  if (!borrador) return <ErrorCarga mensaje="No se ha podido preparar el borrador." />;
+  const cabecera = (
+    <CabeceraBorrador
+      titulo="Modelo 200 · Impuesto sobre Sociedades (borrador)"
+      subtitulo="Borrador a partir de las cuentas anuales que calcula la app, con el balance y la cuenta de pérdidas y ganancias del modelo PYMES."
+      diseno={borrador ? `Diseño oficial de la AEAT, versión ${borrador.diseno}. ${borrador.revisar}` : 'Diseño oficial de la AEAT.'}
+    />
+  );
+
+  // Sin borrador de este ejercicio (cargando o con error), el selector sigue a la vista para elegir otro.
+  if (!borrador || (error && borrador.ejercicio !== ejercicio)) {
+    return (
+      <div className="space-y-6">
+        {cabecera}
+        <div className="rounded-lg border border-slate-200 bg-white p-4">
+          <SelectorEjercicio ejercicio={ejercicio} anios={anios} onChange={setEjercicio} />
+          <AvisoEjercicioEnCurso ejercicio={ejercicio} />
+        </div>
+        {error ? <ErrorModelo mensaje={error} /> : <CargandoModelo />}
+      </div>
+    );
+  }
 
   const b = borrador;
   const l = b.liquidacion;
@@ -148,15 +177,12 @@ export default function Modelo200Page() {
 
   return (
     <div className="space-y-6">
-      <CabeceraBorrador
-        titulo="Modelo 200 · Impuesto sobre Sociedades (borrador)"
-        subtitulo="Borrador a partir de las cuentas anuales que calcula la app, con el balance y la cuenta de pérdidas y ganancias del modelo PYMES."
-        diseno={`Diseño oficial de la AEAT, versión ${b.diseno}. ${b.revisar}`}
-      />
+      {cabecera}
 
       <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
+        <AvisoEjercicioEnCurso ejercicio={ejercicio} />
         <div className="flex flex-wrap items-end gap-4">
-          <SelectorEjercicio ejercicio={ejercicio} onChange={setEjercicio} />
+          <SelectorEjercicio ejercicio={ejercicio} anios={anios} onChange={setEjercicio} />
           <label className="flex items-center gap-2 text-sm text-slate-700">
             <input type="checkbox" checked={datos.nuevaCreacion} onChange={(e) => setDatos({ ...datos, nuevaCreacion: e.target.checked })} />
             Entidad de nueva creación (tipo del 15 %)
