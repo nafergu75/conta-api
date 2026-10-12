@@ -47,9 +47,10 @@ type Pestana = 'plan' | 'apertura' | 'diario' | 'anteriores';
 
 interface Estado {
   ejercicios: Array<{ label: string; estado: string }>;
-  aperturas: Array<{ ejercicio: number; id: string; numero: string; fecha: string; importe: number; apuntes: number }>;
-  diariosImportados: Array<{ ejercicio: number; asientos: number; desde: string; hasta: string }>;
-  comparativos: Array<{ ejercicio: number; cuentasBalance: number; cuentasPyg: number; resultado: number; actualizado: string }>;
+  /** deCarga: lo trajo «Traer la contabilidad de 2026»; se cambia desde allí (aquí el servidor daría 409). */
+  aperturas: Array<{ ejercicio: number; id: string; numero: string; fecha: string; importe: number; apuntes: number; deCarga?: boolean }>;
+  diariosImportados: Array<{ ejercicio: number; asientos: number; desde: string; hasta: string; deCarga?: boolean }>;
+  comparativos: Array<{ ejercicio: number; cuentasBalance: number; cuentasPyg: number; resultado: number; actualizado: string; deCarga?: boolean }>;
 }
 
 const CAMPOS_BALANCE: Array<[string, string]> = [
@@ -166,7 +167,9 @@ export default function PuestaEnMarchaPage() {
                 <span className="text-slate-700">
                   Apertura {a.ejercicio}: <span className="font-mono">{a.numero}</span> del {fechaEs(a.fecha)}, {a.apuntes} apuntes, {eur.format(a.importe)}
                 </span>
-                {puedeEditar && (
+                {a.deCarga ? (
+                  <EnlaceCarga />
+                ) : puedeEditar && (
                   <button
                     onClick={() => anular(`/puesta-en-marcha/apertura?ejercicio=${a.ejercicio}`, `¿Anular el asiento de apertura ${a.numero} del ${a.ejercicio}?`, `Apertura del ${a.ejercicio} anulada.`)}
                     className="inline-flex items-center gap-1 text-xs font-medium text-red-600 hover:underline"
@@ -181,7 +184,9 @@ export default function PuestaEnMarchaPage() {
                 <span className="text-slate-700">
                   Diario {d.ejercicio}: {d.asientos} asientos importados ({fechaEs(d.desde)} a {fechaEs(d.hasta)})
                 </span>
-                {puedeEditar && (
+                {d.deCarga ? (
+                  <EnlaceCarga />
+                ) : puedeEditar && (
                   <button
                     onClick={() => anular(`/puesta-en-marcha/diario?ejercicio=${d.ejercicio}`, `¿Anular los ${d.asientos} asientos importados del ${d.ejercicio}?`, `Asientos importados del ${d.ejercicio} anulados.`)}
                     className="inline-flex items-center gap-1 text-xs font-medium text-red-600 hover:underline"
@@ -196,7 +201,9 @@ export default function PuestaEnMarchaPage() {
                 <span className="text-slate-700">
                   Comparativo {c.ejercicio}: {c.cuentasBalance} cuentas de balance, {c.cuentasPyg} de resultados (resultado {eur.format(c.resultado)})
                 </span>
-                {puedeEditar && (
+                {c.deCarga ? (
+                  <EnlaceCarga />
+                ) : puedeEditar && (
                   <button
                     onClick={() => anular(`/puesta-en-marcha/comparativo/${c.ejercicio}`, `¿Borrar los datos comparativos del ${c.ejercicio}?`, `Comparativo del ${c.ejercicio} borrado.`)}
                     className="inline-flex items-center gap-1 text-xs font-medium text-red-600 hover:underline"
@@ -801,5 +808,14 @@ function ImportarComparativo({ onHecho }: { onHecho: (t: string) => void }) {
         </div>
       )}
     </div>
+  );
+}
+
+/** En lo que trajo la carga de 2026, en lugar de «Anular» o «Borrar»: se cambia desde allí. */
+function EnlaceCarga() {
+  return (
+    <Link href={RUTA_ARRANQUE} className="text-xs font-medium text-accent-600 hover:underline">
+      Se cambia desde Traer la contabilidad de {ANIO_GESTORIA}
+    </Link>
   );
 }
