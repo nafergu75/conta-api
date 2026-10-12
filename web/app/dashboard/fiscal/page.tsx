@@ -69,7 +69,7 @@ export default function FiscalPage() {
             href={`/dashboard/fiscal/modelo-303`}
             className="group relative overflow-hidden rounded-lg border border-slate-200 bg-white p-6 transition hover:shadow-lg"
           >
-            <div className="absolute right-0 top-0 h-32 w-32 bg-gradient-to-br from-blue-50 to-transparent" />
+            <div className="absolute right-0 top-0 h-32 w-32 bg-gradient-to-br dark:hidden from-blue-50 to-transparent" />
 
             <div className="relative">
               <div className="inline-flex items-center justify-center rounded-lg bg-blue-50 p-3">
@@ -95,7 +95,7 @@ export default function FiscalPage() {
             href={`/dashboard/fiscal/modelo-111`}
             className="group relative overflow-hidden rounded-lg border border-slate-200 bg-white p-6 transition hover:shadow-lg"
           >
-            <div className="absolute right-0 top-0 h-32 w-32 bg-gradient-to-br from-amber-50 to-transparent" />
+            <div className="absolute right-0 top-0 h-32 w-32 bg-gradient-to-br dark:hidden from-amber-50 to-transparent" />
 
             <div className="relative">
               <div className="inline-flex items-center justify-center rounded-lg bg-amber-50 p-3">
@@ -121,7 +121,7 @@ export default function FiscalPage() {
             href={`/dashboard/fiscal/modelo-200`}
             className="group relative overflow-hidden rounded-lg border border-slate-200 bg-white p-6 transition hover:shadow-lg"
           >
-            <div className="absolute right-0 top-0 h-32 w-32 bg-gradient-to-br from-emerald-50 to-transparent" />
+            <div className="absolute right-0 top-0 h-32 w-32 bg-gradient-to-br dark:hidden from-emerald-50 to-transparent" />
 
             <div className="relative">
               <div className="inline-flex items-center justify-center rounded-lg bg-emerald-50 p-3">
@@ -147,7 +147,7 @@ export default function FiscalPage() {
             href={`/dashboard/fiscal/modelo-347`}
             className="group relative overflow-hidden rounded-lg border border-slate-200 bg-white p-6 transition hover:shadow-lg"
           >
-            <div className="absolute right-0 top-0 h-32 w-32 bg-gradient-to-br from-violet-50 to-transparent" />
+            <div className="absolute right-0 top-0 h-32 w-32 bg-gradient-to-br dark:hidden from-violet-50 to-transparent" />
 
             <div className="relative">
               <div className="inline-flex items-center justify-center rounded-lg bg-violet-50 p-3">
@@ -173,7 +173,7 @@ export default function FiscalPage() {
             href={`/dashboard/fiscal/modelo-115`}
             className="group relative overflow-hidden rounded-lg border border-slate-200 bg-white p-6 transition hover:shadow-lg"
           >
-            <div className="absolute right-0 top-0 h-32 w-32 bg-gradient-to-br from-rose-50 to-transparent" />
+            <div className="absolute right-0 top-0 h-32 w-32 bg-gradient-to-br dark:hidden from-rose-50 to-transparent" />
 
             <div className="relative">
               <div className="inline-flex items-center justify-center rounded-lg bg-rose-50 p-3">
@@ -199,7 +199,7 @@ export default function FiscalPage() {
             href={`/dashboard/fiscal/modelo-390`}
             className="group relative overflow-hidden rounded-lg border border-slate-200 bg-white p-6 transition hover:shadow-lg"
           >
-            <div className="absolute right-0 top-0 h-32 w-32 bg-gradient-to-br from-cyan-50 to-transparent" />
+            <div className="absolute right-0 top-0 h-32 w-32 bg-gradient-to-br dark:hidden from-cyan-50 to-transparent" />
 
             <div className="relative">
               <div className="inline-flex items-center justify-center rounded-lg bg-cyan-50 p-3">
@@ -225,7 +225,7 @@ export default function FiscalPage() {
             href={`/dashboard/fiscal/modelo-190`}
             className="group relative overflow-hidden rounded-lg border border-slate-200 bg-white p-6 transition hover:shadow-lg"
           >
-            <div className="absolute right-0 top-0 h-32 w-32 bg-gradient-to-br from-indigo-50 to-transparent" />
+            <div className="absolute right-0 top-0 h-32 w-32 bg-gradient-to-br dark:hidden from-indigo-50 to-transparent" />
 
             <div className="relative">
               <div className="inline-flex items-center justify-center rounded-lg bg-indigo-50 p-3">
@@ -251,7 +251,7 @@ export default function FiscalPage() {
             href={`/dashboard/fiscal/modelo-349`}
             className="group relative overflow-hidden rounded-lg border border-slate-200 bg-white p-6 transition hover:shadow-lg"
           >
-            <div className="absolute right-0 top-0 h-32 w-32 bg-gradient-to-br from-violet-50 to-transparent" />
+            <div className="absolute right-0 top-0 h-32 w-32 bg-gradient-to-br dark:hidden from-violet-50 to-transparent" />
 
             <div className="relative">
               <div className="inline-flex items-center justify-center rounded-lg bg-violet-50 p-3">
@@ -277,7 +277,7 @@ export default function FiscalPage() {
             href={`/dashboard/fiscal/modelo-180`}
             className="group relative overflow-hidden rounded-lg border border-slate-200 bg-white p-6 transition hover:shadow-lg"
           >
-            <div className="absolute right-0 top-0 h-32 w-32 bg-gradient-to-br from-fuchsia-50 to-transparent" />
+            <div className="absolute right-0 top-0 h-32 w-32 bg-gradient-to-br dark:hidden from-fuchsia-50 to-transparent" />
 
             <div className="relative">
               <div className="inline-flex items-center justify-center rounded-lg bg-fuchsia-50 p-3">
@@ -303,7 +303,7 @@ export default function FiscalPage() {
             href={`/dashboard/fiscal/modelo-202`}
             className="group relative overflow-hidden rounded-lg border border-slate-200 bg-white p-6 transition hover:shadow-lg"
           >
-            <div className="absolute right-0 top-0 h-32 w-32 bg-gradient-to-br from-emerald-50 to-transparent" />
+            <div className="absolute right-0 top-0 h-32 w-32 bg-gradient-to-br dark:hidden from-emerald-50 to-transparent" />
 
             <div className="relative">
               <div className="inline-flex items-center justify-center rounded-lg bg-emerald-50 p-3">
