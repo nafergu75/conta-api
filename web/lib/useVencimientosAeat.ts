@@ -57,6 +57,8 @@ export interface Vencimientos {
   vencimientos: VencimientoAeat[] | null;
   /** Modelos del año pasado y de este con el plazo ya vencido y sin presentar (0 con el calendario general). */
   vencidos: number;
+  /** Los mismos vencidos por ejercicio ({ 2025: 21, 2026: 8 }), solo los años que tienen alguno. */
+  vencidosPorAnio: Record<number, number>;
   delServidor: boolean;
 }
 
@@ -64,7 +66,7 @@ export function useVencimientosAeat(n = 4, activo = true): Vencimientos {
   const { listo, primeroReal, actual } = useAniosEmpresa();
   // Al cambiar el día (medianoche de Madrid) se recalculan los días que faltan.
   const hoy = useHoyIso();
-  const [estado, setEstado] = useState<Vencimientos>({ vencimientos: null, vencidos: 0, delServidor: false });
+  const [estado, setEstado] = useState<Vencimientos>({ vencimientos: null, vencidos: 0, vencidosPorAnio: {}, delServidor: false });
 
   useEffect(() => {
     if (!activo || !listo) return;
@@ -74,7 +76,7 @@ export function useVencimientosAeat(n = 4, activo = true): Vencimientos {
     // se le enseñan sus primeros plazos del calendario general.
     const anios = [actual - 1, actual].filter((a) => a >= primeroReal);
     if (!anios.length) {
-      setEstado({ vencimientos: proximosVencimientos(hoy, n, primeroReal), vencidos: 0, delServidor: false });
+      setEstado({ vencimientos: proximosVencimientos(hoy, n, primeroReal), vencidos: 0, vencidosPorAnio: {}, delServidor: false });
       return;
     }
     Promise.all(anios.map((a) => leerModelosImpuesto(a, 'activos')))
@@ -86,9 +88,12 @@ export function useVencimientosAeat(n = 4, activo = true): Vencimientos {
           .sort((a, b) => a.fechaVencimiento.localeCompare(b.fechaVencimiento) || a.codigo.localeCompare(b.codigo))
           .slice(0, n)
           .map((m) => aVencimiento(m, hoy));
-        setEstado({ vencimientos: proximos, vencidos: todos.filter((m) => m.estado === 'expirado').length, delServidor: true });
+        const vencidos = todos.filter((m) => m.estado === 'expirado');
+        const vencidosPorAnio: Record<number, number> = {};
+        for (const m of vencidos) vencidosPorAnio[m.ejercicio] = (vencidosPorAnio[m.ejercicio] ?? 0) + 1;
+        setEstado({ vencimientos: proximos, vencidos: vencidos.length, vencidosPorAnio, delServidor: true });
       })
-      .catch(() => vivo && setEstado({ vencimientos: proximosVencimientos(hoy, n, primeroReal), vencidos: 0, delServidor: false }));
+      .catch(() => vivo && setEstado({ vencimientos: proximosVencimientos(hoy, n, primeroReal), vencidos: 0, vencidosPorAnio: {}, delServidor: false }));
     return () => {
       vivo = false;
     };

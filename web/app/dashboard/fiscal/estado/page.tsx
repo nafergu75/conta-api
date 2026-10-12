@@ -51,7 +51,7 @@ function EstadoFiscal() {
   const [confirmar, setConfirmar] = useState<Confirmar>(null);
   const [ocupado, setOcupado] = useState(false);
   const [puedeMarcar, setPuedeMarcar] = useState(false);
-  const { vencimientos } = useVencimientosAeat(6);
+  const { vencimientos, vencidosPorAnio } = useVencimientosAeat(6);
 
   useEffect(() => {
     setPuedeMarcar(tieneAlgunPermiso(getUser(), ['impuestos:write']));
@@ -196,7 +196,18 @@ function EstadoFiscal() {
       </div>
 
       <div className="flex flex-wrap items-end gap-4 rounded-lg border border-slate-200 bg-white p-4">
-        <SelectorAnio id="estado-ejercicio" valor={ejercicio} anios={aniosEmpresa.aniosModelos([ejercicio])} onChange={(a) => a !== null && setEjercicio(a)} />
+        <SelectorAnio
+          id="estado-ejercicio"
+          valor={ejercicio}
+          anios={aniosEmpresa.aniosModelos([ejercicio])}
+          onChange={(a) => a !== null && setEjercicio(a)}
+          // Qué año tiene modelos vencidos sin presentar: el elegido, con lo que se ve
+          // ahora (cambia al marcar); los demás, el año pasado y este según el panel.
+          sufijo={(a) => {
+            const n = a === ejercicio && !cargando ? vencidos.length : vencidosPorAnio[a] ?? 0;
+            return n ? `(${n} ${n === 1 ? 'vencido' : 'vencidos'})` : '';
+          }}
+        />
         {puedeMarcarEjercicio && (
           <button
             type="button"

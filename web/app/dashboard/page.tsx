@@ -108,7 +108,11 @@ export default function DashboardPage() {
   // Lo que deja ver su acceso en la empresa activa (se lee al montar: la sesion vive en el navegador).
   const [acceso, setAcceso] = useState<{ cobros: boolean; aeat: boolean; nuevoMovimiento: boolean } | null>(null);
   // Plazos de la AEAT del servidor (día hábil, ajustes fiscales); sin permiso de impuestos, el calendario general.
-  const { vencimientos: vencimientosAeat, vencidos: vencidosAeat } = useVencimientosAeat(4, !!acceso?.aeat);
+  const { vencimientos: vencimientosAeat, vencidos: vencidosAeat, vencidosPorAnio } = useVencimientosAeat(4, !!acceso?.aeat);
+  // Los años con vencidos, del más antiguo al más reciente (cada uno enlaza a Estado fiscal en ese año).
+  const aniosVencidos = Object.keys(vencidosPorAnio)
+    .map(Number)
+    .sort((a, b) => a - b);
 
   const loadData = useCallback(async () => {
     try {
@@ -422,13 +426,31 @@ export default function DashboardPage() {
             </p>
           </div>
           {vencidosAeat > 0 && (
-            <p role="status" className="mb-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
-              {vencidosAeat === 1 ? 'Hay 1 modelo' : `Hay ${vencidosAeat} modelos`} con el plazo vencido y sin presentar.{' '}
-              <Link href="/dashboard/fiscal/estado" className="font-medium underline">
-                Revísalos en Estado fiscal
-              </Link>
-              : si los presentó tu gestoría, márcalos como presentados fuera de la app.
-            </p>
+            <div role="status" className="mb-3 space-y-1 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
+              <p>
+                {vencidosAeat === 1 ? 'Hay 1 modelo' : `Hay ${vencidosAeat} modelos`} con el plazo vencido y sin presentar. Si los presentó tu
+                gestoría, márcalos como presentados fuera de la app.
+              </p>
+              <p>
+                Revísalos en Estado fiscal:{' '}
+                {aniosVencidos.map((anio, i) => (
+                  <span key={anio}>
+                    {i > 0 && (i === aniosVencidos.length - 1 ? ' y ' : ', ')}
+                    <Link href={`/dashboard/fiscal/estado?ejercicio=${anio}`} className="font-medium underline">
+                      {vencidosPorAnio[anio]} de {anio}
+                    </Link>
+                  </span>
+                ))}
+                .
+              </p>
+              <p>
+                ¿Empezaste a llevar los impuestos con la app hace poco?{' '}
+                <Link href="/dashboard/configuracion/impuestos" className="font-medium underline">
+                  Indica desde cuándo
+                </Link>{' '}
+                y no te pediremos los de antes.
+              </p>
+            </div>
           )}
           {vencimientosAeat === null ? (
             <div className="h-24 animate-pulse rounded-lg bg-white border border-slate-200" />
