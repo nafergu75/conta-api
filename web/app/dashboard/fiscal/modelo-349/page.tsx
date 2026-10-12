@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { CaretLeft } from '@phosphor-icons/react';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
-import { formatoImporte } from '@/lib/moneda';
+import { formatoImporte, parseImporte } from '@/lib/moneda';
 import { trimestreAPresentar } from '@/lib/aeatCalendar';
 import {
   AvisosBorrador,
@@ -57,6 +57,12 @@ interface Borrador349 {
     rectificaciones: Array<Record<string, string | number>>;
   } | null;
   movimientos: Movimiento[];
+  /**
+   * Rectificaciones de periodos cuyo 349 no está en la app (abonos de facturas
+   * de 2026 llevadas fuera): la base que se declaró hay que escribirla a mano.
+   * `clave`: 'NIFIVA|clave|ejercicio|periodo'; base null mientras no se escriba.
+   */
+  basesPedidas?: Array<{ clave: string; nombre: string; claveOperacion: string; ejercicio: number; periodo: string; base: number | null }>;
 }
 
 const PERIODOS = ['1T', '2T', '3T', '4T', '01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'];
@@ -91,6 +97,10 @@ export default function Modelo349Page() {
   const [cambio, setCambio] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [mensaje, setMensaje] = useState('');
+  // Bases declaradas a mano (texto de cada campo, por clave).
+  const [bases, setBases] = useState<Record<string, string>>({});
+  const [guardandoBases, setGuardandoBases] = useState(false);
+  const [mensajeBases, setMensajeBases] = useState('');
 
   useEffect(() => {
     let vivo = true;
@@ -101,6 +111,8 @@ export default function Modelo349Page() {
         if (!vivo) return;
         setB(r);
         setCambio(r.opciones.cambioPeriodicidad);
+        setBases(Object.fromEntries((r.basesPedidas ?? []).map((x) => [x.clave, x.base === null ? '' : String(x.base).replace('.', ',')])));
+        setMensajeBases('');
       })
       .catch((e) => vivo && setError(errorMessage(e)))
       .finally(() => vivo && setCargando(false));
@@ -124,6 +136,31 @@ export default function Modelo349Page() {
       setMensaje(errorMessage(err));
     } finally {
       setGuardando(false);
+    }
+  };
+
+  /** Guarda las bases declaradas a mano (PUT /349/opciones { basesDeclaradas }) y recalcula. */
+  const guardarBases = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const basesDeclaradas: Record<string, number | null> = {};
+    for (const [clave, texto] of Object.entries(bases)) {
+      const n = parseImporte(texto);
+      if (texto.trim() && !(n >= 0)) {
+        setMensajeBases('Escribe cada base como un importe de cero o más (por ejemplo, 1.250,00).');
+        return;
+      }
+      basesDeclaradas[clave] = texto.trim() ? Math.round(n * 100) / 100 : null;
+    }
+    setGuardandoBases(true);
+    setMensajeBases('');
+    try {
+      const r = await apiFetch<Borrador349>(companyPath('/tax-models/349/opciones'), { method: 'PUT', body: JSON.stringify({ ejercicio, periodo, basesDeclaradas }) });
+      setB(r);
+      setMensajeBases('Guardado.');
+    } catch (err) {
+      setMensajeBases(errorMessage(err));
+    } finally {
+      setGuardandoBases(false);
     }
   };
 
@@ -191,6 +228,45 @@ export default function Modelo349Page() {
         b && (
           <div className={`space-y-6 ${cargando ? 'opacity-60' : ''}`}>
             <AvisosBorrador errores={b.errores} avisos={b.avisos} />
+
+            {!!b.basesPedidas?.length && !presentado && (
+              <Seccion titulo="Bases declaradas en periodos que no están en la app">
+                <form onSubmit={guardarBases} className="space-y-4">
+                  <p className="text-sm text-slate-600">
+                    Hay abonos que rectifican compras de periodos cuyo 349 no se presentó con la app (por ejemplo, de 2026). Para rectificarlos hace falta la base que declaraste
+                    entonces para ese operador y clave: la tienes en el 349 que presentaste.
+                  </p>
+                  <ul className="space-y-3">
+                    {b.basesPedidas.map((x) => (
+                      <li key={x.clave} className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_12rem] sm:items-end">
+                        <label htmlFor={`m349-base-${x.clave}`} className="text-sm text-slate-700">
+                          Base que declaraste para <span className="font-medium">{x.nombre}</span> (clave {x.claveOperacion}) en el 349 del {etiquetaPeriodo(x.periodo).toLowerCase()} de{' '}
+                          {x.ejercicio}
+                        </label>
+                        <input
+                          id={`m349-base-${x.clave}`}
+                          inputMode="decimal"
+                          value={bases[x.clave] ?? ''}
+                          placeholder="0,00"
+                          onChange={(e) => setBases((v) => ({ ...v, [x.clave]: e.target.value }))}
+                          className="rounded-lg border border-slate-300 px-3 py-2 text-right font-mono text-sm"
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="submit"
+                      disabled={guardandoBases}
+                      className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                    >
+                      {guardandoBases ? 'Guardando…' : 'Guardar las bases'}
+                    </button>
+                    {mensajeBases && <span className="text-sm text-slate-600">{mensajeBases}</span>}
+                  </div>
+                </form>
+              </Seccion>
+            )}
 
             {b.pantalla && (
               <>
