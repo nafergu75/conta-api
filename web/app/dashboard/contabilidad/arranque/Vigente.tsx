@@ -189,6 +189,8 @@ export function Vigente({
   };
 
   const anteriores = versiones.filter((v) => v.id !== vigente.id);
+  const noUsados = vigente.ficherosNoUsados ?? [];
+  const usados = vigente.ficheros.filter((f) => !noUsados.includes(f.nombre));
 
   return (
     <div className="space-y-4">
@@ -202,8 +204,9 @@ export function Vigente({
       >
         <p className="text-sm text-slate-700">
           Versión {vigente.version}
-          {vigente.confirmadaEn ? `, traída el ${fechaEs(vigente.confirmadaEn)}` : ''}, con {vigente.ficheros.length === 1 ? '1 fichero' : `${vigente.ficheros.length} ficheros`}:{' '}
-          <span className="break-words text-slate-600">{vigente.ficheros.map((f) => f.nombre).join(', ')}</span>.
+          {vigente.confirmadaEn ? `, traída el ${fechaEs(vigente.confirmadaEn)}` : ''}, con {usados.length === 1 ? '1 fichero' : `${usados.length} ficheros`}:{' '}
+          <span className="break-words text-slate-600">{usados.map((f) => f.nombre).join(', ')}</span>.
+          {noUsados.length > 0 && <span className="break-words text-slate-600"> No se usaron: {noUsados.join(', ')}.</span>}
         </p>
         {vigente.tipo === 'PROVISIONAL' && (
           <p className="mt-2 text-sm text-slate-600">
@@ -256,6 +259,7 @@ export function Vigente({
             bancos={comp.bancos}
             puedeEditar={puedeBancos}
             ocupado={ocupado}
+            puntos={comp.puntos.filter((p) => p.clave.startsWith('bancos:'))}
             onGuardar={async (b) => {
               setOcupado(true);
               try {
@@ -276,6 +280,7 @@ export function Vigente({
             conResultado
             puedeEditar={puedeFiscales}
             ocupado={ocupado}
+            puntos={comp.puntos.filter((p) => p.clave.startsWith('iva:') || p.clave.startsWith('resultado-declarado'))}
             onGuardar={async ({ datosFiscales, resultadoDeclarado }) => {
               setOcupado(true);
               try {
