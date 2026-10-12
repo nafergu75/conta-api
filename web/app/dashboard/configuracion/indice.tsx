@@ -15,10 +15,12 @@ import {
   Percent,
   Receipt,
   UserCircle,
+  UsersThree,
 } from '@phosphor-icons/react';
 import type { Icon } from '@phosphor-icons/react';
 import { tieneAlgunPermiso } from '@/lib/auth';
 import { puedeVer } from '@/lib/configuracion';
+import { puedeGestionarUsuarios } from '@/lib/usuarios-empresa';
 import { useConfiguracion } from './contexto';
 
 /**
@@ -61,6 +63,8 @@ function entradasVisibles(ctx: ReturnType<typeof useConfiguracion>): EntradaIndi
       externa: true,
       visible: inscribible && tieneAlgunPermiso(user, ['contabilidad:read']),
     },
+    // Alta de usuarios, permisos y contraseñas: el administrador global y el de cada empresa.
+    { etiqueta: 'Usuarios', href: `${BASE}/usuarios`, icono: UsersThree, visible: puedeGestionarUsuarios(user) },
     { etiqueta: 'Tu acceso y usuarios', href: `${BASE}/acceso`, icono: UserCircle, visible: true },
   ];
   return lista.filter((e) => e.visible);
