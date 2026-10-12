@@ -161,9 +161,11 @@ export function cuentaPropuesta(causa: CausaRectificacion, cuentaOriginal: strin
 }
 
 /** Estado de pago de un abono: lo que queda a tu favor se devuelve o se aplica a otra factura. */
-export function textoEstadoAbono(estadoPago: string): string {
+export function textoEstadoAbono(estadoPago: string, estado?: string): string {
+  // Borrador del lector: al aprobar su asiento se descuenta solo de la factura que rectifica.
+  if (estado === 'DRAFT') return 'Se aplicará al aprobarlo';
   if (estadoPago === 'PAGADA') return 'Devuelto o aplicado';
-  if (estadoPago === 'PARCIAL') return 'Devuelto en parte';
+  if (estadoPago === 'PARCIAL') return 'Devuelto o aplicado en parte';
   return 'Pendiente de devolver';
 }
 
@@ -355,6 +357,11 @@ export interface GastoDetalle {
   pendiente: number;
   /** Solo en los abonos: lo que queda a favor de la empresa (en positivo). */
   aFavor?: number;
+  /**
+   * Abono registrado despues de presentar el 303 de su IVA: recordatorio de
+   * preparar la autoliquidacion rectificativa (enlace null si ese 303 se llevo fuera de la app).
+   */
+  rectificar303?: { ejercicio: number; periodo: string; confirmadoEn: string; aviso: string; enlace: string | null } | null;
 }
 
 export interface GastoListado {
