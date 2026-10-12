@@ -592,6 +592,7 @@ export default function FormFacturaGasto({
         <SelectorProveedor
           valor={proveedor}
           textoNuevo={avisoProveedor}
+          sinBuscarOtro={!!proveedorDeAlta}
           marcaLector={(campo, actual) => marcaLeida(campo, actual)}
           marcaCon={marcaCon}
           onCambio={cambiarProveedor}
@@ -1035,6 +1036,7 @@ export default function FormFacturaGasto({
 function SelectorProveedor({
   valor,
   textoNuevo,
+  sinBuscarOtro,
   onCambio,
   marca,
   marcaLector,
@@ -1043,6 +1045,8 @@ function SelectorProveedor({
   valor: ProveedorElegido | null;
   /** Texto sobre el proveedor nuevo (el lector: «No está dado de alta: se creará al registrar la factura.»). */
   textoNuevo?: string;
+  /** Sin el enlace «Buscar uno existente» en la ficha nueva (el lector ya lo ofrece en su aviso: «Es uno que ya tengo»). */
+  sinBuscarOtro?: boolean;
   onCambio: (p: ProveedorElegido | null) => void;
   marca: (...campos: string[]) => PropsMarca;
   /** Marca del lector en un dato del proveedor, si sigue con el valor leido. */
@@ -1117,9 +1121,11 @@ function SelectorProveedor({
           <p className={`text-sm font-medium ${textoNuevo ? 'rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-blue-800' : 'text-slate-700'}`}>
             {textoNuevo ?? 'Proveedor nuevo: se dará de alta al guardar la factura.'}
           </p>
-          <button type="button" onClick={() => onCambio(null)} className="inline-flex items-center gap-1 text-sm font-semibold text-blue-600 hover:underline">
-            <X size={14} /> Buscar uno existente
-          </button>
+          {!sinBuscarOtro && (
+            <button type="button" onClick={() => onCambio(null)} className="inline-flex items-center gap-1 text-sm font-semibold text-blue-600 hover:underline">
+              <X size={14} /> Buscar uno existente
+            </button>
+          )}
         </div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div className="md:col-span-2">
