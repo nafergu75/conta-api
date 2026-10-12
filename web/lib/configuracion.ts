@@ -139,6 +139,8 @@ export interface AjustesFiscales {
   guardado: boolean;
   autonomo: boolean;
   actualizadoEn: string | null;
+  /** Día (AAAA-MM-DD) desde el que se lleva la contabilidad en la app; lo de antes lo presentó otro. */
+  inicioEnApp?: string | null;
   calendario: { ejercicio: number; modelos: ModeloPrevisto[] };
 }
 
