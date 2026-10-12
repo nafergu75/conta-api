@@ -95,7 +95,7 @@ export function Importando({
     return (
       <div className="space-y-4">
         {final.comprobaciones ? (
-          <MensajeComprobacion nivel={final.comprobaciones.nivel} mensaje={final.hecho} puntos={final.comprobaciones.puntos} />
+          <MensajeComprobacion nivel={final.comprobaciones.nivel} mensaje={final.hecho} puntos={final.comprobaciones.puntos} resumir={false} />
         ) : (
           <Nota tipo="bien">{final.hecho}</Nota>
         )}
