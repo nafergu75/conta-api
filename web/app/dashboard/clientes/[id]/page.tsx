@@ -5,6 +5,9 @@ import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft } from '@phosphor-icons/react';
 import { getToken } from '@/lib/auth';
 import { ApiError, apiFetch, companyPath } from '@/lib/api';
+import { anioEspana, rangoFechas } from '@/lib/anios';
+import { useAniosEmpresa } from '@/lib/useAniosEmpresa';
+import SelectorAnio from '@/components/SelectorAnio';
 import { BloqueContabilidadTercero } from '@/components/contabilidad/BloqueContabilidadTercero';
 import { DatosFiscalesCliente, type DatosFiscales } from './DatosFiscalesCliente';
 
@@ -49,8 +52,11 @@ export default function ClienteDetailPage() {
   const [facturas, setFacturas] = useState<Factura[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedYear, setSelectedYear] = useState('2026');
-  const [selectedPeriod, setSelectedPeriod] = useState('year');
+  // Año (null = todos) y trimestre: filtran de verdad las facturas que se piden.
+  const [selectedYear, setSelectedYear] = useState<number | null>(() => anioEspana());
+  const [selectedPeriod, setSelectedPeriod] = useState<'year' | 'q1' | 'q2' | 'q3' | 'q4'>('year');
+  const [cargandoFacturas, setCargandoFacturas] = useState(false);
+  const aniosEmpresa = useAniosEmpresa();
 
   useEffect(() => {
     const loadData = async () => {
@@ -62,15 +68,38 @@ export default function ClienteDetailPage() {
 
       setLoading(true);
       try {
-        // apiFetch: un 401 lleva al login. Las facturas, de la empresa activa (antes se pedian sin ella y salia vacio).
-        const [c, f] = await Promise.all([
-          apiFetch<Cliente>(companyPath(`/clientes/${encodeURIComponent(clienteId)}`)).catch((e) => {
-            if (e instanceof ApiError && e.status === 404) return null;
-            throw e;
-          }),
-          apiFetch<{ items: FacturaApi[] }>(companyPath(`/income-invoices?customerId=${encodeURIComponent(clienteId)}&take=200`)).catch(() => ({ items: [] as FacturaApi[] })),
-        ]);
+        // apiFetch: un 401 lleva al login.
+        const c = await apiFetch<Cliente>(companyPath(`/clientes/${encodeURIComponent(clienteId)}`)).catch((e) => {
+          if (e instanceof ApiError && e.status === 404) return null;
+          throw e;
+        });
         setCliente(c);
+        setError(null);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Error desconocido');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
+  }, [clienteId, router]);
+
+  // Facturas del cliente en el año y trimestre elegidos (de la empresa activa).
+  useEffect(() => {
+    let vivo = true;
+    const q = new URLSearchParams({ customerId: clienteId, take: '500' });
+    if (selectedYear !== null) {
+      const t = selectedPeriod === 'year' ? null : Number(selectedPeriod.slice(1));
+      const { desde, hasta } = rangoFechas(selectedYear, t);
+      q.set('desde', desde);
+      q.set('hasta', hasta);
+    }
+    setCargandoFacturas(true);
+    apiFetch<{ items: FacturaApi[]; total?: number }>(companyPath(`/income-invoices?${q.toString()}`))
+      .catch(() => ({ items: [] as FacturaApi[] }))
+      .then((f) => {
+        if (!vivo) return;
         setFacturas(
           (f.items ?? [])
             .filter((x) => x.estadoDocumento !== 'BORRADOR')
@@ -84,20 +113,17 @@ export default function ClienteDetailPage() {
               estado: x.estado,
             })),
         );
-        setError(null);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : 'Error desconocido');
-      } finally {
-        setLoading(false);
-      }
+      })
+      .finally(() => vivo && setCargandoFacturas(false));
+    return () => {
+      vivo = false;
     };
-
-    loadData();
-  }, [clienteId, router]);
+  }, [clienteId, selectedYear, selectedPeriod]);
 
   const formatCurrency = (n: number) =>
     n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
-  const formatDate = (d: string) => new Date(d).toLocaleDateString('es-ES');
+  // AAAA-MM-DD -> DD/MM/AAAA, sin Date (no cambia con la hora del navegador).
+  const formatDate = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}`;
 
   const totalFacturado = facturas.reduce((sum, f) => sum + f.total, 0);
   const totalCobrado = facturas
@@ -161,29 +187,37 @@ export default function ClienteDetailPage() {
           </button>
         </div>
 
-        {/* Filtros */}
-        <div className="flex gap-4 mb-6 flex-wrap">
-          <select
-            value={selectedYear}
-            onChange={(e) => setSelectedYear(e.target.value)}
-            className="px-4 py-2 border border-slate-300 rounded-lg text-sm"
-          >
-            <option value="2026">2026</option>
-            <option value="2025">2025</option>
-            <option value="2024">2024</option>
-          </select>
+        {/* Filtros: año (o todos) y trimestre */}
+        <div className="flex gap-4 mb-6 flex-wrap items-end">
+          <SelectorAnio
+            id="cliente-anio"
+            etiqueta="Año"
+            todos="Todos los años"
+            valor={selectedYear}
+            anios={aniosEmpresa.anios([selectedYear])}
+            onChange={(a) => {
+              setSelectedYear(a);
+              if (a === null) setSelectedPeriod('year');
+            }}
+            className="mt-1 block px-4 py-2 border border-slate-300 rounded-lg text-sm bg-white"
+          />
 
-          <select
-            value={selectedPeriod}
-            onChange={(e) => setSelectedPeriod(e.target.value)}
-            className="px-4 py-2 border border-slate-300 rounded-lg text-sm"
-          >
-            <option value="year">Todo el año</option>
-            <option value="q1">Trimestre 1</option>
-            <option value="q2">Trimestre 2</option>
-            <option value="q3">Trimestre 3</option>
-            <option value="q4">Trimestre 4</option>
-          </select>
+          <div>
+            <label htmlFor="cliente-periodo" className="block text-sm font-medium text-slate-700">Periodo</label>
+            <select
+              id="cliente-periodo"
+              value={selectedPeriod}
+              disabled={selectedYear === null}
+              onChange={(e) => setSelectedPeriod(e.target.value as typeof selectedPeriod)}
+              className="mt-1 block px-4 py-2 border border-slate-300 rounded-lg text-sm bg-white disabled:opacity-60"
+            >
+              <option value="year">Todo el año</option>
+              <option value="q1">Trimestre 1</option>
+              <option value="q2">Trimestre 2</option>
+              <option value="q3">Trimestre 3</option>
+              <option value="q4">Trimestre 4</option>
+            </select>
+          </div>
         </div>
 
         {/* Resumen de Cobros */}
@@ -257,7 +291,7 @@ export default function ClienteDetailPage() {
                 {facturas.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="px-6 py-8 text-center text-slate-500">
-                      Sin facturas
+                      {cargandoFacturas ? 'Cargando…' : selectedYear === null ? 'Sin facturas' : 'Sin facturas en este periodo'}
                     </td>
                   </tr>
                 ) : (
@@ -301,7 +335,8 @@ export default function ClienteDetailPage() {
             </table>
           </div>
           <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 text-sm text-slate-600">
-            Mostrando {facturas.length} de {facturas.length} resultados
+            {facturas.length === 1 ? '1 factura' : `${facturas.length} facturas`}
+            {selectedYear !== null ? ` en ${selectedPeriod === 'year' ? selectedYear : `el ${selectedPeriod.slice(1)}T de ${selectedYear}`}` : ''}
           </div>
         </div>
       </main>
