@@ -153,6 +153,17 @@ export function useCuentasLinea(tipo: TipoCuentaLinea, activo = true): CatalogoC
   return { listado, cargando, error, nombreDe, pedirNombre, anadir, recargar };
 }
 
+/**
+ * Codigo de cuenta completo, del que merece la pena pedir el nombre: solo
+ * digitos y, o una cuenta del plan de 3 o 4 digitos (628, 6290), o una subcuenta
+ * con la longitud de la empresa (62800001). «62» o «62800» todavia se estan
+ * escribiendo.
+ */
+export function codigoCompleto(codigo: string | null | undefined, longitud: number): boolean {
+  if (!codigo || !/^\d+$/.test(codigo)) return false;
+  return codigo.length === 3 || codigo.length === 4 || codigo.length === longitud;
+}
+
 /** Sin tildes y en minusculas, para buscar «electricidad» con «electricidád». */
 export const sinTildes = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, MagnifyingGlass, PencilSimple, Plus, X } from '@phosphor-icons/react';
 import { apiFetch, campoDelError, companyPath, errorMessage } from '@/lib/api';
 import {
+  codigoCompleto,
   sinTildes,
   type CatalogoCuentas,
   type CuentaElegible,
@@ -58,10 +59,14 @@ export function CuentaLinea({ tipo, catalogo, valor, onCambiar, porDefecto, line
   const { listado, pedirNombre } = catalogo;
 
   // La cuenta que ya lleva la linea puede no estar en la lista (una 608 o una 640
-  // para quien no ve las de uso contable): su nombre se pide aparte.
+  // para quien no ve las de uso contable): su nombre se pide aparte. Lo mismo con
+  // la de por defecto (la cuenta escrita en la factura), pero solo cuando el codigo
+  // esta completo: mientras se escribe «62» no se pregunta por cada digito.
+  const mostrada = elegida ?? porDefecto.codigo;
+  const pedir = !!listado && !nombreElegida && (elegida ? true : codigoCompleto(mostrada, listado.longitud));
   useEffect(() => {
-    if (elegida && listado && !nombreElegida) pedirNombre(elegida);
-  }, [elegida, listado, nombreElegida, pedirNombre]);
+    if (pedir) pedirNombre(mostrada);
+  }, [pedir, mostrada, pedirNombre]);
 
   useEffect(() => {
     if (abierto && !creando) buscador.current?.focus();
@@ -205,7 +210,7 @@ export function CuentaLinea({ tipo, catalogo, valor, onCambiar, porDefecto, line
                     <Plus size={14} /> Crear subcuenta nueva
                   </button>
                 ) : (
-                  <span className="text-xs text-slate-500">Para crear subcuentas nuevas pide permiso al administrador. Si ya te lo han dado, sal y vuelve a entrar.</span>
+                  <span className="text-xs text-slate-500">Para crear subcuentas nuevas pide permiso al administrador. Si ya te lo han dado, recarga la página o vuelve a entrar.</span>
                 )}
                 <button type="button" onClick={cerrar} className="inline-flex items-center gap-1 text-slate-600 hover:text-slate-900">
                   <X size={14} /> Cerrar
