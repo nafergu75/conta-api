@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { MagnifyingGlass } from '@phosphor-icons/react';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
@@ -205,6 +206,10 @@ function Detalle({ partida, puedeEscribir, onCerrar, onHecho }: { partida: Parti
 export function Pendientes() {
   const user = getUser();
   const puedeEscribir = tieneAlgunPermiso(user, ['tesoreria:write']);
+  const puedeVender = tieneAlgunPermiso(user, ['ventas:write']);
+  /** Abono (rectificativa) de una factura de venta que solo está en la cartera de la gestoría: cita su número y su fecha. */
+  const enlaceAbono = (p: PartidaVista) =>
+    `/dashboard/facturas/nueva?${new URLSearchParams({ rectificaFuera: '1', numero: p.numeroDocumento, fecha: p.fechaDocumento ?? '', cliente: p.customerId ?? '' }).toString()}`;
   const [tipo, setTipo] = useState('');
   const [estado, setEstado] = useState('ABIERTAS');
   const [q, setQ] = useState('');
@@ -330,6 +335,11 @@ export function Pendientes() {
                         <button type="button" className="text-xs font-medium text-slate-600 hover:underline" onClick={() => setViendo(p)}>
                           Ver {p.tipo === 'COBRO' ? 'cobros' : 'pagos'}
                         </button>
+                      )}
+                      {puedeVender && p.tipo === 'COBRO' && p.customerId && !p.incomeInvoiceId && !p.sinDetalle && p.estado !== 'ANULADA' && (
+                        <Link href={enlaceAbono(p)} className="text-xs font-medium text-slate-600 hover:underline">
+                          Hacer un abono
+                        </Link>
                       )}
                       {puedeEscribir && (p.estado === 'PENDIENTE' || p.estado === 'PARCIAL') && (
                         <button type="button" className={`${boton} px-3 py-1.5 text-xs`} onClick={() => setLiquidando(p)}>
