@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { CheckCircle, WarningCircle } from '@phosphor-icons/react';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { ConfirmationModal } from '@/components/dashboard/ConfirmationModal';
+import { hoyEspana } from '@/lib/verifactu';
+import { fechaCorta } from '@/lib/compras';
 
 interface FormPresentarProps {
   codigo: '111' | '115' | '180' | '190' | '200' | '202' | '303' | '347' | '349' | '390';
@@ -29,10 +31,16 @@ export function FormPresentar({
   onSuccess,
   isLoading = false,
 }: FormPresentarProps) {
-  const [formData, setFormData] = useState({
-    numero: '',
-    fecha: new Date().toISOString().split('T')[0],
-  });
+  // La fecha por defecto es la de hoy en España (en UTC, entre las 00:00 y las 02:00 saldría el día anterior).
+  const vacio = () => ({ numero: '', fecha: hoyEspana() });
+  const [formData, setFormData] = useState(vacio);
+  // Ids únicos por modelo: cada etiqueta lleva al usuario (y al lector de pantalla) a su campo.
+  const idNumero = `pres-${codigo}-numero`;
+  const idFecha = `pres-${codigo}-fecha`;
+  const limpiar = () => {
+    setFormData(vacio());
+    setError('');
+  };
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -74,7 +82,7 @@ export function FormPresentar({
       });
 
       setSuccess(true);
-      setFormData({ numero: '', fecha: new Date().toISOString().split('T')[0] });
+      setFormData(vacio());
       onSuccess?.();
 
       setTimeout(() => setSuccess(false), 5000);
@@ -112,10 +120,11 @@ export function FormPresentar({
       <form onSubmit={(e) => e.preventDefault()} className="space-y-4">
         <div className="grid gap-4 md:grid-cols-2">
           <div>
-            <label className="block text-sm font-medium text-slate-700">
+            <label htmlFor={idNumero} className="block text-sm font-medium text-slate-700">
               Número de justificante *
             </label>
             <input
+              id={idNumero}
               type="text"
               placeholder="El que da la sede al presentar"
               value={formData.numero}
@@ -129,10 +138,11 @@ export function FormPresentar({
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700">
+            <label htmlFor={idFecha} className="block text-sm font-medium text-slate-700">
               Fecha de presentación *
             </label>
             <input
+              id={idFecha}
               type="date"
               value={formData.fecha}
               onChange={(e) => setFormData({ ...formData, fecha: e.target.value })}
@@ -153,7 +163,8 @@ export function FormPresentar({
           </button>
 
           <button
-            type="reset"
+            type="button"
+            onClick={limpiar}
             disabled={submitting || isLoading}
             className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-900 transition hover:bg-slate-50"
           >
@@ -184,7 +195,7 @@ export function FormPresentar({
             </div>
             <div>
               <span className="font-medium text-slate-900">Fecha de presentación:</span>
-              <span className="ml-2 text-slate-700">{formData.fecha}</span>
+              <span className="ml-2 text-slate-700">{fechaCorta(formData.fecha) || formData.fecha}</span>
             </div>
             <div>
               <span className="font-medium text-slate-900">Ejercicio:</span>
