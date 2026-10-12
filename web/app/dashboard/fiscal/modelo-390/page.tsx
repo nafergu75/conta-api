@@ -24,7 +24,8 @@ interface Borrador390 {
   revisar: string;
   paginas: PaginaBorrador[];
   casillas: Record<string, number | string>;
-  liquidaciones: { casilla85: number; casilla95: number; casilla97: number; casilla98: number; casilla662: number; finales: number[] };
+  /** `periodos`: el periodo de cada resultado ('1T'... o '01'... si el 303 se presenta cada mes). */
+  liquidaciones: { casilla85: number; casilla95: number; casilla97: number; casilla98: number; casilla662: number; finales: number[]; periodos?: string[] };
   paginasNoGeneradas: Array<{ codigo: string; motivo: string }>;
   /** Marcas de la página 1 (sí/no), las mismas que lleva el fichero. Falta en los 390 presentados antes de existir. */
   marcasPagina1?: Array<{ pos: number; descripcion: string; valor: string; texto: string }>;
@@ -68,6 +69,8 @@ export default function Modelo390Page() {
   const b = borrador;
   const c = b.casillas;
   const trimestres = b.liquidaciones.finales;
+  const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+  const etiquetaPeriodo = (p: string) => (/^\d{2}$/.test(p) ? MESES[Number(p) - 1] ?? p : p);
 
   return (
     <div className="space-y-6">
@@ -107,10 +110,10 @@ export default function Modelo390Page() {
 
       <section className="rounded-lg border border-slate-200 bg-white p-4">
         <h2 className="font-semibold text-slate-900">Resultado de los 303 del año</h2>
-        <p className="mt-1 text-sm text-slate-600">Sirve para comprobar que el 390 cuadra con lo que presentaste cada trimestre.</p>
+        <p className="mt-1 text-sm text-slate-600">Sale de los 303 marcados como presentados (los que no lo están, de las facturas de hoy). Sirve para comprobar que el 390 cuadra con lo que presentaste.</p>
         <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
           {trimestres.map((t, i) => (
-            <Cifra key={i} etiqueta={`${i + 1}T`} valor={eur.format(t)} nota={t > 0 ? 'A ingresar' : t < 0 ? 'Negativo' : 'Sin actividad o compensado'} />
+            <Cifra key={i} etiqueta={etiquetaPeriodo(b.liquidaciones.periodos?.[i] ?? `${i + 1}T`)} valor={eur.format(t)} nota={t > 0 ? 'A ingresar' : t < 0 ? 'Negativo' : 'Sin actividad o compensado'} />
           ))}
         </div>
       </section>
