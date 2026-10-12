@@ -391,7 +391,8 @@ export function Resumen({
             </p>
             <p className="mt-1 text-sm text-slate-600">
               {vista.apertura.origen === 'DIARIO' ? 'Sale de los saldos del diario.' : `Sumas y saldos ${TEXTO_TIPO_SS[vista.apertura.tipoSumasSaldos] ?? ''}.`}
-              {vista.apertura.sustituye.length > 0 && ` Sustituye a la apertura ${vista.apertura.sustituye.join(', ')}.`}
+              {vista.apertura.sustituye.length > 0 && !complementario && ` Sustituye a la apertura ${vista.apertura.sustituye.join(', ')}.`}
+              {complementario && ' La apertura actual se queda; las diferencias van en un asiento de ajuste.'}
             </p>
           </>
         ) : (
@@ -560,7 +561,7 @@ export function Resumen({
         }}
       />
 
-      <section className="sticky bottom-0 z-10 -mx-1 rounded-xl border border-slate-200 bg-white/95 p-4 shadow-lg backdrop-blur">
+      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         {puedeConfirmar ? (
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm text-slate-700">
@@ -582,6 +583,7 @@ export function Resumen({
       {confirmando && (
         <Dialogo titulo={`¿Traer la contabilidad de ${A}?`} onCerrar={() => (ocupado ? undefined : setConfirmando(false))}>
           <p className="text-sm text-slate-700">{vista.confirmacion}</p>
+          {vista.repeticion && <p className="mt-2 text-sm text-slate-700">{vista.repeticion.textoModo}</p>}
           {c.nivel === 'FALTAN_DATOS' && <p className="mt-2 text-sm text-amber-800">Faltan datos: quedará un aviso en el panel hasta que los completes.</p>}
           <div className="mt-5 flex flex-col gap-2 sm:flex-row-reverse">
             <button type="button" className={boton} disabled={ocupado} onClick={confirmar}>
