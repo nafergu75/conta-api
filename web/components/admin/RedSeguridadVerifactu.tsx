@@ -229,7 +229,9 @@ export default function RedSeguridadVerifactu() {
                   {error}
                 </p>
               )}
-              <div className="flex flex-wrap justify-end gap-2">
+              {/* En el móvil, a la izquierda: a la derecha están los botones flotantes de Carmen y del menú,
+                  y un aviso que aparece encima empujaría «Desactivar el bloqueo» debajo de ellos. */}
+              <div className="flex flex-wrap justify-start gap-2 sm:justify-end">
                 <button type="button" onClick={cerrarFormulario} disabled={guardando} className={BOTON_SECUNDARIO}>
                   Cancelar
                 </button>
