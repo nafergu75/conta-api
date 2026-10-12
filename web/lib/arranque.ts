@@ -131,6 +131,10 @@ export interface ComprobacionesArranque extends ResultadoComprobaciones {
   aceptados: Array<{ clave: string; motivo: string; userId: string; en: string }>;
   completado: boolean;
   deBorrador: boolean;
+  /** Bancos (572) de la apertura con su extracto y su cuenta de Tesorería. */
+  bancos: BancoComprobar[] | null;
+  datosFiscales: DatosFiscales | null;
+  resultadoDeclarado: number | null;
 }
 
 export interface SubcuentaTercero {
@@ -223,6 +227,7 @@ export interface VistaCarga {
     activosQueSiguen: number;
   } | null;
   datosFiscales: DatosFiscales | null;
+  resultadoDeclarado: number | null;
   comprobaciones: ResultadoComprobaciones;
   confirmacion: string;
   puedeConfirmar: boolean;
