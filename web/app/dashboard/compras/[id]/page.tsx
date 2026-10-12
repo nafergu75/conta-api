@@ -96,7 +96,7 @@ export default function GastoDetailPage() {
   const rect = gasto.rectificativa;
   const queEs = gasto.esRectificativa ? (esAbono ? 'Abono' : 'Rectificativa') : 'Gasto';
   const textoGuardada = gasto.esRectificativa
-    ? `${queEs} guardado: ya está en la contabilidad y en el libro de IVA${esAbono && gasto.estado === 'ACCOUNTED' && gasto.compensaciones.some((c) => c.origen === 'AUTO' && c.estado === 'ACTIVO') ? ', y descontado de lo pendiente de la factura que rectifica' : ''}.`
+    ? `${esAbono ? 'Abono guardado' : 'Rectificativa guardada'}: ya está en la contabilidad y en el libro de IVA${esAbono && gasto.estado === 'ACCOUNTED' && gasto.compensaciones.some((c) => c.origen === 'AUTO' && c.estado === 'ACTIVO') ? ', y descontado de lo pendiente de la factura que rectifica' : ''}.`
     : 'Factura guardada: ya está en la contabilidad y en el libro de IVA.';
   const porPagos = (m?: string | null) => !!m && m.startsWith('La factura tiene pagos');
   const bloqueadaPorPagos =
@@ -450,10 +450,11 @@ export default function GastoDetailPage() {
         </div>
       )}
 
-      {/* Pagos (o, en un abono, devoluciones): no en borradores del lector ni en anuladas */}
+      {/* Pagos (o, en un abono, devoluciones): no en borradores del lector ni en anuladas.
+          La clave cambia con lo compensado: al aplicar o anular un abono, el resumen se vuelve a pedir. */}
       {gasto.totalFactura !== 0 && gasto.estado !== 'DRAFT' && !anulada && (
         <div id="pagos" className="mb-6 scroll-mt-20">
-          <CobrosFactura tipo="GASTO" abono={esAbono} facturaId={gastoId} puedeEditar={puedePagar} fechaFactura={gasto.fechaEmision} onCambio={loadGasto} />
+          <CobrosFactura key={`pagos-${gasto.compensaciones.filter((c) => c.estado === 'ACTIVO').reduce((t, c) => t + c.importe, 0)}`} tipo="GASTO" abono={esAbono} facturaId={gastoId} puedeEditar={puedePagar} fechaFactura={gasto.fechaEmision} onCambio={loadGasto} />
         </div>
       )}
 
