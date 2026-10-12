@@ -9,6 +9,12 @@ import { formatoImporte } from '@/lib/moneda';
 import { ETIQUETA_CORTA, useContextoFiscal } from '@/lib/fiscal';
 import { useRedSeguridad } from '@/lib/verifactu';
 import AvisoRedSeguridad from '@/components/verifactu/AvisoRedSeguridad';
+import SelectorAnio from '@/components/SelectorAnio';
+import { anioEspana, rangoFechas } from '@/lib/anios';
+import { useAniosEmpresa } from '@/lib/useAniosEmpresa';
+
+/** Facturas por página (la paginación la hace el servidor). */
+const POR_PAGINA = 50;
 
 interface Factura {
   id: string;
@@ -54,6 +60,12 @@ const statusLabels: Record<string, string> = {
 export default function FacturasPage() {
   const router = useRouter();
   const [facturas, setFacturas] = useState<Factura[]>([]);
+  const [total, setTotal] = useState(0);
+  // Año (null = todos) y trimestre (0 = todo el año): se filtra en el servidor por fecha de emisión.
+  const [anio, setAnio] = useState<number | null>(() => anioEspana());
+  const [trimestre, setTrimestre] = useState(0);
+  const [pagina, setPagina] = useState(1);
+  const aniosEmpresa = useAniosEmpresa();
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -66,23 +78,35 @@ export default function FacturasPage() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [fact, cli] = await Promise.all([
-        apiFetch<{ items: Factura[] }>(companyPath('/income-invoices?take=500')),
-        apiFetch<{ items: Cliente[] } | Cliente[]>(companyPath('/clientes?limit=1000')),
-      ]);
+      const q = new URLSearchParams({ skip: String((pagina - 1) * POR_PAGINA), take: String(POR_PAGINA) });
+      if (anio !== null) {
+        const { desde, hasta } = rangoFechas(anio, trimestre || null);
+        q.set('desde', desde);
+        q.set('hasta', hasta);
+      }
+      const fact = await apiFetch<{ items: Factura[]; total?: number }>(companyPath(`/income-invoices?${q.toString()}`));
       setFacturas(fact.items ?? []);
-      setClientes(Array.isArray(cli) ? cli : cli.items ?? []);
+      setTotal(fact.total ?? fact.items?.length ?? 0);
       setError(null);
     } catch (e) {
       setError(errorMessage(e));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [anio, trimestre, pagina]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Clientes (para buscar por NIF): una vez.
+  useEffect(() => {
+    apiFetch<{ items: Cliente[] } | Cliente[]>(companyPath('/clientes?limit=1000'))
+      .then((cli) => setClientes(Array.isArray(cli) ? cli : cli.items ?? []))
+      .catch(() => undefined);
+  }, []);
+
+  const paginas = Math.max(1, Math.ceil(total / POR_PAGINA));
 
   const clienteMap = useMemo(() => {
     const map = new Map<string, Cliente>();
@@ -120,10 +144,46 @@ export default function FacturasPage() {
       <main className="max-w-6xl mx-auto px-4 md:px-8 py-8 flex flex-col gap-6">
         <AvisoRedSeguridad estado={redSeguridad} donde="lista" />
 
-        {/* Buscador */}
-        <section className="rounded-lg border border-slate-200 bg-white p-4">
-          <label className="block text-sm font-medium text-slate-700 mb-2">
-            Buscar factura
+        {/* Año, trimestre y buscador */}
+        <section className="rounded-lg border border-slate-200 bg-white p-4 space-y-4">
+          <div className="flex flex-wrap items-end gap-4">
+            <SelectorAnio
+              id="ventas-anio"
+              etiqueta="Año"
+              todos="Todos los años"
+              valor={anio}
+              anios={aniosEmpresa.anios([anio])}
+              onChange={(a) => {
+                setAnio(a);
+                if (a === null) setTrimestre(0);
+                setPagina(1);
+              }}
+            />
+            <div>
+              <label htmlFor="ventas-trimestre" className="block text-sm font-medium text-slate-700">
+                Periodo
+              </label>
+              <select
+                id="ventas-trimestre"
+                value={trimestre}
+                disabled={anio === null}
+                onChange={(e) => {
+                  setTrimestre(Number(e.target.value));
+                  setPagina(1);
+                }}
+                className="mt-1 block rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-60"
+              >
+                <option value={0}>Todo el año</option>
+                <option value={1}>1.er trimestre</option>
+                <option value={2}>2.º trimestre</option>
+                <option value={3}>3.er trimestre</option>
+                <option value={4}>4.º trimestre</option>
+              </select>
+            </div>
+          </div>
+          <div>
+          <label htmlFor="ventas-buscar" className="block text-sm font-medium text-slate-700 mb-2">
+            Buscar en estas facturas
           </label>
           <div className="relative">
             <MagnifyingGlass
@@ -131,6 +191,7 @@ export default function FacturasPage() {
               className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
             />
             <input
+              id="ventas-buscar"
               type="text"
               placeholder="Buscar por número, cliente o NIF..."
               value={search}
@@ -147,6 +208,7 @@ export default function FacturasPage() {
               </button>
             )}
           </div>
+          </div>
         </section>
 
         {error && (
@@ -162,7 +224,7 @@ export default function FacturasPage() {
               Resultados
             </h2>
             <span className="text-sm text-slate-500">
-              {loading ? 'Cargando...' : search ? `${filtered.length}/${facturas.length} factura${filtered.length !== 1 ? 's' : ''}` : `${facturas.length} factura${facturas.length !== 1 ? 's' : ''}`}
+              {loading ? 'Cargando...' : search ? `${filtered.length}/${facturas.length} factura${filtered.length !== 1 ? 's' : ''}` : `${total} factura${total !== 1 ? 's' : ''}`}
             </span>
           </div>
 
@@ -171,12 +233,14 @@ export default function FacturasPage() {
           ) : filtered.length === 0 ? (
             <div className="px-6 pb-10 pt-4 text-center">
               <p className="text-slate-600 font-medium mb-2">
-                {search ? 'Sin resultados' : 'Sin facturas'}
+                {search ? 'Sin resultados' : anio !== null ? 'Sin facturas en este periodo' : 'Sin facturas'}
               </p>
               <p className="text-sm text-slate-500 mb-4">
                 {search
                   ? 'Prueba con otro término de búsqueda'
-                  : 'Crea la primera factura para comenzar'}
+                  : anio !== null
+                    ? 'Elige otro año o «Todos los años», o crea una factura nueva'
+                    : 'Crea la primera factura para comenzar'}
               </p>
               <button
                 onClick={() => router.push('/dashboard/facturas/nueva')}
@@ -226,7 +290,7 @@ export default function FacturasPage() {
                         </Link>
                       </td>
                       <td className="px-6 py-3 text-slate-600">
-                        {new Date(factura.fechaEmision).toLocaleDateString('es-ES')}
+                        {`${factura.fechaEmision.slice(8, 10)}/${factura.fechaEmision.slice(5, 7)}/${factura.fechaEmision.slice(0, 4)}`}
                       </td>
                       <td className="px-6 py-3">
                         {factura.estadoDocumento === 'BORRADOR' ? (
@@ -257,6 +321,30 @@ export default function FacturasPage() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {paginas > 1 && (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-6 py-3 text-sm text-slate-600">
+              <button
+                type="button"
+                onClick={() => setPagina((p) => Math.max(1, p - 1))}
+                disabled={pagina <= 1 || loading}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Anterior
+              </button>
+              <span>
+                Página {pagina} de {paginas}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPagina((p) => Math.min(paginas, p + 1))}
+                disabled={pagina >= paginas || loading}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Siguiente
+              </button>
             </div>
           )}
         </section>
