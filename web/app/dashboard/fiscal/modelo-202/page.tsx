@@ -124,7 +124,7 @@ export default function Modelo202Page() {
     x.origen === 'manual'
       ? `Indicada a mano (cuota del 200 de ${x.ejercicio200})`
       : x.origen === 'modelo200'
-        ? `Cuota líquida del 200 de ${x.ejercicio200} presentado en la app`
+        ? `Cuota líquida menos retenciones del 200 de ${x.ejercicio200} presentado en la app`
         : `No hay 200 de ${x.ejercicio200}: indica la base a mano`;
 
   return (
@@ -196,6 +196,10 @@ export default function Modelo202Page() {
                 </Seccion>
                 <Seccion titulo="Datos adicionales">
                   <CamposRegistro campos={adicionales} />
+                  <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                    <strong>Tipo de gravamen: por confirmar.</strong> Ni el diseño de registro ni las instrucciones de la AEAT dicen cómo se escriben los tipos en el fichero
+                    (en el formulario se eligen en un desplegable). Al importar el fichero en la sede, comprueba que el tipo que sale es el correcto y cámbialo si no.
+                  </p>
                 </Seccion>
                 {pagina2Datos.some((c) => String(c.valor).trim()) && (
                   <Seccion titulo="Complementaria y domiciliación">
