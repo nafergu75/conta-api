@@ -16,6 +16,7 @@ import {
   RocketLaunch,
   ShieldCheck,
   TreeStructure,
+  UsersThree,
   WarningCircle,
 } from '@phosphor-icons/react';
 import type { Icon } from '@phosphor-icons/react';
@@ -25,6 +26,7 @@ import { anioEspana, mesEspana } from '@/lib/anios';
 import { nombrePais } from '@/lib/fiscal';
 import { NOMBRE_MONEDA } from '@/lib/moneda';
 import { NOMBRE_FORMA, puedeVer, type EjercicioConfig, type SerieConfig } from '@/lib/configuracion';
+import { puedeGestionarUsuarios } from '@/lib/usuarios-empresa';
 import { useConfiguracion } from './contexto';
 import { BASE, Indice } from './indice';
 import { LongitudSubcuentas } from './LongitudSubcuentas';
@@ -343,6 +345,11 @@ export default function ConfiguracionPortada() {
         {tieneAlgunPermiso(user, ['admin:empresa']) && (
           <Tarjeta icono={Robot} titulo="Inteligencia artificial de Carmen" href="/dashboard/empresa#carmen-ia">
             Activa o desactiva la IA del asistente en esta empresa y mira el gasto del mes.
+          </Tarjeta>
+        )}
+        {puedeGestionarUsuarios(user) && (
+          <Tarjeta icono={UsersThree} titulo="Usuarios" href={`${BASE}/usuarios`}>
+            Da de alta a las personas de la empresa, elige su rol y lo que pueden ver, y genérales la contraseña.
           </Tarjeta>
         )}
         {user?.esAdminGlobal && (

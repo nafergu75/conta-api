@@ -6,7 +6,6 @@ import {
   ArrowCounterClockwise,
   ArrowRight,
   Buildings,
-  CaretDown,
   CheckCircle,
   Key,
   MagnifyingGlass,
@@ -19,7 +18,6 @@ import {
   UserPlus,
   Users,
   WarningCircle,
-  X,
 } from '@phosphor-icons/react';
 import { apiFetch, campoDelError, errorMessage } from '@/lib/api';
 import {
@@ -37,6 +35,15 @@ import {
 import EditorPermisos from '@/components/admin/EditorPermisos';
 import ContrasenaProvisional from '@/components/admin/ContrasenaProvisional';
 import RedSeguridadVerifactu from '@/components/admin/RedSeguridadVerifactu';
+import {
+  BotonAjustar,
+  Etiqueta,
+  fechaYHora,
+  Modal,
+  PREGUNTA_CAMBIO_PERFIL,
+  PREGUNTA_COPIADA,
+  ResumenDelPerfil,
+} from '@/components/admin/comunes';
 import {
   areasDelPerfil,
   areasParaEnviar,
@@ -104,6 +111,9 @@ interface AccesoEmpresa {
 interface UsuarioAdmin {
   id: string;
   email: string;
+  /** Nombre y apellidos; null en altas antiguas sin el. */
+  nombre?: string | null;
+  telefono?: string | null;
   activo: boolean;
   esAdminGlobal: boolean;
   creadoEn?: string;
@@ -138,14 +148,6 @@ const normalizar = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toL
 
 const fechaCorta = (iso?: string) => (iso ? new Date(iso).toLocaleDateString('es-ES') : '');
 
-/** "15 de octubre de 2026 a las 10:30" (hora de Espana). */
-const fechaYHora = (iso: string) => {
-  const d = new Date(iso);
-  const dia = d.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Madrid' });
-  const hora = d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Madrid' });
-  return `${dia} a las ${hora}`;
-};
-
 const CLASE_INPUT =
   'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-accent-600 focus:outline-none focus:ring-2 focus:ring-accent-600';
 const BOTON_PRIMARIO =
@@ -161,69 +163,6 @@ const BOTON_INDIGO = `${BASE_BOTON} py-1.5 border-indigo-200 text-indigo-700 hov
 const BOTON_PELIGRO = `${BASE_BOTON} py-1.5 border-rose-200 text-rose-700 hover:bg-rose-50`;
 const CLASE_SELECT_PEQUENO =
   'rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 focus:border-accent-600 focus:outline-none focus:ring-2 focus:ring-accent-600 disabled:opacity-50';
-
-function Etiqueta({ tono, children }: { tono: 'verde' | 'gris' | 'indigo' | 'rojo' | 'ambar'; children: React.ReactNode }) {
-  const tonos = {
-    verde: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-    gris: 'border-slate-200 bg-slate-100 text-slate-600',
-    indigo: 'border-indigo-200 bg-indigo-50 text-indigo-700',
-    rojo: 'border-rose-200 bg-rose-50 text-rose-700',
-    ambar: 'border-amber-200 bg-amber-50 text-amber-700',
-  } as const;
-  return (
-    <span className={`inline-flex items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium ${tonos[tono]}`}>
-      {children}
-    </span>
-  );
-}
-
-function Modal({
-  titulo,
-  onClose,
-  children,
-  ancho = 'max-w-md',
-  confirmarAlCerrar,
-}: {
-  titulo: string;
-  onClose: () => void;
-  children: React.ReactNode;
-  ancho?: string;
-  /** Si se pasa, cerrar con Escape, la X o un clic fuera pregunta esto antes. */
-  confirmarAlCerrar?: string;
-}) {
-  const cerrar = useCallback(() => {
-    if (confirmarAlCerrar && !window.confirm(confirmarAlCerrar)) return;
-    onClose();
-  }, [confirmarAlCerrar, onClose]);
-
-  useEffect(() => {
-    const alPulsar = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') cerrar();
-    };
-    window.addEventListener('keydown', alPulsar);
-    return () => window.removeEventListener('keydown', alPulsar);
-  }, [cerrar]);
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 sm:items-center sm:px-4" onClick={cerrar}>
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={titulo}
-        className={`max-h-[90dvh] w-full ${ancho} overflow-y-auto rounded-t-xl bg-white p-5 shadow-xl sm:rounded-xl sm:p-6`}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mb-4 flex items-start justify-between gap-3">
-          <h2 className="min-w-0 break-words text-lg font-semibold text-slate-900">{titulo}</h2>
-          <button type="button" onClick={cerrar} aria-label="Cerrar" className="p-1.5 text-slate-500 transition-colors hover:text-slate-900">
-            <X size={20} />
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
-}
 
 /** Etiqueta de la contrasena: provisional pendiente o ya caducada. */
 function EtiquetaContrasena({ usuario }: { usuario: UsuarioAdmin }) {
@@ -360,7 +299,9 @@ export default function AdministracionPage() {
   const usuariosFiltrados = useMemo(() => {
     const q = normalizar(busqueda.trim());
     if (!q) return usuarios;
-    return usuarios.filter((u) => normalizar(u.email).includes(q) || u.empresas.some((e) => normalizar(e.nombre).includes(q)));
+    return usuarios.filter(
+      (u) => normalizar(u.email).includes(q) || normalizar(u.nombre ?? '').includes(q) || u.empresas.some((e) => normalizar(e.nombre).includes(q)),
+    );
   }, [usuarios, busqueda]);
 
   const entrar = (e: EmpresaAdmin) => {
@@ -477,7 +418,7 @@ export default function AdministracionPage() {
               type="search"
               value={busqueda}
               onChange={(e) => setBusqueda(e.target.value)}
-              placeholder={pestana === 'empresas' ? 'Buscar por nombre, código o NIF' : 'Buscar por email o empresa'}
+              placeholder={pestana === 'empresas' ? 'Buscar por nombre, código o NIF' : 'Buscar por nombre, email o empresa'}
               aria-label="Buscar"
               className={`${CLASE_INPUT} pl-9`}
             />
@@ -589,10 +530,15 @@ export default function AdministracionPage() {
                 {usuariosFiltrados.map((u) => (
                   <li key={u.id} className="flex flex-col gap-2 px-4 py-3 text-sm md:grid md:grid-cols-[minmax(0,1.6fr)_minmax(0,2.4fr)_112px] md:items-center md:gap-3">
                     <div className="min-w-0">
-                      <p className="truncate font-medium text-slate-900" title={u.email}>
-                        {u.email}
+                      <p className="truncate font-medium text-slate-900" title={u.nombre ? `${u.nombre} · ${u.email}` : u.email}>
+                        {u.nombre || u.email}
                         {u.email.toLowerCase() === miEmail && <span className="font-normal text-slate-500"> (tú)</span>}
                       </p>
+                      {u.nombre && (
+                        <p className="truncate text-xs text-slate-500" title={u.email}>
+                          {u.email}
+                        </p>
+                      )}
                       <div className="mt-1 flex flex-wrap gap-1.5">
                         {u.esAdminGlobal && <Etiqueta tono="indigo">Administrador global</Etiqueta>}
                         {!u.activo && <Etiqueta tono="rojo">Desactivado</Etiqueta>}
@@ -899,53 +845,6 @@ function ModalNuevaEmpresa({
   );
 }
 
-const PREGUNTA_COPIADA = '¿Has copiado la contraseña? Después no se puede volver a ver.';
-
-/** Boton que abre o cierra el editor de permisos («Ajustar permisos (opcional)»). */
-function BotonAjustar({
-  abierto,
-  onClick,
-  controla,
-  personalizado,
-}: {
-  abierto: boolean;
-  onClick: () => void;
-  controla: string;
-  /** Hay casillas cambiadas: se guardan aunque el editor este plegado, y se dice. */
-  personalizado?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-expanded={abierto}
-      aria-controls={controla}
-      className="inline-flex min-h-[44px] flex-wrap items-center gap-1.5 self-start rounded-lg px-1 text-sm font-medium text-slate-700 hover:text-slate-900"
-    >
-      <CaretDown size={14} className={`transition-transform ${abierto ? 'rotate-180' : ''}`} aria-hidden />
-      Ajustar permisos <span className="font-normal text-slate-500">(opcional)</span>
-      {personalizado && (
-        <span className="inline-flex items-center whitespace-nowrap rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
-          Personalizado
-        </span>
-      )}
-    </button>
-  );
-}
-
-const PREGUNTA_CAMBIO_PERFIL =
-  'Al cambiar de perfil se quitan los permisos que has marcado y se parte de los del perfil nuevo. ¿Seguir?';
-
-/** Una linea bajo el desplegable de perfil que dice lo que incluye. */
-function ResumenDelPerfil({ catalogo, rol, id }: { catalogo: CatalogoPermisos | null; rol: string; id?: string }) {
-  const texto = resumenPerfil(catalogo, rol);
-  return texto ? (
-    <p id={id} className="text-xs text-slate-500">
-      {texto}
-    </p>
-  ) : null;
-}
-
 /**
  * Alta de un usuario. La contrasena la genera el servidor: se ensena una vez al
  * terminar, con el boton Copiar, y es provisional (el usuario la cambia por una
@@ -963,6 +862,8 @@ function ModalNuevoUsuario({
   onCreado: (u: UsuarioAdmin) => Promise<void>;
 }) {
   const [email, setEmail] = useState('');
+  const [nombre, setNombre] = useState('');
+  const [telefono, setTelefono] = useState('');
   const [companyId, setCompanyId] = useState('');
   const [rol, setRol] = useState('solo_lectura');
   const [ajustar, setAjustar] = useState(false);
@@ -999,7 +900,13 @@ function ModalNuevoUsuario({
     try {
       const u = await apiFetch<UsuarioConProvisional>('/admin/usuarios', {
         method: 'POST',
-        body: JSON.stringify({ email: email.trim(), ...(companyId ? { companyId, rol } : {}), ...(aMedida ? { areas: aMedida } : {}) }),
+        body: JSON.stringify({
+          email: email.trim(),
+          ...(nombre.trim() ? { nombre: nombre.trim() } : {}),
+          ...(telefono.trim() ? { telefono: telefono.trim() } : {}),
+          ...(companyId ? { companyId, rol } : {}),
+          ...(aMedida ? { areas: aMedida } : {}),
+        }),
       });
       // Con que acceso ha quedado, segun el servidor (no segun la pantalla).
       const a = u.empresas?.[0];
@@ -1062,6 +969,37 @@ function ModalNuevoUsuario({
           <p className="text-xs text-slate-500">
             La contraseña la crea la aplicación y la verás una sola vez al terminar. Es provisional: al entrar tendrá que poner una suya.
           </p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="usuario-nombre" className="text-sm font-medium text-slate-700">
+              Nombre y apellidos <span className="font-normal text-slate-400">(opcional)</span>
+            </label>
+            <input
+              id="usuario-nombre"
+              type="text"
+              autoComplete="off"
+              maxLength={120}
+              value={nombre}
+              onChange={(e) => setNombre(e.target.value)}
+              className={CLASE_INPUT}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="usuario-telefono" className="text-sm font-medium text-slate-700">
+              Teléfono <span className="font-normal text-slate-400">(opcional)</span>
+            </label>
+            <input
+              id="usuario-telefono"
+              type="tel"
+              inputMode="tel"
+              autoComplete="off"
+              maxLength={30}
+              value={telefono}
+              onChange={(e) => setTelefono(e.target.value)}
+              className={CLASE_INPUT}
+            />
+          </div>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="flex flex-col gap-1.5">
@@ -1185,6 +1123,13 @@ function PanelUsuario({
   const [borrador, setBorrador] = useState<Areas | null>(null);
   // Contrasena provisional recien generada: solo en este estado, se pierde al cerrar.
   const [provisional, setProvisional] = useState<string | null>(null);
+  // Nombre y telefono de la cuenta (los de todas sus empresas).
+  const [nombre, setNombre] = useState(usuario.nombre ?? '');
+  const [telefono, setTelefono] = useState(usuario.telefono ?? '');
+  useEffect(() => {
+    setNombre(usuario.nombre ?? '');
+    setTelefono(usuario.telefono ?? '');
+  }, [usuario.nombre, usuario.telefono]);
 
   const base = `/admin/usuarios/${encodeURIComponent(usuario.id)}`;
   const sinAcceso = empresas.filter((e) => !usuario.empresas.some((a) => a.companyId === e.id));
@@ -1324,6 +1269,30 @@ function PanelUsuario({
 
   const caducada = usuario.contrasenaProvisionalCaducada === true;
 
+  /** Guarda el nombre y el telefono. El nombre no se puede dejar vacio si ya tenia uno; el telefono si. */
+  const guardarDatos = (ev: React.FormEvent) => {
+    ev.preventDefault();
+    const n = nombre.trim().replace(/\s+/g, ' ');
+    const t = telefono.trim() || null;
+    const cuerpo: Record<string, unknown> = {};
+    if (n !== (usuario.nombre ?? '')) {
+      if (!n) {
+        setAviso('');
+        setError('Escribe el nombre y apellidos. Se puede cambiar, pero no dejar vacío.');
+        document.getElementById('ficha-nombre')?.focus();
+        return;
+      }
+      cuerpo.nombre = n;
+    }
+    if (t !== (usuario.telefono ?? null)) cuerpo.telefono = t;
+    if (Object.keys(cuerpo).length === 0) {
+      setError('');
+      setAviso('No había nada que cambiar en el nombre ni en el teléfono.');
+      return;
+    }
+    hacer(() => apiFetch<UsuarioAdmin>(base, { method: 'PATCH', body: JSON.stringify(cuerpo) }), 'Nombre y teléfono guardados.');
+  };
+
   const generarProvisional = () => {
     const pregunta = caducada
       ? `Se creará una contraseña provisional nueva para ${usuario.email}. Valdrá 7 días. ¿Seguir?`
@@ -1364,6 +1333,49 @@ function PanelUsuario({
         </div>
 
         <Mensajes error={error} aviso={aviso} />
+
+        <form onSubmit={guardarDatos} className="flex flex-col gap-2" aria-labelledby="ficha-datos-titulo">
+          <h3 id="ficha-datos-titulo" className="text-sm font-semibold text-slate-900">
+            Datos de la persona
+          </h3>
+          <p className="text-xs text-slate-500">Son de su cuenta: se ven igual en todas las empresas en las que entra.</p>
+          <div className="grid gap-3 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_auto] sm:items-end">
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="ficha-nombre" className="text-sm font-medium text-slate-700">
+                Nombre y apellidos
+              </label>
+              <input
+                id="ficha-nombre"
+                type="text"
+                autoComplete="off"
+                maxLength={120}
+                value={nombre}
+                onChange={(e) => setNombre(e.target.value)}
+                disabled={ocupado}
+                className={CLASE_INPUT}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="ficha-telefono" className="text-sm font-medium text-slate-700">
+                Teléfono <span className="font-normal text-slate-400">(opcional)</span>
+              </label>
+              <input
+                id="ficha-telefono"
+                type="tel"
+                inputMode="tel"
+                autoComplete="off"
+                maxLength={30}
+                value={telefono}
+                onChange={(e) => setTelefono(e.target.value)}
+                disabled={ocupado}
+                className={CLASE_INPUT}
+              />
+            </div>
+            <button type="submit" disabled={ocupado} className={BOTON_SECUNDARIO_ALTO}>
+              Guardar datos
+            </button>
+          </div>
+        </form>
 
         <section className="flex flex-col gap-2">
           <h3 className="text-sm font-semibold text-slate-900">Accesos a empresas</h3>

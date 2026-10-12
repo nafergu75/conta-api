@@ -10,6 +10,8 @@ interface Props {
   email: string;
   /** Si se pasa, se pinta el boton «Hecho». */
   onHecho?: () => void;
+  /** Donde se genera otra si se pierde (cambia segun la pantalla). */
+  comoGenerarOtra?: string;
 }
 
 /**
@@ -17,7 +19,12 @@ interface Props {
  * un campo de contrasena, para que el navegador no ofrezca guardarla para el
  * administrador), con el boton Copiar. Nunca se guarda en el navegador.
  */
-export default function ContrasenaProvisional({ contrasena, email, onHecho }: Props) {
+export default function ContrasenaProvisional({
+  contrasena,
+  email,
+  onHecho,
+  comoGenerarOtra = 'Si se pierde, genera otra desde su ficha con «Generar contraseña provisional».',
+}: Props) {
   const texto = useRef<HTMLElement>(null);
   const [copiada, setCopiada] = useState(false);
   const [aMano, setAMano] = useState(false);
@@ -90,7 +97,7 @@ export default function ContrasenaProvisional({ contrasena, email, onHecho }: Pr
           o por teléfono. La primera vez que entre tendrá que cambiarla por una suya, que tú no conocerás.
         </span>
       </p>
-      <p className="text-xs text-slate-500">Si se pierde, genera otra desde su ficha con «Generar contraseña provisional».</p>
+      <p className="text-xs text-slate-500">{comoGenerarOtra}</p>
 
       {onHecho && (
         <div className="flex justify-end">

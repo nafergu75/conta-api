@@ -10,10 +10,10 @@ import { CabeceraBloque, Etiqueta, Mensaje } from '../componentes';
 import { useConfiguracion } from '../contexto';
 
 /**
- * Tu acceso y usuarios: el perfil del usuario en la empresa activa (rol y lo
+ * Tu acceso: el perfil del usuario en la empresa activa (rol y lo
  * que puede hacer) y, para el administrador de la empresa, la lista de quien
- * tiene acceso (solo lectura). La gestion de usuarios sigue en Administracion
- * global.
+ * tiene acceso (solo lectura). Las altas y los cambios se hacen en
+ * Configuracion > Usuarios.
  */
 
 const AREAS: Array<{ recurso: string; nombre: string }> = [
@@ -58,7 +58,7 @@ export default function AccesoPage() {
 
   return (
     <>
-      <CabeceraBloque icono={UserCircle} titulo="Tu acceso y usuarios" descripcion="Con qué usuario entras, qué puedes hacer en esta empresa y quién más tiene acceso." />
+      <CabeceraBloque icono={UserCircle} titulo="Tu acceso" descripcion="Con qué usuario entras, qué puedes hacer en esta empresa y quién más tiene acceso." />
 
       <section aria-labelledby="perfil" className="rounded-xl border border-slate-200 bg-white p-4 md:p-5">
         <h2 id="perfil" className="font-semibold text-slate-900">
@@ -141,13 +141,14 @@ export default function AccesoPage() {
           <p className="border-t border-slate-100 px-4 py-3 text-sm text-slate-600 md:px-5">
             Además, los administradores de la plataforma pueden entrar en todas las empresas, aunque no salgan en esta lista.
           </p>
-          <p className="border-t border-slate-100 px-4 py-3 text-sm text-slate-600 md:px-5">
-            {user?.esAdminGlobal ? (
+          <p className="flex flex-wrap gap-x-5 gap-y-2 border-t border-slate-100 px-4 py-3 text-sm text-slate-600 md:px-5">
+            <Link href="/dashboard/configuracion/usuarios" className="inline-flex items-center gap-1 font-medium text-emerald-700 hover:underline">
+              Dar de alta, cambiar permisos o quitar el acceso en «Usuarios» <ArrowRight size={14} />
+            </Link>
+            {user?.esAdminGlobal && (
               <Link href="/dashboard/admin" className="inline-flex items-center gap-1 font-medium text-emerald-700 hover:underline">
-                Gestionar usuarios en Administración <ArrowRight size={14} />
+                Administración global <ArrowRight size={14} />
               </Link>
-            ) : (
-              'Para dar de alta a alguien, cambiar su rol o quitarle el acceso, habla con el administrador de la plataforma.'
             )}
           </p>
         </section>
