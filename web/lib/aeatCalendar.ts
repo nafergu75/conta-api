@@ -125,8 +125,12 @@ function plazosDelAnio(anio: number): Plazo[] {
   return plazos;
 }
 
-/** Enlace a la pantalla del modelo, abierta en su ejercicio y periodo. */
+/** Modelos con pantalla propia en Fiscal. */
+const CON_PANTALLA = ['303', '111', '115', '349', '390', '190', '347', '200', '180', '202'];
+
+/** Enlace a la pantalla del modelo, abierta en su ejercicio y periodo (sin pantalla propia, al estado fiscal). */
 export function enlaceModelo(codigo: string, ejercicio: number, periodo: string): string {
+  if (!CON_PANTALLA.includes(codigo)) return `/dashboard/fiscal/estado?ejercicio=${ejercicio}`;
   const q = new URLSearchParams({ ejercicio: String(ejercicio) });
   if (periodo && periodo !== '0A') q.set('periodo', periodo);
   return `/dashboard/fiscal/modelo-${codigo}?${q.toString()}`;
