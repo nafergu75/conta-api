@@ -148,10 +148,17 @@ export function textoPeriodoModelo(ejercicio: number, periodo: string): string {
   return mes ? `${mes} de ${ejercicio}` : `${periodo} de ${ejercicio}`;
 }
 
-/** Los próximos `n` plazos generales desde `hoy` (incluido), ordenados por fecha. */
-export function proximosVencimientos(hoy: string = hoyIso(), n = 4): VencimientoAeat[] {
+/**
+ * Los próximos `n` plazos generales desde `hoy` (incluido), ordenados por
+ * fecha. Nunca de un ejercicio anterior a `primero`: a una empresa que empieza
+ * en 2027 le salen ya los del 1T de 2027 aunque hoy sea 2026.
+ */
+export function proximosVencimientos(hoy: string = hoyIso(), n = 4, primero?: number): VencimientoAeat[] {
   const anio = Number(hoy.slice(0, 4));
-  return [...plazosDelAnio(anio - 1), ...plazosDelAnio(anio)]
+  const desde = Math.max(anio - 1, primero ?? anio - 1);
+  const plazos: Plazo[] = [];
+  for (let a = desde; a <= Math.max(anio, desde); a++) plazos.push(...plazosDelAnio(a));
+  return plazos
     .map((p) => ({ ...p, fecha: plazoAeat(p.fecha) }))
     .filter((p) => p.fecha >= hoy)
     .sort((a, b) => a.fecha.localeCompare(b.fecha) || a.codigo.localeCompare(b.codigo))
@@ -180,13 +187,18 @@ export function trimestreAPresentar(hoy: string = hoyIso(), primero?: number): {
   const anio = Number(hoy.slice(0, 4));
   const trimestreEnCurso = Math.floor((Number(hoy.slice(5, 7)) - 1) / 3) + 1;
   const r = trimestreEnCurso === 1 ? { ejercicio: anio - 1, trimestre: 4 } : { ejercicio: anio, trimestre: trimestreEnCurso - 1 };
-  if (primero !== undefined && r.ejercicio < primero) return { ejercicio: Math.min(primero, anio), trimestre: 1 };
+  // Empresa que todavía no ha empezado (primero en el futuro): su primer trimestre.
+  if (primero !== undefined && r.ejercicio < primero) return { ejercicio: primero, trimestre: 1 };
   return r;
 }
 
-/** Los modelos anuales (390, 190, 347, 200, 180) se presentan por el ejercicio anterior; nunca antes de `primero`. */
+/**
+ * Los modelos anuales (390, 190, 347, 200, 180) se presentan por el ejercicio
+ * anterior; nunca antes de `primero` (si la empresa empieza el año que viene,
+ * ese año).
+ */
 export function ejercicioAnualAPresentar(hoy: string = hoyIso(), primero?: number): number {
   const anio = Number(hoy.slice(0, 4));
   const r = anio - 1;
-  return primero !== undefined && r < primero ? Math.min(primero, anio) : r;
+  return primero !== undefined && r < primero ? primero : r;
 }
