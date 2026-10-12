@@ -12,6 +12,16 @@ export const CODIGO_PLAN_ANTERIOR = 'PLAN_ANTERIOR_PENDIENTE';
 /** Lo que se añade al cuerpo de la petición para seguir sin el plan anterior. */
 export type ExtraPlanAnterior = { confirmarSinPlanAnterior?: true };
 
+/** Devuelve el foco a un botón en cuanto vuelve a estar activo (mientras se guarda está desactivado). */
+function devolverFoco(el: Element | null, intentos = 20): void {
+  if (!(el instanceof HTMLElement) || !document.contains(el)) return;
+  if ((el as HTMLButtonElement).disabled) {
+    if (intentos > 0) setTimeout(() => devolverFoco(el, intentos - 1), 50);
+    return;
+  }
+  el.focus({ preventScroll: true });
+}
+
 function enlaceDe(e: ApiError): string {
   const d = e.detalles && typeof e.detalles === 'object' ? (e.detalles as { enlace?: unknown }) : {};
   return typeof d.enlace === 'string' && d.enlace.startsWith('/') ? d.enlace : RUTA_ARRANQUE;
@@ -30,7 +40,7 @@ function enlaceDe(e: ApiError): string {
  * Cualquier otro error se lanza tal cual. Pinta `aviso.dialogo` en la página.
  * Puede ir dentro de otro diálogo (la ficha de alta del lector): mientras está
  * abierto, Escape y el tabulador son solo suyos, y al cerrarlo el foco vuelve
- * a donde estaba.
+ * al botón que se pulsó.
  */
 export function useAvisoPlanAnterior(): {
   intentar: <T>(hacer: (extra: ExtraPlanAnterior) => Promise<T>) => Promise<T | null>;
@@ -44,7 +54,6 @@ export function useAvisoPlanAnterior(): {
 
   useEffect(() => {
     if (!estaAbierto) return;
-    const antes = document.activeElement;
     // En captura y en window: llega antes que el Escape del diálogo de debajo, que ya no se entera.
     const alTeclear = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -66,14 +75,13 @@ export function useAvisoPlanAnterior(): {
       }
     };
     window.addEventListener('keydown', alTeclear, true);
-    return () => {
-      window.removeEventListener('keydown', alTeclear, true);
-      if (antes instanceof HTMLElement && document.contains(antes)) antes.focus({ preventScroll: true });
-    };
+    return () => window.removeEventListener('keydown', alTeclear, true);
   }, [estaAbierto]);
 
   const intentar = useCallback(
     async <T,>(hacer: (extra: ExtraPlanAnterior) => Promise<T>): Promise<T | null> => {
+      // El botón que se ha pulsado (aún sin desactivar): al cerrar el aviso, el foco vuelve a él.
+      const volverA = document.activeElement;
       try {
         return await hacer({});
       } catch (e) {
@@ -85,6 +93,7 @@ export function useAvisoPlanAnterior(): {
         });
         resolver.current = null;
         setAbierto(null);
+        if (respuesta === 'cerrar') devolverFoco(volverA);
         if (respuesta === 'traer') {
           router.push(enlace);
           return null;
