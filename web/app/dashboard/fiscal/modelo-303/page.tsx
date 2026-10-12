@@ -9,6 +9,7 @@ import { Casillas303, type Casilla303 } from '../components/Casillas303';
 import { AvisosModelo } from '../components/AvisosModelo';
 import { Declaraciones } from '../components/Declaraciones';
 import { Tooltip } from '../components/Tooltip';
+import { formatoImporte, importeParaEnviar } from '@/lib/moneda';
 
 type TipoDeclaracion = 'I' | 'U' | 'C' | 'D' | 'N';
 
@@ -53,7 +54,7 @@ const SIN_OPCIONES: Opciones = { tipoDeclaracion: '', aCompensar: '', cuentaBanc
 function queryOpciones(o: Opciones): string {
   const q = new URLSearchParams();
   if (o.tipoDeclaracion) q.set('tipoDeclaracion', o.tipoDeclaracion);
-  if (o.aCompensar.trim()) q.set('aCompensar', o.aCompensar.trim().replace(',', '.'));
+  if (o.aCompensar.trim()) q.set('aCompensar', importeParaEnviar(o.aCompensar));
   if (o.cuentaBancariaId) q.set('cuentaBancariaId', o.cuentaBancariaId);
   const s = q.toString();
   return s ? `&${s}` : '';
@@ -69,7 +70,7 @@ const esTrimestre = (periodo: string) => periodo.endsWith('T');
 function opcionesPresentar(o: Opciones): Record<string, string> {
   const out: Record<string, string> = {};
   if (o.tipoDeclaracion) out.tipoDeclaracion = o.tipoDeclaracion;
-  if (o.aCompensar.trim()) out.aCompensar = o.aCompensar.trim().replace(',', '.');
+  if (o.aCompensar.trim()) out.aCompensar = importeParaEnviar(o.aCompensar);
   if (o.cuentaBancariaId) out.cuentaBancariaId = o.cuentaBancariaId;
   return out;
 }
@@ -123,10 +124,7 @@ export default function Modelo303Page() {
     setCompensarEscrito('');
   };
 
-  const eur = new Intl.NumberFormat('es-ES', {
-    style: 'currency',
-    currency: 'EUR',
-  });
+  const eur = { format: (n: number) => formatoImporte(n, 'EUR') };
 
   const descargarAEAT = async () => {
     setAvisoDescarga('');
