@@ -4,12 +4,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Plus, MagnifyingGlass, X, Trash } from '@phosphor-icons/react';
-import { getToken, getCompanyId } from '@/lib/auth';
+import { getToken } from '@/lib/auth';
 import { apiFetch, companyPath } from '@/lib/api';
 import { mensajeSinAcceso, PantallaSinAcceso } from '@/components/dashboard/SinAcceso';
 import { nombrePais, PAISES, PAISES_UE, pareceNifIvaUe } from '@/lib/fiscal';
-
-const API = '/api/conta';
+import { useAvisoPlanAnterior } from '@/components/contabilidad/AvisoPlanAnterior';
 
 interface Cliente {
   id: string;
@@ -247,34 +246,30 @@ function NuevoClienteModal({
   const ue = pais !== 'ES' && PAISES_UE.has(pais);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const avisoPlan = useAvisoPlanAnterior();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setSaving(true);
     try {
-      const res = await fetch(`${API}/companies/${getCompanyId()}/clientes`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${getToken()}`,
-        },
-        body: JSON.stringify({
-          nombreFiscal: nombre,
-          nifCif: nif,
-          email: email || undefined,
-          telefono: telefono || undefined,
-          provincia: provincia || undefined,
-          pais,
-          direccion: direccion || undefined,
-          cp: cp || undefined,
-          municipio: municipio || undefined,
-          monedaPreferida: monedaPreferida || undefined,
-        }),
-      });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j.message || `Error ${res.status}`);
+      const cuerpo = {
+        nombreFiscal: nombre,
+        nifCif: nif,
+        email: email || undefined,
+        telefono: telefono || undefined,
+        provincia: provincia || undefined,
+        pais,
+        direccion: direccion || undefined,
+        cp: cp || undefined,
+        municipio: municipio || undefined,
+        monedaPreferida: monedaPreferida || undefined,
+      };
+      // Primer cliente de una empresa española sin el plan de la gestoría: se pregunta antes.
+      const hecho = await avisoPlan.intentar((extra) => apiFetch(companyPath('/clientes'), { method: 'POST', body: JSON.stringify({ ...cuerpo, ...extra }) }));
+      if (hecho === null) {
+        setSaving(false);
+        return;
       }
       onCreated();
     } catch (err) {
@@ -456,6 +451,7 @@ function NuevoClienteModal({
             </button>
           </div>
         </form>
+        {avisoPlan.dialogo}
       </div>
     </div>
   );
