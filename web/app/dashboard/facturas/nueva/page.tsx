@@ -21,7 +21,7 @@ import {
   tipoParaEditar,
 } from '@/lib/moneda';
 import { calcularFactura } from '@/lib/divisas';
-import { useContextoFiscal, type AvisoFiscal } from '@/lib/fiscal';
+import { conDevengoFuera, useContextoFiscal, type AvisoFiscal } from '@/lib/fiscal';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { useCuentasLinea } from '@/lib/subcuentas';
 import { CuentaLinea } from '@/components/contabilidad/CuentaLinea';
@@ -676,13 +676,20 @@ function FormularioFactura() {
         setIdCreado(invoice.id);
       }
       if (emitir && !esProforma) {
-        const { invoice } = await apiFetch<{ invoice: { contabilizada?: boolean; motivoSinAsiento?: string | null } }>(
-          companyPath(`/income-invoices/${id}/finalizar`),
-          {
+        // Operación de un periodo cuyo 303 presenta la gestoría: se pregunta antes de emitirla.
+        const emitida = await conDevengoFuera((extra) =>
+          apiFetch<{ invoice: { contabilizada?: boolean; motivoSinAsiento?: string | null } }>(companyPath(`/income-invoices/${id}/finalizar`), {
             method: 'POST',
-            body: JSON.stringify({ fechaEmision, ...(enDivisa && tipoManual.trim() ? { tipoCambio: manual } : {}) }),
-          },
+            body: JSON.stringify({ fechaEmision, ...(enDivisa && tipoManual.trim() ? { tipoCambio: manual } : {}), ...extra }),
+          }),
         );
+        if (emitida === null) {
+          // Sin confirmar: queda guardada como borrador.
+          setGuardando(false);
+          setError('No se ha pasado a factura: queda guardada como borrador.');
+          return;
+        }
+        const { invoice } = emitida.r;
         if (invoice.contabilizada === false) {
           try {
             sessionStorage.setItem(`conta_sin_asiento_${id}`, invoice.motivoSinAsiento || 'No se pudo contabilizar.');
