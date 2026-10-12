@@ -151,3 +151,17 @@ export function desviacion(manual: number, bce: number): number {
 }
 
 export const DESVIACION_AVISO = 0.005;
+
+/**
+ * Importe escrito por la persona («1.234,56», «1234,56», «1234.56» o «1.234»)
+ * en el formato que espera el servidor («1234.56»). La coma es la de los
+ * decimales y el punto, el de los miles; sin coma, un punto seguido de tres
+ * cifras también es de miles. Lo que no se entiende se manda tal cual y el
+ * servidor dice qué falla.
+ */
+export function importeParaEnviar(texto: string): string {
+  const s = texto.trim().replace(/\s/g, '');
+  if (s.includes(',')) return s.replace(/\./g, '').replace(',', '.');
+  if (/^-?\d{1,3}(\.\d{3})+$/.test(s)) return s.replace(/\./g, '');
+  return s;
+}
