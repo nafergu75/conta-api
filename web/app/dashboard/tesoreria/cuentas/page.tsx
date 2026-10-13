@@ -48,6 +48,10 @@ interface CuentaBancaria {
   entidad?: string;
   saldoInicial: number;
   estado: string;
+  /** Subcuenta 572 del plan contable. */
+  subcuentaCodigo: string;
+  /** Solo si la subcuenta no es de bancos (dada de alta antes de comprobarlo): hay que cambiarla. */
+  avisoSubcuenta?: string;
   movimientos: any[];
 }
 
@@ -139,12 +143,16 @@ export default function CuentasPage() {
         observaciones: formData.observaciones || undefined,
       };
 
-      const creada = await apiFetch<{ subcuentaCodigo: string }>(companyPath('/treasury/bank-accounts'), {
+      const creada = await apiFetch<{ subcuentaCodigo: string; reactivada?: boolean }>(companyPath('/treasury/bank-accounts'), {
         method: 'POST',
         body: JSON.stringify(payload),
       });
 
-      setSuccess(`Cuenta bancaria dada de alta con la subcuenta ${creada.subcuentaCodigo}.`);
+      setSuccess(
+        creada.reactivada
+          ? `Esa cuenta ya estaba dada de alta pero desactivada: se ha vuelto a activar tal como estaba, con la subcuenta ${creada.subcuentaCodigo} y su saldo inicial.`
+          : `Cuenta bancaria dada de alta con la subcuenta ${creada.subcuentaCodigo}.`,
+      );
       setFormData(FORMULARIO_VACIO);
       setPropuesta(null);
       setShowForm(false);
@@ -207,7 +215,7 @@ export default function CuentasPage() {
       )}
 
       {success && (
-        <div className="rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-800">
+        <div role="status" className="rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-800">
           {success}
         </div>
       )}
@@ -413,6 +421,14 @@ export default function CuentasPage() {
               entidad={cuenta.entidad}
               saldoInicial={cuenta.saldoInicial || 0}
               estado={cuenta.estado || 'activa'}
+              subcuentaCodigo={cuenta.subcuentaCodigo}
+              avisoSubcuenta={cuenta.avisoSubcuenta}
+              puedeCambiar={puedeCrear}
+              onSubcuentaCambiada={(codigo) => {
+                setError('');
+                setSuccess(`Subcuenta cambiada: los próximos cobros y pagos de esta cuenta van a la ${codigo}.`);
+                fetchCuentas();
+              }}
               pendientes={cuenta.movimientos?.filter((m) => m.estado === 'pendiente').length || 0}
               conciliados={cuenta.movimientos?.filter((m) => m.estado === 'conciliado').length || 0}
             />
