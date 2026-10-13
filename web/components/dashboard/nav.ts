@@ -33,7 +33,7 @@ export const NAV_GROUPS: NavGroup[] = [
       {
         label: 'Resumen',
         slug: '',
-        description: 'KPIs, evolución mensual y últimos movimientos.',
+        description: 'Ingresos, gastos y resultado sacados de las facturas, y las últimas facturas.',
         implemented: true,
         endpoints: [],
       },
