@@ -401,6 +401,13 @@ function ModalCobro({
   const cajaRef = useRef<HTMLDivElement>(null);
   const fechaRef = useRef<HTMLInputElement>(null);
   const selectRef = useRef<HTMLSelectElement>(null);
+  // Tras dar de alta la cuenta, el foco va al desplegable (ya con ella elegida) en cuanto se pinta.
+  const enfocarLista = useRef(false);
+  useEffect(() => {
+    if (!enfocarLista.current) return;
+    enfocarLista.current = false;
+    selectRef.current?.focus();
+  }, [medio]);
 
   useEffect(() => {
     let vivo = true;
@@ -467,7 +474,7 @@ function ModalCobro({
         ? `Esa cuenta ya estaba dada de alta pero desactivada: se ha vuelto a activar con su subcuenta ${c.subcuentaCodigo}. Ya está elegida.`
         : `Cuenta dada de alta con la subcuenta ${c.subcuentaCodigo}. Ya está elegida.`,
     );
-    requestAnimationFrame(() => selectRef.current?.focus());
+    enfocarLista.current = true;
   };
 
   // Cuenta elegida con una subcuenta que no es de bancos: hay que cambiarla en Tesorería antes.
