@@ -1,7 +1,8 @@
 'use client';
 
 import { useId } from 'react';
-import { nombrePais, NUMERO_FISCAL_GENERICO, origenDePais, PAISES, PAISES_UE, type OrigenTercero as Origen } from '@/lib/fiscal';
+import { getCompanyId } from '@/lib/auth';
+import { esPaisEmpresaEspanola, nombrePais, NUMERO_FISCAL_GENERICO, origenDePais, PAISES, PAISES_UE, type OrigenTercero as Origen } from '@/lib/fiscal';
 import type { EleccionOrigen, InfoTercero, LectorPantalla } from '@/lib/lecturas';
 
 /**
@@ -14,7 +15,8 @@ import type { EleccionOrigen, InfoTercero, LectorPantalla } from '@/lib/lecturas
  * España exige un NIF español valido; de la UE, un NIF-IVA; de fuera de la UE
  * acepta cualquier identificacion o ninguna (queda para revisar).
  *
- * La ultima eleccion de cada lector se recuerda en el navegador.
+ * La ultima eleccion de cada lector se recuerda en el navegador, por empresa.
+ * Sin ella, De España; en una empresa de fuera, su lado (origenPorDefecto).
  */
 
 const OPCIONES: Array<{ valor: Origen; texto: string; ayuda: string }> = [
@@ -25,7 +27,18 @@ const OPCIONES: Array<{ valor: Origen; texto: string; ayuda: string }> = [
 
 export const ORIGEN_POR_DEFECTO: EleccionOrigen = { origen: 'ES', pais: 'ES' };
 
-const CLAVE = (lector: LectorPantalla) => `conta:lector-origen:${lector}`;
+/**
+ * Lo de por defecto segun el pais de la empresa (usePaisEmpresa): De España en
+ * una empresa española (o mientras no se sabe); en una de fuera, su lado (De
+ * fuera de la UE para una de EE. UU. o de Hong Kong), sin pais.
+ */
+export function origenPorDefecto(paisEmpresa: string | null): EleccionOrigen {
+  if (paisEmpresa === null || esPaisEmpresaEspanola(paisEmpresa)) return ORIGEN_POR_DEFECTO;
+  return { origen: origenDePais(paisEmpresa) ?? 'FUERA', pais: null };
+}
+
+/** Por empresa: una empresa de EE. UU. y una española del mismo navegador no comparten la ultima eleccion. */
+const CLAVE = (lector: LectorPantalla) => `conta:lector-origen:${getCompanyId()}:${lector}`;
 
 /** Lo elegido, con el pais solo si es de ese lado (en ES, siempre 'ES'). */
 export function eleccionValida(origen: unknown, pais: unknown): EleccionOrigen | null {
@@ -35,15 +48,18 @@ export function eleccionValida(origen: unknown, pais: unknown): EleccionOrigen |
   return { origen, pais: p && origenDePais(p) === origen ? p : null };
 }
 
-/** La ultima eleccion de ese lector en este navegador; si no la hay (o no se puede leer), De España. */
-export function eleccionRecordada(lector: LectorPantalla): EleccionOrigen {
+/**
+ * La ultima eleccion de ese lector y esa empresa en este navegador; si no la
+ * hay (o no se puede leer), la de por defecto (origenPorDefecto).
+ */
+export function eleccionRecordada(lector: LectorPantalla, porDefecto: EleccionOrigen = ORIGEN_POR_DEFECTO): EleccionOrigen {
   try {
     const crudo = window.localStorage.getItem(CLAVE(lector));
-    if (!crudo) return ORIGEN_POR_DEFECTO;
+    if (!crudo) return porDefecto;
     const e = JSON.parse(crudo) as { origen?: unknown; pais?: unknown };
-    return eleccionValida(e?.origen, e?.pais) ?? ORIGEN_POR_DEFECTO;
+    return eleccionValida(e?.origen, e?.pais) ?? porDefecto;
   } catch {
-    return ORIGEN_POR_DEFECTO;
+    return porDefecto;
   }
 }
 
@@ -52,7 +68,7 @@ export function recordarEleccion(lector: LectorPantalla, e: EleccionOrigen): voi
   try {
     window.localStorage.setItem(CLAVE(lector), JSON.stringify(e));
   } catch {
-    // Sin almacenamiento (ventana privada, bloqueado): se queda De España la proxima vez.
+    // Sin almacenamiento (ventana privada, bloqueado): la proxima vez, la de por defecto.
   }
 }
 
