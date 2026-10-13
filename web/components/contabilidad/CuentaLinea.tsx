@@ -304,11 +304,17 @@ function NuevaSubcuenta({
   // crear subcuentas bajo ellas es solo de quien lleva la contabilidad (el servidor da 403 a los demás).
   const llevaContabilidad = tieneAlgunPermiso(getUser(), ['contabilidad:write']);
   // Cuentas de las que puede colgar una subcuenta: las mas cortas que la longitud de la empresa.
+  // El servidor marca además con crearSubcuenta: false las que esa persona no puede usar de madre.
   const madres = useMemo(
-    () => (catalogo.listado?.cuentas ?? []).filter((c) => c.codigo.length < longitud && (llevaContabilidad || !esUsoContableVenta(c.codigo, tipo))),
+    () =>
+      (catalogo.listado?.cuentas ?? []).filter(
+        (c) => c.codigo.length < longitud && c.crearSubcuenta !== false && (llevaContabilidad || !esUsoContableVenta(c.codigo, tipo)),
+      ),
     [catalogo.listado, longitud, llevaContabilidad, tipo],
   );
-  const hayDeUsoContable = !llevaContabilidad && (catalogo.listado?.cuentas ?? []).some((c) => esUsoContableVenta(c.codigo, tipo));
+  const hayDeUsoContable = (catalogo.listado?.cuentas ?? []).some(
+    (c) => c.crearSubcuenta === false || (!llevaContabilidad && esUsoContableVenta(c.codigo, tipo)),
+  );
   const [madre, setMadre] = useState(madres.some((m) => m.codigo === madreInicial) ? madreInicial : (madres[0]?.codigo ?? madreInicial));
   const [propuesta, setPropuesta] = useState<PropuestaSubcuenta | null>(null);
   const [codigo, setCodigo] = useState('');
