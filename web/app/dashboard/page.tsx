@@ -543,6 +543,10 @@ export default function DashboardPage() {
                             </span>
                             <span className="text-xl md:text-2xl font-bold text-blue-700 whitespace-nowrap">{f ? importe(f.retencionesAIngresar) : '—'}</span>
                           </div>
+                          <p className="text-xs text-slate-500">
+                            Va por la fecha de cada factura. El modelo 303 usa la fecha en que registraste cada gasto y, en las ventas, la de la
+                            operación si es otra, así que puede no coincidir.
+                          </p>
                         </div>
                       )}
                     </div>
