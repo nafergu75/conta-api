@@ -240,6 +240,8 @@ export default function DashboardPage() {
   };
 
   const sinAccesoResumen = resumen.estado === 'sinAcceso';
+  // Con solo Ventas no hay resumen, pero sí sus ventas por cliente (GET /stats/ingresos-por-cliente).
+  const soloVentasPorCliente = sinAccesoResumen && clientes.estado !== 'sinAcceso';
   const r = resumen.datos;
   const f = fiscal.datos;
   const moneda = r?.monedaCuenta ?? f?.monedaCuenta ?? 'EUR';
@@ -310,8 +312,9 @@ export default function DashboardPage() {
         {acceso?.arranque && <AvisoArranque />}
         {sinAccesoResumen && (
           <div role="status" className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
-            Tu acceso a esta empresa no incluye el resumen general (ingresos, gastos y facturas). En el menú tienes las áreas que sí puedes
-            usar.
+            {soloVentasPorCliente
+              ? 'Tu acceso a esta empresa no incluye el resumen general (gastos, resultado e IVA). Abajo tienes tus ventas por cliente y en el menú, las áreas que puedes usar.'
+              : 'Tu acceso a esta empresa no incluye el resumen general (ingresos, gastos y facturas). En el menú tienes las áreas que sí puedes usar.'}
           </div>
         )}
 
@@ -655,52 +658,71 @@ export default function DashboardPage() {
                 </div>
               )}
             </section>
+          </>
+        )}
 
-            {/* Clientes y proveedores: un solo periodo para los dos análisis (por defecto, todo el año) */}
-            <section aria-labelledby="clientes-proveedores" className="flex flex-col gap-4">
-              <div className="flex flex-wrap items-end justify-between gap-3">
-                <div>
-                  <h2 id="clientes-proveedores" className="text-base font-semibold text-slate-900">
-                    Clientes y proveedores · {nombrePeriodo(selectedYear, selectedAnalysisPeriod)}
-                  </h2>
-                  <p className="mt-1 text-xs text-slate-500">Ventas por cliente y gastos por proveedor, con su propio periodo dentro del año de arriba.</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-slate-700" aria-hidden>
-                    Periodo:
-                  </span>
-                  <SelectorPeriodo
-                    id="analisis-periodo"
-                    etiqueta={`Periodo de clientes y proveedores de ${selectedYear}`}
-                    anio={selectedYear}
-                    valor={selectedAnalysisPeriod}
-                    onChange={setSelectedAnalysisPeriod}
-                  />
-                </div>
-              </div>
-
-              {/* Análisis de ingresos: ventas por cliente */}
-              <section aria-labelledby="analisis-ingresos" aria-busy={clientes.estado === 'cargando'} className="rounded-xl bg-white border border-slate-200 p-4 sm:p-6 md:p-8">
-                <h3 id="analisis-ingresos" className="text-base font-semibold text-slate-900">
-                  Análisis de ingresos
-                </h3>
-                <p className="mt-1 mb-6 text-xs text-slate-500">
-                  Ventas por cliente, sin IVA, según la fecha de las facturas, cobradas o no. Las rectificativas ya están restadas.
+        {/* Clientes y proveedores: un solo periodo para los dos análisis (por defecto, todo el año).
+            Con solo Ventas, solo sus ventas por cliente, con su propio año (no tiene el filtro de arriba). */}
+        {((!sinAccesoResumen && !anioVacio) || soloVentasPorCliente) && (
+          <section aria-labelledby="clientes-proveedores" className="flex flex-col gap-4">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <h2 id="clientes-proveedores" className="text-base font-semibold text-slate-900">
+                  {soloVentasPorCliente ? 'Ventas por cliente' : 'Clientes y proveedores'} · {nombrePeriodo(selectedYear, selectedAnalysisPeriod)}
+                </h2>
+                <p className="mt-1 text-xs text-slate-500">
+                  {soloVentasPorCliente
+                    ? 'Tus ventas de cada cliente en el año y el periodo que elijas.'
+                    : 'Ventas por cliente y gastos por proveedor, con su propio periodo dentro del año de arriba.'}
                 </p>
-                {clientes.estado === 'error' ? (
-                  <ErrorBloque texto="No se ha podido cargar el análisis de ingresos." error={clientes.error} onReintentar={clientes.reintentar} />
-                ) : !clientes.datos ? (
-                  <div className="h-64 sm:h-80 animate-pulse bg-slate-100 rounded-lg" />
-                ) : clientes.datos.length === 0 ? (
-                  <Vacio alto="h-64 sm:h-80">No hay facturas de venta {analisisTexto}.</Vacio>
-                ) : (
-                  <div className={atenuar(clientes)}>
-                    <IncomeAnalysisChart clients={clientes.datos} moneda={moneda} conEnlace={!!acceso?.abrirVentas} />
-                  </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {soloVentasPorCliente && (
+                  <SelectorAnio
+                    id="analisis-anio"
+                    etiqueta=""
+                    valor={selectedYear}
+                    anios={availableYears}
+                    onChange={(y) => y !== null && cambiarAnio(y)}
+                    className={CLASE_SELECT}
+                  />
                 )}
-              </section>
+                <span className="text-sm font-medium text-slate-700" aria-hidden>
+                  Periodo:
+                </span>
+                <SelectorPeriodo
+                  id="analisis-periodo"
+                  etiqueta={`Periodo de clientes y proveedores de ${selectedYear}`}
+                  anio={selectedYear}
+                  valor={selectedAnalysisPeriod}
+                  onChange={setSelectedAnalysisPeriod}
+                />
+              </div>
+            </div>
 
-              {/* Detalle de gastos: por proveedor y nóminas */}
+            {/* Análisis de ingresos: ventas por cliente */}
+            <section aria-labelledby="analisis-ingresos" aria-busy={clientes.estado === 'cargando'} className="rounded-xl bg-white border border-slate-200 p-4 sm:p-6 md:p-8">
+              <h3 id="analisis-ingresos" className="text-base font-semibold text-slate-900">
+                Análisis de ingresos
+              </h3>
+              <p className="mt-1 mb-6 text-xs text-slate-500">
+                Ventas por cliente, sin IVA, según la fecha de las facturas, cobradas o no. Las rectificativas ya están restadas.
+              </p>
+              {clientes.estado === 'error' ? (
+                <ErrorBloque texto="No se ha podido cargar el análisis de ingresos." error={clientes.error} onReintentar={clientes.reintentar} />
+              ) : !clientes.datos ? (
+                <div className="h-64 sm:h-80 animate-pulse bg-slate-100 rounded-lg" />
+              ) : clientes.datos.length === 0 ? (
+                <Vacio alto="h-64 sm:h-80">No hay facturas de venta {analisisTexto}.</Vacio>
+              ) : (
+                <div className={atenuar(clientes)}>
+                  <IncomeAnalysisChart clients={clientes.datos} moneda={moneda} conEnlace={!!acceso?.abrirVentas} />
+                </div>
+              )}
+            </section>
+
+            {/* Detalle de gastos: por proveedor y nóminas (pide Contabilidad o Tesorería, como el resumen) */}
+            {!sinAccesoResumen && (
               <section aria-labelledby="detalle-gastos" aria-busy={proveedores.estado === 'cargando'} className="rounded-xl bg-white border border-slate-200 p-4 sm:p-6 md:p-8">
                 <h3 id="detalle-gastos" className="text-base font-semibold text-slate-900">
                   Detalle de gastos
@@ -720,8 +742,12 @@ export default function DashboardPage() {
                   </div>
                 )}
               </section>
-            </section>
+            )}
+          </section>
+        )}
 
+        {!sinAccesoResumen && !anioVacio && (
+          <>
             <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {/* Evolución mensual del periodo */}
               <div className="rounded-xl bg-white border border-slate-200 p-4 sm:p-6" aria-busy={meses.estado === 'cargando'}>
