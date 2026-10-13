@@ -24,7 +24,8 @@ import { fechaCorta, type GastoRegistrado } from '@/lib/compras';
 import { centimos, cuotasDescuadradas, inicialComoAbono, inicialDe, marcasDelFormulario, marcasDireccion, retencionSinTipo } from '@/lib/lectorGastos';
 import SoltarFactura from '@/components/lector/SoltarFactura';
 import AvisoTerceroNuevo, { camposDudosos, type TerceroEnlazado } from '@/components/lector/AvisoTerceroNuevo';
-import OrigenTercero, { eleccionRecordada, ORIGEN_POR_DEFECTO, OrigenTerceroLeido, recordarEleccion } from '@/components/lector/OrigenTercero';
+import { usePaisEmpresa } from '@/lib/fiscal';
+import OrigenTercero, { eleccionRecordada, ORIGEN_POR_DEFECTO, origenPorDefecto, OrigenTerceroLeido, recordarEleccion } from '@/components/lector/OrigenTercero';
 
 /**
  * Lector de gastos: se sube el PDF o la foto de una factura de proveedor, el
@@ -133,10 +134,16 @@ export default function LectorGastosPage() {
   // Al salir de la pantalla se corta la espera (la lectura sin registrar se purga sola).
   useEffect(() => () => cortarRef.current?.abort(), []);
 
-  // La última elección de este lector (en el navegador; si no se puede leer, De España).
-  useEffect(() => setOrigen(eleccionRecordada('gastos')), []);
+  // La última elección de este lector y esta empresa (en el navegador). Sin ella, De España; en una
+  // empresa de fuera (EE. UU., Hong Kong), De fuera de la UE. Lo que ya se haya elegido aquí no se pisa.
+  const paisEmpresa = usePaisEmpresa();
+  const origenElegidoRef = useRef(false);
+  useEffect(() => {
+    if (!origenElegidoRef.current) setOrigen(eleccionRecordada('gastos', origenPorDefecto(paisEmpresa)));
+  }, [paisEmpresa]);
 
   const elegirOrigen = (e: EleccionOrigen) => {
+    origenElegidoRef.current = true;
     setOrigen(e);
     recordarEleccion('gastos', e);
   };
@@ -617,7 +624,7 @@ export default function LectorGastosPage() {
                             nifCif: p.nifCif,
                             // Si se ha dicho (después de leer) que es de fuera de España y el bloque sigue en España, el de la lectura (o se pide).
                             pais: esEspana(p.pais) && info.tercero?.origen && info.tercero.origen !== 'ES' ? (info.tercero.pais ?? '') : p.pais,
-                            origen: info.tercero?.origen ?? null,
+                            origen: info.tercero?.contradiccion?.origen ?? info.tercero?.origen ?? null,
                             direccion: p.direccion,
                             cp: p.cp,
                             municipio: p.municipio,
