@@ -715,7 +715,8 @@ export default function FacturaDetallePage() {
               <Link href={`/dashboard/facturas/${r.id}`} className="font-semibold underline">
                 {r.numeroCompleto ?? 'su rectificativa'}
               </Link>
-              {r.fechaEmision ? ` del ${fecha(r.fechaEmision)}` : ''} ({fmtCuenta(r.totalFactura)}
+              {/* Es el total de la rectificativa: si rectifica varias facturas, a esta solo le toca una parte. */}
+              {r.fechaEmision ? ` del ${fecha(r.fechaEmision)}` : ''} (total de la rectificativa {fmtCuenta(r.totalFactura)}
               {r.tipoRectificativa === 'S' ? ', por sustitución' : ''})
             </span>
           ))}
