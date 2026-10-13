@@ -26,7 +26,7 @@ import {
 import SoltarFactura from '@/components/lector/SoltarFactura';
 import AvisoTerceroNuevo, { quienEs, type TerceroEnlazado } from '@/components/lector/AvisoTerceroNuevo';
 import { paisDelPrefijo } from '@/lib/compras';
-import { pareceNifIvaUe } from '@/lib/fiscal';
+import { conDevengoFuera, pareceNifIvaUe } from '@/lib/fiscal';
 
 /**
  * Lector de facturas de venta: se sube el PDF o la foto de una factura
@@ -253,18 +253,26 @@ export default function LectorIngresosPage() {
     setCuentaMal(null);
     try {
       // El id y la cuenta de cada linea: el servidor registra la factura con los datos que leyo.
-      const r = await apiFetch<Registrada>(companyPath('/ingresos-extractor/confirmar'), {
-        method: 'POST',
-        body: JSON.stringify({
-          documentId: ingreso.documentId,
-          ...(cliente ? { clienteId: cliente.id } : {}),
-          revisado,
-          // Rectificativa de varias facturas: sin cuenta elegida, la que se enseña (la de la original con más base).
-          lineas: cuentas.map((cuenta, i) => ({ cuenta: cuenta ?? (ingreso.lineas?.[i] ? rv.cuentaParaEnviar(ingreso.lineas[i].tipoIva) : null) })),
-          ...rv.cuerpo(),
-        }),
-      });
-      setRegistrada(r);
+      // Una rectificativa que sube el IVA de un periodo de la gestoría o de un 303 ya presentado (409
+      // DEVENGO_FUERA_APP) se registra si se confirma; el aviso vuelve en `avisos`.
+      const r = await conDevengoFuera(
+        (extra) =>
+          apiFetch<Registrada>(companyPath('/ingresos-extractor/confirmar'), {
+            method: 'POST',
+            body: JSON.stringify({
+              documentId: ingreso.documentId,
+              ...(cliente ? { clienteId: cliente.id } : {}),
+              revisado,
+              // Rectificativa de varias facturas: sin cuenta elegida, la que se enseña (la de la original con más base).
+              lineas: cuentas.map((cuenta, i) => ({ cuenta: cuenta ?? (ingreso.lineas?.[i] ? rv.cuentaParaEnviar(ingreso.lineas[i].tipoIva) : null) })),
+              ...rv.cuerpo(),
+              ...extra,
+            }),
+          }),
+        '¿La registras igualmente?',
+      );
+      if (r) setRegistrada(r.r);
+      else setErrorGuardar('No se ha registrado. La lectura sigue aquí: puedes revisarla y volver a intentarlo.');
     } catch (err) {
       setErrorGuardar(errorMessage(err));
       const campoRect = campoDelError(err);
