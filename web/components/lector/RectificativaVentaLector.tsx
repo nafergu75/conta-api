@@ -266,7 +266,8 @@ export function useRectificativaLector(ingreso: IngresoExtraido | null): Rectifi
           id: primera.customerId,
           nombre: primera.cliente ?? '',
           nif: (deLaPropuesta && leida?.clienteDeLaOriginal?.id === primera.customerId ? leida.clienteDeLaOriginal.nifCif : '') ?? '',
-          pais: 'ES',
+          // El país de la ficha de su cliente: viene con la candidata o, en la propuesta, con su cliente.
+          pais: primera.paisCliente || (deLaPropuesta && leida?.clienteDeLaOriginal?.id === primera.customerId ? leida.clienteDeLaOriginal.pais : null) || 'ES',
           como: 'elegido',
         }
       : null;

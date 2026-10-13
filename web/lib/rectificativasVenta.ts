@@ -118,6 +118,8 @@ export interface CandidataOriginalVenta {
   customerId: string;
   cliente: string;
   nifCliente: string | null;
+  /** País (ISO-2) de la ficha del cliente: en el lector manda sobre «¿De dónde es el cliente?». Un servidor anterior no lo manda. */
+  paisCliente?: string;
   tipoFactura: string;
   moneda: string;
   tipoOperacion: string | null;
@@ -402,6 +404,8 @@ export interface OriginalVentaForm {
   /** De la app: su cliente, para no mezclar facturas de clientes distintos. */
   customerId?: string;
   cliente?: string;
+  /** País (ISO-2) de la ficha de su cliente. */
+  paisCliente?: string | null;
   total?: number;
   restante?: number;
   /** Reparto con varias originales: texto con signo; '' = el que sale de sus lineas. */
@@ -438,6 +442,7 @@ export function originalDeCandidata(c: CandidataOriginalVenta): OriginalVentaFor
     fecha: c.fechaEmision,
     customerId: c.customerId,
     cliente: c.cliente,
+    paisCliente: c.paisCliente ?? null,
     total: c.totalFactura,
     restante: c.restante,
     ...sinReparto,
@@ -464,6 +469,7 @@ export function conDatos(o: OriginalVentaForm, d: DatosParaRectificarVenta | und
     fecha: o.fecha || d.original.fechaEmision,
     customerId: d.original.customerId,
     cliente: d.original.cliente.nombreFiscal,
+    paisCliente: d.original.cliente.pais ?? o.paisCliente ?? null,
     total: d.original.totalFactura,
     restante: d.restante.total,
   };
@@ -817,7 +823,8 @@ export interface RectificativaVentaLeida {
   formaPropuesta: 'I' | null;
   propuesta: { coincidencia: Coincidencia; original: CandidataOriginalVenta | null; candidatas: CandidataOriginalVenta[] };
   partidasFuera: PartidaFueraVenta[];
-  clienteDeLaOriginal: { id: string; nombreFiscal: string; nifCif: string | null } | null;
+  /** El cliente de la original propuesta, con el país de su ficha (un servidor anterior no manda el país). */
+  clienteDeLaOriginal: { id: string; nombreFiscal: string; nifCif: string | null; pais?: string } | null;
   /** El NIF leido no es el del cliente de la original. */
   clienteDistinto: boolean;
 }
