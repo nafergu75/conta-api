@@ -186,6 +186,7 @@ export interface DatosParaRectificarVenta {
   rectificativas: Array<{ id: string; numeroCompleto: string; fechaEmision: string; totalFactura: number; forma: FormaRectificacion; tipoFactura: string }>;
   /** Lo que queda por rectificar (la original, o su sustituta, mas las rectificativas por diferencias). */
   restante: { base: number; cuota: number; total: number };
+  /** En la moneda de la factura (original.moneda), no en la de la contabilidad. */
   pendienteCobro: number;
   /** Es una simplificada (F2): se rectifica con R5. */
   ticket: boolean;
