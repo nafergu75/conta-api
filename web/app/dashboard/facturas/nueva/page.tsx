@@ -917,10 +917,15 @@ function FormularioFactura() {
   const serieElegidaRect = (seriesRect ?? []).find((s) => s.codigo === serieRect);
   // Rectificativa de un ticket sin ninguna serie de ese tipo: el servidor crea la RT (o la RTK) al guardar.
   // Si las hay pero están todas desactivadas, no crea otra: hay que activarla en Configuración > Series.
-  // Un borrador ya guardado en la R se corrige con PUT, que sin serie deja la que tenía: pasarlo a ticket
-  // solo funciona si hay una serie de rectificativas de tickets activa que mandar (no se crea sola).
-  const guardadoEnLaR = modoGuardado === 'rectificativa';
-  const serieTicketsSeCrea = ticket && !guardadoEnLaR && !!seriesRect && seriesRect.length === 0 && !haySeriesRectInactivas;
+  // El servidor de ahora dice si la de tickets está desactivada (sin contar las series históricas del
+  // lector, que guardan la numeración de otro programa) y, al pasar un borrador de la R a ticket sin
+  // serie, le pone la de tickets (y crea la RT si hace falta). Con un servidor anterior (sin
+  // `desactivada`) cuentan todas las desactivadas, y el PUT sin serie deja la que tenía: pasar a ticket
+  // un borrador guardado en la R solo funciona si hay una serie de tickets activa que mandar.
+  const servidorSeriesTickets = opciones?.series.tickets.desactivada !== undefined;
+  const seriesRectDesactivadas = ticket && servidorSeriesTickets ? opciones?.series.tickets.desactivada === true : haySeriesRectInactivas;
+  const guardadoEnLaR = modoGuardado === 'rectificativa' && !servidorSeriesTickets;
+  const serieTicketsSeCrea = ticket && !guardadoEnLaR && !!seriesRect && seriesRect.length === 0 && !seriesRectDesactivadas;
   const tipoSeriesRect = ticket ? 'rectificativas de tickets' : 'rectificativas';
   const borradorSinSerieTickets = esRect && !ticket && guardadoEnLaR && opciones?.series.tickets.existe !== true;
 
@@ -1065,7 +1070,7 @@ function FormularioFactura() {
     if (esRect && ticket && guardadoEnLaR && !serieRect) return falla(TEXTO_BORRADOR_SIN_TICKETS, 'serie');
     if (esRect && seriesRect && seriesRect.length === 0 && !serieTicketsSeCrea) {
       return falla(
-        haySeriesRectInactivas
+        seriesRectDesactivadas
           ? `Las series de ${tipoSeriesRect} están desactivadas. Activa una en Configuración > Series.`
           : `No hay ninguna serie de ${tipoSeriesRect} activa. Actívala o crea una en Configuración > Series.`,
         'serie',
@@ -1490,9 +1495,9 @@ function FormularioFactura() {
                 </p>
               ) : (
                 <p id="serie" tabIndex={-1} className="mt-1 rounded-lg border border-amber-200 bg-amber-50 p-2 text-sm text-amber-900">
-                  {haySeriesRectInactivas ? `Las series de ${tipoSeriesRect} están desactivadas.` : `No hay ninguna serie de ${tipoSeriesRect} activa.`}{' '}
+                  {seriesRectDesactivadas ? `Las series de ${tipoSeriesRect} están desactivadas.` : `No hay ninguna serie de ${tipoSeriesRect} activa.`}{' '}
                   <Link href="/dashboard/configuracion/series" className="font-medium underline">
-                    {haySeriesRectInactivas ? 'Activa una en Configuración' : 'Actívala o crea una en Configuración'}
+                    {seriesRectDesactivadas ? 'Activa una en Configuración' : 'Actívala o crea una en Configuración'}
                   </Link>
                   .
                 </p>
