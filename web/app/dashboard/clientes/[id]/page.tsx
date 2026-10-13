@@ -11,6 +11,7 @@ import { useAniosEmpresa } from '@/lib/useAniosEmpresa';
 import SelectorAnio from '@/components/SelectorAnio';
 import { BloqueContabilidadTercero } from '@/components/contabilidad/BloqueContabilidadTercero';
 import { DatosFiscalesCliente, type DatosFiscales } from './DatosFiscalesCliente';
+import { conNombreNumeroFiscal } from '@/lib/fiscal';
 
 interface Cliente extends DatosFiscales {
   email?: string;
@@ -172,7 +173,8 @@ export default function ClienteDetailPage() {
           </button>
           <div>
             <h1 className="font-semibold text-slate-900">{cliente.nombreFiscal}</h1>
-            <p className="text-sm text-slate-500">{cliente.nifCif}</p>
+            {/* Con el nombre de su número fiscal en su país: «RNC 131123456». */}
+            <p className="text-sm text-slate-500">{conNombreNumeroFiscal(cliente.nifCif, cliente.pais)}</p>
           </div>
         </div>
       </header>
