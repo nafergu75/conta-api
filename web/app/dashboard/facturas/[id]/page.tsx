@@ -10,7 +10,7 @@ import CobrosFactura from '@/components/CobrosFactura';
 import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getCompanyId, getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { formatoImporte, NOMBRE_MONEDA, parseTipo, textoTipo, tipoParaEditar } from '@/lib/moneda';
-import { conDevengoFuera, ETIQUETA_CORTA, ETIQUETA_LARGA, nombrePais } from '@/lib/fiscal';
+import { conDevengoFuera, conNombreNumeroFiscal, ETIQUETA_CORTA, ETIQUETA_LARGA, nombrePais } from '@/lib/fiscal';
 import { useRedSeguridad, type EstadoRedSeguridad } from '@/lib/verifactu';
 import AvisoRedSeguridad from '@/components/verifactu/AvisoRedSeguridad';
 
@@ -556,7 +556,7 @@ export default function FacturaDetallePage() {
           <p className="text-xs uppercase tracking-wide text-slate-500">Cliente</p>
           <p className="font-medium text-slate-900">{cliente?.nombreFiscal ?? '—'}</p>
           <p className="font-mono text-sm text-slate-600">
-            {cliente?.nifCif}
+            {conNombreNumeroFiscal(cliente?.nifCif, cliente?.pais)}
             {cliente?.pais && cliente.pais !== 'ES' && <span className="ml-2 font-sans">{nombrePais(cliente.pais)}</span>}
           </p>
         </div>
