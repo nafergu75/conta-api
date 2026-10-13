@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { Money, X } from '@phosphor-icons/react';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { formatoImporte, formatoTipo, parseImporte, parseTipo, redondear2, textoTipo } from '@/lib/moneda';
@@ -137,6 +138,8 @@ export default function CobrosFactura({
   monedaCuenta: monedaCuentaProp = 'EUR',
   abono = false,
   aFavor,
+  sustituidaPor = null,
+  sustituyeA = null,
   onCambio,
 }: {
   tipo: Tipo;
@@ -151,6 +154,18 @@ export default function CobrosFactura({
   abono?: boolean;
   /** Abono de venta: lo que queda a favor del cliente (tope de la devolución), de la ficha. */
   aFavor?: number;
+  /**
+   * Venta sustituida por una rectificativa por sustitución: lo que queda por
+   * cobrar es lo de esa rectificativa, y se cobra en ella. Aquí ya no se
+   * registran cobros (los que tenga se pueden ver y anular).
+   */
+  sustituidaPor?: { id: string; numero: string | null } | null;
+  /**
+   * Rectificativa por sustitución de una venta de la app: lo cobrado a la
+   * factura que sustituye también cuenta, para no cobrar dos veces (como en la
+   * cartera de cobros).
+   */
+  sustituyeA?: { id: string; numero: string | null } | null;
   /** Se llama tras registrar o anular (para recargar la factura). */
   onCambio?: () => void;
 }) {
@@ -175,6 +190,33 @@ export default function CobrosFactura({
   useEffect(() => {
     cargar();
   }, [cargar]);
+
+  // Rectificativa por sustitución: lo cobrado a la factura que sustituye (cobros activos), en su
+  // moneda y en la de cuenta. undefined mientras se carga; null si no hay o no se ha podido leer.
+  const idSustituida = sustituyeA?.id ?? null;
+  const [cobradoSustituida, setCobradoSustituida] = useState<{ doc: number; cuenta: number } | null | undefined>(idSustituida ? undefined : null);
+  useEffect(() => {
+    if (!idSustituida) {
+      setCobradoSustituida(null);
+      return;
+    }
+    let vivo = true;
+    setCobradoSustituida(undefined);
+    apiFetch<Resumen>(companyPath(`/income-invoices/${idSustituida}/cobros`))
+      .then((r) => {
+        if (!vivo) return;
+        const activos = (r.cobros ?? []).filter((c) => c.estado === 'ACTIVO');
+        setCobradoSustituida({
+          doc: redondear2(activos.reduce((a, c) => a + (c.importeDoc ?? c.importe), 0)),
+          cuenta: redondear2(activos.reduce((a, c) => a + c.importe, 0)),
+        });
+      })
+      // Sin poder leerlo, manda lo que diga el servidor de esta factura.
+      .catch(() => vivo && setCobradoSustituida(null));
+    return () => {
+      vivo = false;
+    };
+  }, [idSustituida]);
 
   const moneda = resumen?.moneda ?? monedaProp;
   const monedaCuenta = resumen?.monedaCuenta ?? monedaCuentaProp;
@@ -203,7 +245,23 @@ export default function CobrosFactura({
   // En un abono el pendiente llega en negativo: lo que queda a tu favor, en positivo. En uno de
   // venta, lo que queda a favor del cliente lo dice la ficha (aFavor, en la moneda de la factura y
   // ya descontado lo devuelto: es el tope de la próxima devolución).
-  const pendiente = abonoVenta && aFavor !== undefined ? Math.max(0, aFavor) : esAbono ? -(resumen?.importePendiente ?? 0) : resumen?.importePendiente ?? 0;
+  const activos = (resumen?.cobros ?? []).filter((c) => c.estado === 'ACTIVO');
+  // Lo cobrado en esta factura (sus cobros activos), en su moneda y en la de cuenta.
+  const cobradoPropio = redondear2(activos.reduce((a, c) => a + (c.importeDoc ?? c.importe), 0));
+  const cobradoPropioCuenta = redondear2(activos.reduce((a, c) => a + c.importe, 0));
+  // Rectificativa por sustitución: como mucho, su total menos sus cobros y los de la factura que sustituye.
+  const topeSustitucion =
+    resumen && !esAbono && cobradoSustituida
+      ? {
+          doc: Math.max(0, redondear2(resumen.totalFactura - cobradoPropio - cobradoSustituida.doc)),
+          cuenta: Math.max(0, redondear2((resumen.totalFacturaCuenta ?? resumen.totalFactura) - cobradoPropioCuenta - cobradoSustituida.cuenta)),
+        }
+      : null;
+  const pendiente = abonoVenta && aFavor !== undefined
+    ? Math.max(0, aFavor)
+    : esAbono
+      ? -(resumen?.importePendiente ?? 0)
+      : Math.min(resumen?.importePendiente ?? 0, topeSustitucion?.doc ?? Infinity);
   // Lo mismo en la moneda de cuenta. En un abono de venta, aFavor al tipo del propio abono (su total
   // en las dos monedas): así la vista previa de la cuenta del cliente no mezcla aFavor con el abono entero.
   const pendienteCuenta = (() => {
@@ -213,9 +271,11 @@ export default function CobrosFactura({
       return Math.round(pendiente * Math.abs(proporcion) * 100) / 100;
     }
     if (esAbono) return resumen.importePendienteCuenta !== undefined ? -resumen.importePendienteCuenta : pendiente;
-    return resumen.importePendienteCuenta ?? pendiente;
+    return Math.min(resumen.importePendienteCuenta ?? pendiente, topeSustitucion?.cuenta ?? Infinity);
   })();
-  const devuelto = (resumen?.cobros ?? []).filter((c) => c.estado === 'ACTIVO').reduce((a, c) => a + Math.abs(c.importeDoc ?? c.importe), 0);
+  const devuelto = activos.reduce((a, c) => a + Math.abs(c.importeDoc ?? c.importe), 0);
+  // Se puede registrar un cobro aquí: no en una sustituida (se cobra en su sustituta) ni mientras se lee lo cobrado a la que sustituye.
+  const admiteCobros = !sustituidaPor && cobradoSustituida !== undefined;
   // Diferencia de cambio guardada: en lo que entra en el banco, > 0 es ganancia; en lo que sale (pagos y devoluciones al cliente), pérdida.
   const gananciaDe = (dif: number) => (salidaDeDinero(tipo, esAbono) ? dif < 0 : dif > 0);
   const compensado = Math.abs(resumen?.importeCompensado ?? 0);
@@ -239,18 +299,30 @@ export default function CobrosFactura({
                 </>
               ) : (
                 <>
-                  {tipo === 'INGRESO' ? 'Cobrado' : 'Pagado'} {fmt(Math.round((resumen.importeCobrado - compensado) * 100) / 100)}
+                  {tipo === 'INGRESO' ? 'Cobrado' : 'Pagado'}{' '}
+                  {fmt(sustituyeA ? cobradoPropio : Math.round((resumen.importeCobrado - compensado) * 100) / 100)}
+                  {sustituyeA && cobradoSustituida && cobradoSustituida.doc > 0 && ` y ${fmt(cobradoSustituida.doc)} en la ${sustituyeA.numero ?? 'factura'} que sustituye,`}
                   {compensado > 0 && ` y descontado con abonos ${fmt(compensado)}`} de {fmt(resumen.totalFactura)} ·{' '}
-                  <span className={`font-semibold ${pendiente > 0 ? 'text-amber-700' : 'text-green-700'}`}>Pendiente: {fmt(pendiente)}</span>
+                  {sustituidaPor ? (
+                    <span className="font-semibold text-slate-700">
+                      Sustituida por la{' '}
+                      <Link href={`/dashboard/facturas/${sustituidaPor.id}`} className="underline">
+                        {sustituidaPor.numero ?? 'rectificativa'}
+                      </Link>
+                      : lo que quede por cobrar se cobra en ella.
+                    </span>
+                  ) : (
+                    <span className={`font-semibold ${pendiente > 0 ? 'text-amber-700' : 'text-green-700'}`}>Pendiente: {fmt(pendiente)}</span>
+                  )}
                 </>
               )}
-              {enDivisa && resumen.importePendienteCuenta !== undefined && (
-                <span className="text-slate-500"> ({fmtCuenta(resumen.importePendienteCuenta)} en la cuenta del cliente)</span>
+              {enDivisa && resumen.importePendienteCuenta !== undefined && !sustituidaPor && (
+                <span className="text-slate-500"> ({fmtCuenta(esAbono ? resumen.importePendienteCuenta : pendienteCuenta)} en la cuenta del cliente)</span>
               )}
             </p>
           )}
         </div>
-        {puedeEditar && resumen && pendiente > 0 && (
+        {puedeEditar && resumen && pendiente > 0 && admiteCobros && (
           <button
             type="button"
             disabled={ocupado}
