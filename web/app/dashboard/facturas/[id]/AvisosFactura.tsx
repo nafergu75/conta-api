@@ -33,6 +33,9 @@ const TEXTOS: Record<string, { texto: string; href: string; enlace: string }> = 
   F2_NO_PERMITIDA: { texto: 'Este tipo de operación no admite factura simplificada: usa la completa (F1).', href: '', enlace: '' },
 };
 
+/** Aviso que ya enseña este bloque (la ficha no lo repite con los avisos de guardar una rectificativa). */
+export const esAvisoDeLaFicha = (codigo: string): boolean => codigo in TEXTOS;
+
 const OBLIGATORIOS = new Set([
   'EMISOR_DENOMINACION',
   'EMISOR_NIF',
