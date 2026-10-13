@@ -73,7 +73,13 @@ interface Factura {
     id: string;
     numeroCompleto: string | null;
     fechaEmision?: string;
+    /** El de la rectificativa entera. */
     totalFactura: number;
+    /**
+     * Lo que toca a esta factura, en la moneda de la contabilidad: su parte del reparto
+     * o, por sustitución, la diferencia con la corregida. Un servidor anterior no lo manda.
+     */
+    parte?: number;
     tipoRectificativa: string | null;
     tipoFactura?: string | null;
   }>;
@@ -257,6 +263,17 @@ export default function FacturaDetallePage() {
   const enDivisa = moneda !== monedaCuenta;
   const fmtDoc = (n: number) => formatoImporte(n, moneda);
   const fmtCuenta = (n: number) => formatoImporte(n, monedaCuenta);
+  // Importe de cada rectificativa junto a su número: lo que toca a esta factura (con varias facturas, su
+  // parte; por sustitución, la diferencia). Sin la parte (servidor anterior, o una sustitución antigua que
+  // no la guarda), el total de la rectificativa.
+  const importeRectificativa = (r: NonNullable<Factura['rectificadaPor']>[number]) => {
+    const esTotal = r.parte === undefined || Math.round(r.parte * 100) === Math.round(r.totalFactura * 100);
+    if (r.tipoRectificativa === 'S') {
+      return esTotal ? `total de la rectificativa ${fmtCuenta(r.totalFactura)}, por sustitución` : `por sustitución: ${fmtCuenta(r.parte ?? 0)} de diferencia`;
+    }
+    if (r.parte === undefined) return `total de la rectificativa ${fmtCuenta(r.totalFactura)}`;
+    return esTotal ? fmtCuenta(r.parte) : `${fmtCuenta(r.parte)} de esta factura; la rectificativa es de ${fmtCuenta(r.totalFactura)}`;
+  };
   const totalDoc = factura.totalFacturaDoc ?? factura.totalFactura;
   // El tipo guardado; en un borrador o proforma, el que se deduce. Una factura
   // emitida antes de los tipos de operacion no tiene: no se muestra (su PDF no lleva mencion).
@@ -717,9 +734,7 @@ export default function FacturaDetallePage() {
               <Link href={`/dashboard/facturas/${r.id}`} className="font-semibold underline">
                 {r.numeroCompleto ?? 'su rectificativa'}
               </Link>
-              {/* Es el total de la rectificativa: si rectifica varias facturas, a esta solo le toca una parte. */}
-              {r.fechaEmision ? ` del ${fecha(r.fechaEmision)}` : ''} (total de la rectificativa {fmtCuenta(r.totalFactura)}
-              {r.tipoRectificativa === 'S' ? ', por sustitución' : ''})
+              {r.fechaEmision ? ` del ${fecha(r.fechaEmision)}` : ''} ({importeRectificativa(r)})
             </span>
           ))}
           .{anulada ? ' No hay nada que cobrar.' : ''}
