@@ -26,9 +26,9 @@ import {
 } from '@/lib/lecturas';
 import SoltarFactura from '@/components/lector/SoltarFactura';
 import AvisoTerceroNuevo, { camposDudosos, quienEs, type TerceroEnlazado } from '@/components/lector/AvisoTerceroNuevo';
-import OrigenTercero, { eleccionRecordada, ORIGEN_POR_DEFECTO, OrigenTerceroLeido, recordarEleccion } from '@/components/lector/OrigenTercero';
+import OrigenTercero, { eleccionRecordada, ORIGEN_POR_DEFECTO, origenPorDefecto, OrigenTerceroLeido, recordarEleccion } from '@/components/lector/OrigenTercero';
 import { paisDelPrefijo } from '@/lib/compras';
-import { nombreNumeroFiscal, nombrePais, pareceNifIvaUe } from '@/lib/fiscal';
+import { nombreNumeroFiscal, nombrePais, pareceNifIvaUe, usePaisEmpresa } from '@/lib/fiscal';
 
 /**
  * Lector de facturas de venta: se sube el PDF o la foto de una factura
@@ -159,10 +159,16 @@ export default function LectorIngresosPage() {
 
   useEffect(() => () => cortarRef.current?.abort(), []);
 
-  // La última elección de este lector (en el navegador; si no se puede leer, De España).
-  useEffect(() => setOrigen(eleccionRecordada('ventas')), []);
+  // La última elección de este lector y esta empresa (en el navegador). Sin ella, De España; en una
+  // empresa de fuera (EE. UU., Hong Kong), De fuera de la UE. Lo que ya se haya elegido aquí no se pisa.
+  const paisEmpresa = usePaisEmpresa();
+  const origenElegidoRef = useRef(false);
+  useEffect(() => {
+    if (!origenElegidoRef.current) setOrigen(eleccionRecordada('ventas', origenPorDefecto(paisEmpresa)));
+  }, [paisEmpresa]);
 
   const elegirOrigen = (e: EleccionOrigen) => {
+    origenElegidoRef.current = true;
     setOrigen(e);
     recordarEleccion('ventas', e);
   };
@@ -280,9 +286,12 @@ export default function LectorIngresosPage() {
     : [];
   // De dónde es el cliente según el servidor (lo elegido o, si no, lo deducido de la factura).
   const tercero = info?.tercero;
-  // Pais de la ficha: el elegido o deducido; si no, el leido en la direccion o el del prefijo del NIF-IVA
-  // (FR..., PT...); si no, España, salvo que se haya dicho que es de fuera (entonces la ficha lo pide).
+  // Pais de la ficha: el que dice la factura si contradice lo elegido (con «De España» por defecto, un
+  // cliente dominicano no se da de alta como español); si no, el elegido o deducido; si no, el leido en la
+  // direccion o el del prefijo del NIF-IVA (FR..., PT...); si no, España, salvo que se haya dicho que es de
+  // fuera (entonces la ficha lo pide).
   const paisCliente = (
+    tercero?.contradiccion?.pais ||
     tercero?.pais ||
     direccion?.pais ||
     (pareceNifIvaUe(nifLeido) ? paisDelPrefijo(nifLeido) : null) ||
@@ -521,7 +530,7 @@ export default function LectorIngresosPage() {
                     // El NIF-IVA leído sin prefijo va ya con el de su país (FR...).
                     nifCif: tercero?.nifPropuesto ?? nifLeido,
                     pais: paisCliente,
-                    origen: tercero?.origen ?? null,
+                    origen: tercero?.contradiccion?.origen ?? tercero?.origen ?? null,
                     direccion: direccion?.calle ?? '',
                     cp: direccion?.cp ?? '',
                     municipio: direccion?.municipio ?? '',
