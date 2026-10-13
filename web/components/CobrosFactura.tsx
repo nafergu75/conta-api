@@ -95,6 +95,8 @@ interface CuentaCreada {
   subcuentaCodigo: string;
   estado: string;
   moneda?: string;
+  /** El IBAN era de una cuenta desactivada: se ha vuelto a activar tal como estaba. */
+  reactivada?: boolean;
 }
 
 /** Ventas: como se cobra la factura (su forma de pago), en la frase del aviso. */
@@ -107,6 +109,13 @@ const COBRO_POR: Record<string, string> = {
 const SUBCUENTA_POR_ELEGIR = 'SUBCUENTA_BANCO_POR_ELEGIR';
 
 const RUTA_CUENTAS_BANCARIAS = '/dashboard/tesoreria/cuentas';
+
+/**
+ * La subcuenta es de bancos (una 572 por debajo de las de agrupación). Las
+ * cuentas dadas de alta antes de comprobarlo pueden tener otra cosa (por
+ * ejemplo «0001») y el servidor no deja apuntar ahí el cobro ni el pago.
+ */
+const esSubcuentaDeBanco = (codigo: string) => /^572\d{2,}$/.test(codigo);
 
 const fecha = (iso: string) => (iso ? new Date(`${iso.slice(0, 10)}T00:00:00`).toLocaleDateString('es-ES') : '');
 /** Hoy en España (toISOString da la fecha en UTC: de 00:00 a 02:00 en España saldría ayer). */
@@ -447,14 +456,23 @@ function ModalCobro({
     }
   };
 
-  // La cuenta recién dada de alta queda elegida.
+  // La cuenta recién dada de alta (o reactivada) queda elegida.
   const alCrearCuenta = (c: CuentaCreada) => {
-    setCuentas((l) => [...(l ?? []), { id: c.id, iban: c.iban, bancoNombre: c.bancoNombre, subcuentaCodigo: c.subcuentaCodigo, activa: true, moneda: c.moneda }]);
+    const nueva = { id: c.id, iban: c.iban, bancoNombre: c.bancoNombre, subcuentaCodigo: c.subcuentaCodigo, activa: true, moneda: c.moneda };
+    setCuentas((l) => [...(l ?? []).filter((x) => x.id !== c.id), nueva]);
     setMedio(c.id);
     setError('');
-    setAvisoCuenta(`Cuenta dada de alta con la subcuenta ${c.subcuentaCodigo}. Ya está elegida.`);
+    setAvisoCuenta(
+      c.reactivada
+        ? `Esa cuenta ya estaba dada de alta pero desactivada: se ha vuelto a activar con su subcuenta ${c.subcuentaCodigo}. Ya está elegida.`
+        : `Cuenta dada de alta con la subcuenta ${c.subcuentaCodigo}. Ya está elegida.`,
+    );
     requestAnimationFrame(() => selectRef.current?.focus());
   };
+
+  // Cuenta elegida con una subcuenta que no es de bancos: hay que cambiarla en Tesorería antes.
+  const cuentaElegida = cuentas?.find((c) => c.id === medio);
+  const subcuentaMala = cuentaElegida && !esSubcuentaDeBanco(cuentaElegida.subcuentaCodigo) ? cuentaElegida.subcuentaCodigo : null;
 
   // Vista previa del cobro en divisa (el servidor hace el calculo definitivo).
   const valor = parseImporte(importe);
@@ -486,6 +504,10 @@ function ModalCobro({
     if (!medio) {
       selectRef.current?.focus();
       return setError(`Falta elegir ${textoMedio}: da de alta la cuenta del banco o elige «Caja / efectivo».`);
+    }
+    if (subcuentaMala) {
+      selectRef.current?.focus();
+      return setError(`La cuenta elegida tiene la subcuenta «${subcuentaMala}», que no es de bancos. Cámbiala en Tesorería > Cuentas bancarias o elige otra.`);
     }
     const divisa: Record<string, number> = {};
     if (enDivisa) {
@@ -581,7 +603,8 @@ function ModalCobro({
                 setMedio(e.target.value);
                 setAvisoCuenta('');
               }}
-              aria-describedby={pistaMedio ? 'cobro-cuenta-pista' : undefined}
+              aria-describedby={[pistaMedio ? 'cobro-cuenta-pista' : '', subcuentaMala ? 'cobro-cuenta-mala' : ''].filter(Boolean).join(' ') || undefined}
+              aria-invalid={subcuentaMala ? true : undefined}
               className={campo}
             >
               {!medio && (
@@ -605,6 +628,15 @@ function ModalCobro({
           {avisoCuenta && (
             <p role="status" className="mt-1 text-xs font-medium text-green-700">
               {avisoCuenta}
+            </p>
+          )}
+          {subcuentaMala && (
+            <p id="cobro-cuenta-mala" role="alert" className="mt-1 text-xs text-red-700">
+              Esta cuenta tiene la subcuenta «{subcuentaMala}», que no es de bancos, y no se puede apuntar ahí. Cámbiala por una 572 en{' '}
+              <Link href={RUTA_CUENTAS_BANCARIAS} className="font-medium underline">
+                Tesorería &gt; Cuentas bancarias
+              </Link>{' '}
+              o elige otra.
             </p>
           )}
           {errorCuentas && (
