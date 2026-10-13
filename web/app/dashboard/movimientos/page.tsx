@@ -1,8 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Plus, FunnelSimple, X } from '@phosphor-icons/react';
+import { Plus, FunnelSimple, Info, X } from '@phosphor-icons/react';
 import { getToken } from '@/lib/auth';
 import { apiFetch, companyPath } from '@/lib/api';
 import { mensajeSinAcceso, PantallaSinAcceso } from '@/components/dashboard/SinAcceso';
@@ -134,6 +135,19 @@ export default function MovimientosPage() {
       </header>
 
       <main className="max-w-6xl mx-auto px-4 md:px-8 py-8 flex flex-col gap-6">
+        {/* El Resumen ya no lee estos movimientos: sale de las facturas y las nóminas. */}
+        <p role="note" className="flex items-start gap-2 rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
+          <Info size={18} className="mt-0.5 shrink-0 text-slate-400" aria-hidden="true" />
+          <span>
+            Lo que anotes aquí no cuenta en el{' '}
+            <Link href="/dashboard" className="font-medium underline hover:no-underline">
+              Resumen
+            </Link>
+            , que sale de tus facturas de venta y de gasto y de las nóminas. Para que una venta o un gasto salga allí, regístralo como
+            factura.
+          </span>
+        </p>
+
         {/* Barra de filtros */}
         <section className="rounded-xl bg-white border border-slate-200 p-4">
           <div className="flex items-center gap-2 mb-3 text-sm font-semibold text-slate-900">
