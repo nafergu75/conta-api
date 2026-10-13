@@ -430,7 +430,8 @@ export default function CobrosFactura({
           pendiente={pendiente}
           pendienteCuenta={pendienteCuenta}
           cuentaTercero={resumen.cuentaTercero ?? null}
-          formaPago={tipo === 'INGRESO' ? formaPago : undefined}
+          // La forma de pago es la del cobro: en la devolución de un abono de venta no cuenta (se propone el banco).
+          formaPago={tipo === 'INGRESO' && !esAbono ? formaPago : undefined}
           cuentaPropuestaId={tipo === 'INGRESO' ? cuentaPropuestaId : null}
           moneda={moneda}
           monedaCuenta={monedaCuenta}
@@ -470,9 +471,9 @@ function ModalCobro({
   base: string;
   /** Subcuenta del tercero (null si aun no tiene: la recibe al registrar). */
   cuentaTercero: string | null;
-  /** Ventas: forma de pago de la factura. CONTADO propone la caja; el resto (o sin saber), el banco. */
+  /** Ventas: forma de pago de la factura. CONTADO propone la caja; el resto (o sin saber), el banco. No llega en la devolución de un abono. */
   formaPago?: string;
-  /** Ventas: cuenta bancaria que se propone si está entre las activas. */
+  /** Ventas: cuenta bancaria que se propone si está entre las activas (en un abono, desde la que se devuelve). */
   cuentaPropuestaId: string | null;
   /** En la moneda de la factura. */
   pendiente: number;
@@ -707,8 +708,9 @@ function ModalCobro({
         : cobroPor && cuentas.length > 0
           ? `La factura se cobra ${cobroPor}: se propone su cuenta del banco.`
           : '';
-  const avisoSinBanco =
-    tipo === 'INGRESO'
+  const avisoSinBanco = abonoVenta
+    ? 'Aún no tienes dada de alta la cuenta del banco desde la que devuelves el dinero al cliente.'
+    : tipo === 'INGRESO'
       ? cobroPor
         ? `Esta factura se cobra ${cobroPor} y aún no tienes dada de alta la cuenta del banco.`
         : 'Aún no tienes dada de alta la cuenta del banco.'
