@@ -194,8 +194,20 @@ export default function CobrosFactura({
   };
 
   // En un abono el pendiente llega en negativo: lo que queda a tu favor, en positivo. En uno de
-  // venta, lo que queda a favor del cliente lo dice la ficha (aFavor).
+  // venta, lo que queda a favor del cliente lo dice la ficha (aFavor, en la moneda de la factura y
+  // ya descontado lo devuelto: es el tope de la próxima devolución).
   const pendiente = abonoVenta && aFavor !== undefined ? Math.max(0, aFavor) : esAbono ? -(resumen?.importePendiente ?? 0) : resumen?.importePendiente ?? 0;
+  // Lo mismo en la moneda de cuenta. En un abono de venta, aFavor al tipo del propio abono (su total
+  // en las dos monedas): así la vista previa de la cuenta del cliente no mezcla aFavor con el abono entero.
+  const pendienteCuenta = (() => {
+    if (!resumen) return pendiente;
+    if (abonoVenta && aFavor !== undefined) {
+      const proporcion = resumen.totalFacturaCuenta !== undefined && resumen.totalFactura ? resumen.totalFacturaCuenta / resumen.totalFactura : 1;
+      return Math.round(pendiente * Math.abs(proporcion) * 100) / 100;
+    }
+    if (esAbono) return resumen.importePendienteCuenta !== undefined ? -resumen.importePendienteCuenta : pendiente;
+    return resumen.importePendienteCuenta ?? pendiente;
+  })();
   const devuelto = (resumen?.cobros ?? []).filter((c) => c.estado === 'ACTIVO').reduce((a, c) => a + Math.abs(c.importeDoc ?? c.importe), 0);
   const compensado = Math.abs(resumen?.importeCompensado ?? 0);
 
@@ -292,7 +304,7 @@ export default function CobrosFactura({
           abono={esAbono}
           base={base}
           pendiente={pendiente}
-          pendienteCuenta={esAbono ? (resumen.importePendienteCuenta !== undefined ? -resumen.importePendienteCuenta : pendiente) : resumen.importePendienteCuenta ?? pendiente}
+          pendienteCuenta={pendienteCuenta}
           cuentaTercero={resumen.cuentaTercero ?? null}
           moneda={moneda}
           monedaCuenta={monedaCuenta}
