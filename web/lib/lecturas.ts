@@ -107,6 +107,23 @@ export interface IngresoExtraido {
   lineas?: Array<{ descripcion: string; base: number; tipoIva: number }>;
   /** El cliente dado de alta con el NIF leido, o null: hay que darlo de alta o elegir uno antes de registrar. */
   clienteExistente?: { id: string; nombreFiscal: string; nifCif: string } | null;
+  /**
+   * Direccion del cliente leida en la factura, para rellenar la ficha del alta; null si no se ha
+   * leido nada. Un servidor anterior no la manda (undefined).
+   */
+  direccionCliente?: DireccionClienteLeida | null;
+}
+
+/** Direccion del cliente leida en una factura de venta. */
+export interface DireccionClienteLeida {
+  calle: string | null;
+  cp: string | null;
+  municipio: string | null;
+  provincia: string | null;
+  /** Codigo ISO de dos letras (ES, FR, PT...), solo si se deduce con seguridad del pais leido; si no, null. */
+  pais: string | null;
+  /** Leida con poca seguridad: hay que compararla con la factura (mismo criterio que direccionProveedor.revisar). */
+  revisar: boolean;
 }
 
 /** Base y cuota de cada tipo de IVA de una factura de gasto (una linea del formulario por tramo). */

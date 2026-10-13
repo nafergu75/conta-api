@@ -11,7 +11,7 @@ import FormFacturaGasto, { type FormInicial } from '@/components/compras/FormFac
 import { fechaCorta, type GastoRegistrado } from '@/lib/compras';
 import { centimos, cuotasDescuadradas, inicialComoAbono, inicialDe, marcasDelFormulario, marcasDireccion, retencionSinTipo } from '@/lib/lectorGastos';
 import SoltarFactura from '@/components/lector/SoltarFactura';
-import AvisoTerceroNuevo, { type TerceroEnlazado } from '@/components/lector/AvisoTerceroNuevo';
+import AvisoTerceroNuevo, { camposDudosos, type TerceroEnlazado } from '@/components/lector/AvisoTerceroNuevo';
 
 /**
  * Lector de gastos: se sube el PDF o la foto de una factura de proveedor, el
@@ -543,11 +543,23 @@ export default function LectorGastosPage() {
                       enlazar({ tipo: 'existente', id: t.id, nombre: t.nombre, nif: t.nif, pais: t.pais });
                     };
                     if (p?.tipo === 'nuevo') {
+                      // La ficha del alta sale de lo que hay ahora en el bloque «Proveedor» (lo leido y lo corregido),
+                      // con la direccion dudosa en ambar mientras siga como se leyo.
                       return (
                         <AvisoTerceroNuevo
                           tipo="proveedor"
-                          datos={{ nombreFiscal: p.nombreFiscal, nifCif: p.nifCif, pais: p.pais, direccion: p.direccion, cp: p.cp, municipio: p.municipio, provincia: p.provincia }}
+                          datos={{
+                            nombreFiscal: p.nombreFiscal,
+                            nifCif: p.nifCif,
+                            pais: p.pais,
+                            direccion: p.direccion,
+                            cp: p.cp,
+                            municipio: p.municipio,
+                            provincia: p.provincia,
+                            dudosos: camposDudosos(leido.direccionProveedor, p),
+                          }}
                           nifLeido={leido.nifProveedor ?? ''}
+                          nombreLeido={leido.proveedor ?? ''}
                           enlazado={null}
                           puedeDarDeAlta={puedeAltaProveedor}
                           onEnlazar={alEnlazar}
