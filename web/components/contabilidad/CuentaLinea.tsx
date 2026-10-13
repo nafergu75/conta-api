@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, MagnifyingGlass, PencilSimple, Plus, X } from '@phosphor-icons/react';
 import { apiFetch, campoDelError, companyPath, errorMessage } from '@/lib/api';
+import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import {
   codigoCompleto,
   sinTildes,
@@ -224,6 +225,14 @@ export function CuentaLinea({ tipo, catalogo, valor, onCambiar, porDefecto, line
   );
 }
 
+/**
+ * Descuentos, devoluciones y rappels sobre ventas: cuentas de uso contable que
+ * una rectificativa de venta deja elegir en la línea (las mismas que
+ * USO_CONTABLE.venta en el servidor, cuentasLinea.service).
+ */
+const USO_CONTABLE_VENTA = ['706', '708', '709'];
+const esUsoContableVenta = (codigo: string, tipo: TipoCuentaLinea) => tipo !== 'gasto' && USO_CONTABLE_VENTA.some((p) => codigo.startsWith(p));
+
 /** Cuando se usan las cuentas de uso contable de cada tipo (solo las ve quien lleva la contabilidad). */
 const TEXTO_OTRAS: Record<TipoCuentaLinea, string> = {
   gasto:
@@ -291,8 +300,15 @@ function NuevaSubcuenta({
   onCancelar: () => void;
 }) {
   const longitud = catalogo.listado?.longitud ?? 8;
+  // En una rectificativa de venta la lista trae la 706, la 708 y la 709 para usarlas en la línea, pero
+  // crear subcuentas bajo ellas es solo de quien lleva la contabilidad (el servidor da 403 a los demás).
+  const llevaContabilidad = tieneAlgunPermiso(getUser(), ['contabilidad:write']);
   // Cuentas de las que puede colgar una subcuenta: las mas cortas que la longitud de la empresa.
-  const madres = useMemo(() => (catalogo.listado?.cuentas ?? []).filter((c) => c.codigo.length < longitud), [catalogo.listado, longitud]);
+  const madres = useMemo(
+    () => (catalogo.listado?.cuentas ?? []).filter((c) => c.codigo.length < longitud && (llevaContabilidad || !esUsoContableVenta(c.codigo, tipo))),
+    [catalogo.listado, longitud, llevaContabilidad, tipo],
+  );
+  const hayDeUsoContable = !llevaContabilidad && (catalogo.listado?.cuentas ?? []).some((c) => esUsoContableVenta(c.codigo, tipo));
   const [madre, setMadre] = useState(madres.some((m) => m.codigo === madreInicial) ? madreInicial : (madres[0]?.codigo ?? madreInicial));
   const [propuesta, setPropuesta] = useState<PropuestaSubcuenta | null>(null);
   const [codigo, setCodigo] = useState('');
@@ -412,6 +428,7 @@ function NuevaSubcuenta({
       </div>
       <p className="text-xs text-slate-500">
         Te proponemos el siguiente código libre ({longitud} dígitos). La subcuenta queda en tu plan contable para las próximas facturas.
+        {hayDeUsoContable && ' La 706, la 708 y la 709 se pueden usar en la línea, pero sus subcuentas solo las crea quien lleva la contabilidad.'}
       </p>
       {error && (
         <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-2 text-red-700">
