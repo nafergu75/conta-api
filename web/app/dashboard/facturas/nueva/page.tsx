@@ -3,9 +3,9 @@
 import { Fragment, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Plus, Trash, WarningCircle } from '@phosphor-icons/react';
+import { ArrowCounterClockwise, ArrowLeft, Plus, Trash, WarningCircle } from '@phosphor-icons/react';
 import { Tooltip } from '@/app/dashboard/components/Tooltip';
-import { apiFetch, companyPath, errorMessage } from '@/lib/api';
+import { apiFetch, campoDelError, companyPath, errorMessage } from '@/lib/api';
 import {
   DESVIACION_AVISO,
   desviacion,
@@ -28,6 +28,28 @@ import { CuentaLinea } from '@/components/contabilidad/CuentaLinea';
 import { hoyEspana, LIMITE_SIMPLIFICADA, useRedSeguridad } from '@/lib/verifactu';
 import AvisoRedSeguridad from '@/components/verifactu/AvisoRedSeguridad';
 import { useAvisoPlanAnterior } from '@/components/contabilidad/AvisoPlanAnterior';
+import BloqueRectificativaVenta from '@/components/ventas/BloqueRectificativaVenta';
+import {
+  bloqueParaEnviar,
+  diferenciaSustitucion,
+  estadoDesdeResp,
+  estadoVacio,
+  type EstadoRectificativaVenta,
+  faltaEnBloque,
+  faltaEnReparto,
+  guardarAvisosVenta,
+  infoMotivo,
+  type LineaPropuesta,
+  lineasCalculoDe,
+  lineasPropuestas,
+  originalDeApp,
+  originalDeFuera,
+  repartoDeLineas,
+  type RectificativaVentaResp,
+  tipoFacturaDe,
+  useDatosOriginales,
+  useOpcionesRectificativa,
+} from '@/lib/rectificativasVenta';
 
 /**
  * Alta de factura de venta, o edicion de un borrador (?id=...).
@@ -46,6 +68,17 @@ import { useAvisoPlanAnterior } from '@/components/contabilidad/AvisoPlanAnterio
  * Tipo de operacion de IVA (solo empresas espanolas): uno por factura. Los
  * tipos sin cuota (exenta, intracomunitaria, exportacion...) ponen el IVA a 0.
  * Una empresa no establecida en Espana factura sin IVA ni IRPF, en su moneda.
+ *
+ * Rectificativa o abono (tipo «Rectificativa o abono», R1-R4 segun el motivo,
+ * o «Rectificativa de un ticket», R5): el bloque «¿Qué rectificas?» elige la
+ * factura o facturas (o un periodo, o una de fuera de la app), el motivo, la
+ * forma y la explicacion. Con una original de la app, el cliente, la moneda, el
+ * tipo de cambio y el tipo de operacion son los suyos (el servidor los hereda)
+ * y las lineas se proponen desde las suyas: en negativo por diferencias, o
+ * enteras por sustitucion. Va en una serie de rectificativas (la R; la de
+ * tickets en una R5), nunca en la A ni en la B. Entradas:
+ *  - ?rectifica=<id> (desde la ficha, «Hacer rectificativa»), con &ticket=1 si es un ticket;
+ *  - ?rectificaFuera=1&numero=…&fecha=…&cliente=…[&partida=…] (Facturas de 2026 pendientes).
  */
 
 interface Cliente {
@@ -96,6 +129,8 @@ interface Linea {
   ivaPrevio?: number;
   /** Cuenta de ingresos propia de la linea (70x); sin ella, la del producto o la 700. */
   cuenta?: string;
+  /** Rectificativa: factura de la que se propuso la linea (para el reparto entre varias). */
+  origenId?: string;
 }
 
 interface FacturaApi {
@@ -118,8 +153,13 @@ interface FacturaApi {
   causaExencion?: string | null;
   referenciaLegal?: string | null;
   motivoRectificacion?: string;
+  esRectificativa?: boolean;
+  facturaOriginalId?: string | null;
+  tipoRectificativa?: string | null;
   /** Rectificativa de una factura de fuera de la app (de antes de facturar con ella). */
   rectificaFuera?: { numero: string; fecha: string | null };
+  /** Rectificativa: lo que rectifica, el motivo y la forma. */
+  rectificativa?: RectificativaVentaResp | null;
   lineas: Array<{
     descripcion: string;
     cantidad: number;
@@ -189,13 +229,70 @@ const cuentaPorDefecto = (p: Producto | undefined) =>
   p?.cuentaVentasEfectiva ? { codigo: p.cuentaVentasEfectiva, texto: 'la del producto' } : { codigo: '700', texto: 'la de ventas' };
 
 const campo =
-  'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-500';
+  'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-500 aria-[invalid=true]:border-red-500 aria-[invalid=true]:bg-red-50';
 const etiqueta = 'mb-1 block text-sm font-medium text-slate-700';
 
 const BOTON_PRINCIPAL =
   'rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50';
 const BOTON_SECUNDARIO =
   'rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50';
+
+/** Normal (F1 o F2), rectificativa o abono (R1-R4) o rectificativa de un ticket (R5). */
+type Modo = 'normal' | 'rectificativa' | 'ticket';
+type Params = { get: (clave: string) => string | null };
+
+/** Modo con el que se abre: el borrador (?id=) dice el suyo al cargarlo. */
+function modoDeParams(p: Params): Modo {
+  if (p.get('id')) return 'normal';
+  if (p.get('rectifica')) return p.get('ticket') === '1' ? 'ticket' : 'rectificativa';
+  return p.get('rectificaFuera') === '1' ? 'rectificativa' : 'normal';
+}
+
+/** Lo que se rectifica segun el enlace de entrada. */
+function rectDeParams(p: Params): EstadoRectificativaVenta {
+  const e = estadoVacio();
+  if (p.get('id')) return e;
+  const id = p.get('rectifica');
+  if (id) return { ...e, originales: [originalDeApp(id)] };
+  if (p.get('rectificaFuera') === '1') return { ...e, originales: [originalDeFuera(p.get('numero') ?? '', p.get('fecha') ?? '', p.get('partida') || null)] };
+  return e;
+}
+
+/** Borrador de rectificativa guardado sin el bloque nuevo (solo facturaOriginalId o rectificaFuera). */
+function rectDeAntiguos(f: FacturaApi): EstadoRectificativaVenta {
+  const originales = f.facturaOriginalId
+    ? [originalDeApp(f.facturaOriginalId)]
+    : f.rectificaFuera
+      ? [originalDeFuera(f.rectificaFuera.numero, f.rectificaFuera.fecha ?? '')]
+      : [];
+  return { ...estadoVacio(), forma: f.tipoRectificativa === 'S' ? 'S' : 'I', explicacion: f.motivoRectificacion ?? '', originales };
+}
+
+/** Elemento al que se lleva el foco cuando el servidor (o la comprobacion) señala un campo. */
+function idDelCampo(c: string | undefined, esRect: boolean): string | null {
+  if (!c) return null;
+  if (c === 'customer' || c.startsWith('customer.') || c === 'clienteId') return 'cliente';
+  if (c === 'serie') return 'serie';
+  // En una rectificativa el tipo sale del motivo; en una factura, del desplegable de tipo.
+  if (c === 'tipoFactura') return esRect ? 'rv-motivo' : 'tipo';
+  if (c === 'rectificativa.motivo') return 'rv-motivo';
+  if (c === 'rectificativa.explicacion') return 'rv-explicacion';
+  if (c === 'rectificativa.forma') return 'rv-forma-I';
+  if (c.startsWith('rectificativa.periodo')) return c.endsWith('hasta') ? 'rv-hasta' : 'rv-desde';
+  const o = /^rectificativa\.originales\.(\d+)(?:\.(numero|fecha|base|cuota|retencion))?/.exec(c);
+  if (o) return o[2] ? `rv-original-${o[1]}-${o[2]}` : `rv-original-${o[1]}`;
+  if (c.startsWith('rectificativa')) return 'rv-originales';
+  if (c === 'fechaEmision') return 'emision';
+  if (c === 'fechaVencimiento') return 'vencimiento';
+  if (c === 'fechaOperacion') return 'operacion';
+  if (c === 'tipoOperacion') return 'tipo-operacion';
+  if (c === 'moneda') return 'moneda';
+  if (c === 'tipoCambio') return 'tipo-cambio';
+  const l = /^lineas\.(\d+)\.(cantidad|precioUnitario|descripcion)/.exec(c);
+  if (l) return `linea-${l[1]}-${l[2]}`;
+  if (c.startsWith('lineas')) return 'lineas-titulo';
+  return null;
+}
 
 export default function NuevaFacturaPage() {
   return (
@@ -212,14 +309,16 @@ function FormularioFactura() {
   // Proforma nueva (?tipo=proforma) o una proforma pendiente que se edita.
   const [esProforma, setEsProforma] = useState(params.get('tipo') === 'proforma');
   const [numeroProforma, setNumeroProforma] = useState('');
-  // Abono de una factura de fuera de la app (?rectificaFuera=1&numero=…&fecha=…&cliente=…, desde
-  // «Facturas de 2026 pendientes»): una rectificativa por diferencias que cita su número y su fecha.
-  const [rectFuera, setRectFuera] = useState<{ numero: string; fecha: string } | null>(
-    params.get('rectificaFuera') === '1' ? { numero: params.get('numero') ?? '', fecha: params.get('fecha') ?? '' } : null,
-  );
-  const [motivoRect, setMotivoRect] = useState('');
-  // Borrador ya guardado: el número, la fecha y el motivo de la factura rectificada no cambian.
-  const [rectFueraGuardada, setRectFueraGuardada] = useState(false);
+  // Rectificativa o abono (ver la cabecera): el modo y lo que se rectifica.
+  const [modo, setModo] = useState<Modo>(() => modoDeParams(params));
+  const [rect, setRect] = useState<EstadoRectificativaVenta>(() => rectDeParams(params));
+  // Borrador guardado: no pasa de factura a rectificativa ni al revés (el servidor tampoco lo deja).
+  const [modoFijo, setModoFijo] = useState(false);
+  const esRect = modo !== 'normal' && !esProforma;
+  const ticket = esRect && modo === 'ticket';
+  // Serie de rectificativas: las de tipo RECTIFICATIVA (R1-R4) o RECTIFICATIVA_SIMPLIFICADA (R5).
+  const [seriesRect, setSeriesRect] = useState<Serie[] | null>(null);
+  const [serieRect, setSerieRect] = useState('');
 
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [series, setSeries] = useState<Serie[]>([]);
@@ -227,6 +326,9 @@ function FormularioFactura() {
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState('');
+  // Campo que señala el último error (del servidor o de la comprobación): se marca y recibe el foco.
+  const [campoError, setCampoError] = useState<string | undefined>();
+  const [intentoFallido, setIntentoFallido] = useState(0);
   const avisoPlan = useAvisoPlanAnterior();
 
   const [clienteId, setClienteId] = useState('');
@@ -243,8 +345,13 @@ function FormularioFactura() {
   const [irpf, setIrpf] = useState(0);
   const [observaciones, setObservaciones] = useState('');
   const [lineas, setLineas] = useState<Linea[]>([lineaVacia()]);
-  // Cuentas de ingresos del plan (70x) para el «Cambiar cuenta» de cada linea.
-  const catalogoCuentas = useCuentasLinea('venta');
+  // Rectificativa: las líneas se proponen desde la original mientras no se hayan tocado a mano;
+  // si ya se tocaron, la propuesta nueva se ofrece con un botón.
+  const [lineasTocadas, setLineasTocadas] = useState(false);
+  const [propuestaPendiente, setPropuestaPendiente] = useState<LineaPropuesta[] | null>(null);
+  // Cuentas de ingresos del plan (70x) para el «Cambiar cuenta» de cada linea. En una
+  // rectificativa tambien la 706, la 708 y la 709 (solo para elegirlas).
+  const catalogoCuentas = useCuentasLinea('venta', true, { rectificativa: esRect });
   const puedeCrearCuenta = tieneAlgunPermiso(getUser(), ['ventas:write', 'contabilidad:write']);
 
   // Moneda y tipo de cambio ('' = aun sin decidir: la de la contabilidad).
@@ -262,7 +369,8 @@ function FormularioFactura() {
 
   // Tipo de operacion de IVA.
   const [tipoOperacion, setTipoOperacion] = useState('');
-  const [tipoTocado, setTipoTocado] = useState(false);
+  // Al rectificar una factura de la app, su tipo de operación manda: no se aplica la sugerencia.
+  const [tipoTocado, setTipoTocado] = useState(() => !!params.get('rectifica'));
   const [supuesto, setSupuesto] = useState('');
   const [referenciaLegal, setReferenciaLegal] = useState('');
   const [revision, setRevision] = useState<Revision | null>(null);
@@ -276,6 +384,20 @@ function FormularioFactura() {
   const sinCuota = !espanola || (regla ? !regla.llevaCuota : false);
   const sinRetencion = !espanola || (regla ? !regla.admiteRetencion : false);
   const clienteElegido = clientes.find((c) => c.id === clienteId);
+
+  // Rectificativa: motivos y series, los datos de cada original de la app y lo que se hereda de la primera.
+  const { opciones, error: errorOpciones, recargar: recargarOpciones } = useOpcionesRectificativa(esRect);
+  const idsApp = esRect && rect.que === 'facturas' ? rect.originales.filter((o) => o.origen === 'app' && o.id).map((o) => o.id as string) : [];
+  const claveIds = idsApp.join(',');
+  const { datos, errores: erroresDatos } = useDatosOriginales(idsApp);
+  const conOriginalApp = idsApp.length > 0;
+  const datosPrincipal = conOriginalApp ? datos[idsApp[0]] ?? null : null;
+  const principalId = datosPrincipal?.original.id ?? null;
+  const tipoR = esRect ? tipoFacturaDe(rect.motivo, ticket, opciones) : null;
+  const infoR = esRect ? infoMotivo(opciones, rect.motivo) : null;
+  const sustitucion = esRect && rect.forma === 'S';
+  // Tipo que se revisa: el R que sale del motivo (sin motivo todavía, el habitual).
+  const tipoFacturaEfectivo = esRect ? (tipoR ?? (ticket ? 'R5' : 'R1')) : tipoFactura;
 
   useEffect(() => {
     (async () => {
@@ -322,11 +444,17 @@ function FormularioFactura() {
           setTipoTocado(true);
           setReferenciaLegal(invoice.referenciaLegal ?? '');
           setSupuesto(invoice.causaExencion || invoice.referenciaLegal ? 'CAUSA:' : '');
-          if (invoice.rectificaFuera) {
-            setRectFuera({ numero: invoice.rectificaFuera.numero, fecha: invoice.rectificaFuera.fecha ?? '' });
-            setMotivoRect(invoice.motivoRectificacion ?? '');
-            setRectFueraGuardada(true);
+          // Un borrador no cambia de factura a rectificativa ni al revés.
+          setModoFijo(true);
+          if (!proforma && (invoice.esRectificativa || invoice.rectificativa || invoice.rectificaFuera || invoice.facturaOriginalId)) {
+            const r = invoice.rectificativa;
+            setModo(r?.ticket || invoice.tipoFactura === 'R5' ? 'ticket' : 'rectificativa');
+            setRect(r ? estadoDesdeResp(r) : rectDeAntiguos(invoice));
+            setSerieRect(invoice.serie);
+            setFechaOperacion('');
           }
+          // Sus líneas son las guardadas: no se cambian por las propuestas sin preguntar.
+          setLineasTocadas(true);
           setLineas(
             invoice.lineas.map((l) => ({
               clave: siguienteClave++,
@@ -395,6 +523,7 @@ function FormularioFactura() {
     setLineas((ls) => (ls.some((l) => l.tipoIva !== 0) ? ls.map((l) => ({ ...l, tipoIva: 0 })) : ls));
     setIrpf(0);
     setTipoFactura('F1');
+    setModo((m) => (m === 'ticket' ? 'rectificativa' : m));
     setMoneda(contexto.monedaCuenta);
   }, [contexto]);
 
@@ -426,7 +555,9 @@ function FormularioFactura() {
 
   // Un tipo no lleva separador de miles: '1.149' es 1,149 (parseImporte lo leeria como 1149).
   const manual = tipoManual.trim() ? parseTipo(tipoManual) : NaN;
-  const tipoAplicado = enDivisa ? (Number.isFinite(manual) && manual > 0 ? manual : bce?.tipoCambio ?? null) : 1;
+  // Al rectificar una factura de la app, su tipo de cambio (el servidor lo hereda).
+  const tipoHeredado = enDivisa && conOriginalApp && datosPrincipal ? datosPrincipal.original.tipoCambio : null;
+  const tipoAplicado = enDivisa ? (tipoHeredado ?? (Number.isFinite(manual) && manual > 0 ? manual : bce?.tipoCambio ?? null)) : 1;
   const avisoTipo = (() => {
     if (!enDivisa || !tipoManual.trim()) return '';
     if (!Number.isFinite(manual) || manual <= 0) return 'El tipo de cambio tiene que ser un número mayor que cero.';
@@ -442,8 +573,10 @@ function FormularioFactura() {
     return '';
   })();
 
-  const cambiarLinea = (clave: number, cambios: Partial<Linea>) =>
+  const cambiarLinea = (clave: number, cambios: Partial<Linea>) => {
+    setLineasTocadas(true);
     setLineas((ls) => ls.map((l) => (l.clave === clave ? { ...l, ...cambios } : l)));
+  };
 
   const elegirProducto = (clave: number, id: string) => {
     const p = productos.find((x) => x.id === id);
@@ -520,27 +653,142 @@ function FormularioFactura() {
     setMoneda(nueva);
   };
 
+  // Rectificativa con una original de la app: su cliente, su moneda, su tipo de cambio y su tipo
+  // de operación (el servidor los hereda; aquí se enseñan y se usan para calcular).
+  useEffect(() => {
+    if (!datosPrincipal) return;
+    const o = datosPrincipal.original;
+    setClienteId(o.customerId);
+    setMoneda(o.moneda);
+    setMonedaTocada(true);
+    setTipoManual('');
+    setVolverAlBce(false);
+    setTipoOperacion(o.tipoOperacion ?? '');
+    setTipoTocado(true);
+    setReferenciaLegal(o.referenciaLegal ?? '');
+    setSupuesto(o.causaExencion || o.referenciaLegal ? 'CAUSA:' : '');
+    // Un ticket se rectifica con R5 y una factura completa con R1-R4: el modo sigue a la original.
+    if (!modoFijo) setModo(datosPrincipal.ticket ? 'ticket' : 'rectificativa');
+    // Solo al cambiar la original principal.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [principalId]);
+
+  // Líneas propuestas desde las originales de la app (en negativo por diferencias, enteras por sustitución).
+  const datosListos = conOriginalApp && idsApp.every((id) => !!datos[id]);
+  const propuesta = useMemo(
+    () => (esRect && datosListos ? lineasPropuestas(idsApp.map((id) => datos[id]), rect.forma) : null),
+    // claveIds resume idsApp.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [esRect, datosListos, claveIds, datos, rect.forma],
+  );
+  const ultimaPropuesta = useRef('');
+  useEffect(() => {
+    if (!propuesta) {
+      ultimaPropuesta.current = '';
+      setPropuestaPendiente(null);
+      return;
+    }
+    const firma = JSON.stringify(propuesta);
+    if (firma === ultimaPropuesta.current) return;
+    ultimaPropuesta.current = firma;
+    if (lineasTocadas) setPropuestaPendiente(propuesta);
+    else aplicarPropuesta(propuesta);
+    // Solo cuando cambia la propuesta; lineasTocadas se lee en ese momento.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [propuesta]);
+
+  /** Pone las líneas propuestas (con la cuenta de la línea original) y su retención. */
+  function aplicarPropuesta(p: LineaPropuesta[]) {
+    setLineas(
+      p.length
+        ? p.map((l) => ({
+            clave: siguienteClave++,
+            productoServicioId: l.productoServicioId ?? '',
+            descripcion: l.descripcion,
+            cantidad: String(l.cantidad),
+            precioUnitario: String(l.precioUnitario),
+            descuentoPorcentaje: String(l.descuentoPorcentaje),
+            tipoIva: l.tipoIva,
+            cuenta: l.cuenta,
+            origenId: l.originalId,
+          }))
+        : [lineaVacia()],
+    );
+    setIrpf(p.find((l) => l.tipoRetencion)?.tipoRetencion ?? 0);
+    setLineasTocadas(false);
+    setPropuestaPendiente(null);
+  }
+
+  // Series de rectificativas (la de tickets en una R5). La elegida se mantiene si sigue en la lista.
+  const tipoSerieRect = ticket ? 'RECTIFICATIVA_SIMPLIFICADA' : 'RECTIFICATIVA';
+  useEffect(() => {
+    if (!esRect) return;
+    let vivo = true;
+    setSeriesRect(null);
+    apiFetch<Serie[]>(companyPath(`/series?tipoDocumento=${tipoSerieRect}`))
+      .then((l) => {
+        if (!vivo) return;
+        const activas = (Array.isArray(l) ? l : []).filter((s) => s.activa);
+        setSeriesRect(activas);
+        setSerieRect((prev) => (activas.some((s) => s.codigo === prev) ? prev : (activas.find((s) => s.porDefecto) ?? activas[0])?.codigo ?? ''));
+      })
+      .catch(() => {
+        if (!vivo) return;
+        setSeriesRect([]);
+        setSerieRect('');
+      });
+    return () => {
+      vivo = false;
+    };
+  }, [esRect, tipoSerieRect]);
+
+  /** Tipo de factura del desplegable: F1 o F2, o uno de los dos modos de rectificativa. */
+  const cambiarTipo = (v: string) => {
+    if (v === 'rectificativa' || v === 'ticket') {
+      // De factura completa a ticket (o al revés) las facturas de la app elegidas ya no valen.
+      if (esRect && modo !== v) setRect((r) => ({ ...r, originales: r.originales.filter((o) => o.origen !== 'app') }));
+      setModo(v);
+      // Una rectificativa no lleva fecha de la operación.
+      setFechaOperacion('');
+      return;
+    }
+    setModo('normal');
+    setTipoFactura(v);
+  };
+
   // Mismo calculo que el servidor (redondeo por linea), para que lo que se ve sea lo que se emite.
-  const calculo = useMemo(
+  // Las rectificativas redondean con signo (-0,525 da -0,53), como el servidor.
+  const lineasCalculo = useMemo(
     () =>
-      calcularFactura(
-        lineas.map((l) => ({
-          cantidad: num(l.cantidad),
-          precioUnitario: num(l.precioUnitario),
-          descuentoPorcentaje: num(l.descuentoPorcentaje),
-          tipoIva: l.tipoIva,
-          tipoRetencion: irpf,
-        })),
-        { tipoCambio: tipoAplicado, mismaMoneda: !enDivisa },
-      ),
-    [lineas, irpf, tipoAplicado, enDivisa],
+      lineas.map((l) => ({
+        cantidad: num(l.cantidad),
+        precioUnitario: num(l.precioUnitario),
+        descuentoPorcentaje: num(l.descuentoPorcentaje),
+        tipoIva: l.tipoIva,
+        tipoRetencion: irpf,
+      })),
+    [lineas, irpf],
+  );
+  const calculo = useMemo(
+    () => calcularFactura(lineasCalculo, { tipoCambio: tipoAplicado, mismaMoneda: !enDivisa, simetrico: esRect }),
+    [lineasCalculo, tipoAplicado, enDivisa, esRect],
+  );
+  // Varias originales: lo que toca a cada una sale de las líneas propuestas desde ella.
+  const repartoLineas = useMemo(
+    () => repartoDeLineas(lineasCalculo.map((l, i) => ({ ...l, originalId: lineas[i]?.origenId }))),
+    [lineasCalculo, lineas],
+  );
+  // Por sustitución: la factura corregida menos la original (lo que se registra).
+  const diferencia = useMemo(
+    () => (sustitucion && datosPrincipal ? diferenciaSustitucion(lineasCalculo, lineasCalculoDe(datosPrincipal)) : null),
+    [sustitucion, datosPrincipal, lineasCalculo],
   );
   const totales = calculo.doc;
   const fmt = (n: number) => formatoImporte(n, monedaDoc);
   const fmtCuenta = (n: number) => formatoImporte(n, monedaCuenta);
 
   // Revision fiscal en el servidor (mencion del PDF, errores y avisos), sin guardar nada.
-  const firmaRevision = JSON.stringify([clienteId, tipoOperacion, supuesto, referenciaLegal, tipoFactura, irpf, lineas.map((l) => [l.tipoIva, l.productoServicioId])]);
+  const firmaRevision = JSON.stringify([clienteId, tipoOperacion, supuesto, referenciaLegal, tipoFacturaEfectivo, irpf, lineas.map((l) => [l.tipoIva, l.productoServicioId])]);
   const ultimaRevision = useRef('');
   useEffect(() => {
     if (!espanola || !contexto || !clienteId) {
@@ -558,7 +806,7 @@ function FormularioFactura() {
           tipoOperacion: tipoOperacion || null,
           causaExencion: c.causaExencion,
           referenciaLegal: c.referenciaLegal,
-          tipoFactura,
+          tipoFactura: tipoFacturaEfectivo,
           // La proforma no se emite: sus contradicciones son avisos.
           modo: esProforma ? 'guardar' : 'emitir',
           lineas: lineas.map((l) => ({ tipoIva: l.tipoIva, tipoRetencion: irpf, productoServicioId: l.productoServicioId || undefined })),
@@ -594,10 +842,65 @@ function FormularioFactura() {
   const emisionBloqueada = !esProforma && !!redSeguridad?.bloquea;
   // Simplificada (F2): hasta 3.000 € de base mas IVA, en euros.
   const totalSimplificada = calculo.cuenta ? r2(calculo.cuenta.base + calculo.cuenta.iva) : null;
-  const simplificadaExcedida = espanola && tipoFactura === 'F2' && totalSimplificada !== null && totalSimplificada > LIMITE_SIMPLIFICADA;
+  const simplificadaExcedida = !esRect && espanola && tipoFactura === 'F2' && totalSimplificada !== null && totalSimplificada > LIMITE_SIMPLIFICADA;
+  const serieElegidaRect = (seriesRect ?? []).find((s) => s.codigo === serieRect);
+
+  // Tras un error, el campo que lo causa se pone a la vista y recibe el foco; si no se sabe cuál es, el aviso.
+  useEffect(() => {
+    if (!intentoFallido) return;
+    const id = idDelCampo(campoError, esRect);
+    const el =
+      (id && document.getElementById(id)) ||
+      (campoError?.startsWith('rectificativa') ? document.getElementById('rv-originales') : null) ||
+      document.getElementById('nf-error');
+    if (!el) return;
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    el.focus({ preventScroll: true });
+    // Solo al fallar un intento.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [intentoFallido]);
+
+  /** aria-invalid (y el aviso como descripción) en el campo que señala el error. */
+  const marca = (...campos: string[]) => {
+    const mal = !!campoError && campos.includes(campoError);
+    return { 'aria-invalid': mal, 'aria-describedby': mal && error ? 'nf-error' : undefined };
+  };
 
   const cuerpo = () => {
     const fiscal = espanola ? { tipoOperacion: tipoOperacion || null, ...causaYReferencia() } : {};
+    const lineasCuerpo = lineas.map((l) => ({
+      descripcion: l.descripcion.trim(),
+      cantidad: num(l.cantidad),
+      precioUnitario: num(l.precioUnitario),
+      descuentoPorcentaje: num(l.descuentoPorcentaje),
+      tipoIva: sinCuota ? 0 : l.tipoIva,
+      tipoRetencion: sinRetencion ? 0 : irpf,
+      productoServicioId: l.productoServicioId || undefined,
+      // Sin cuenta, el servidor usa la del producto (o la 700).
+      ...(l.cuenta ? { cuenta: l.cuenta } : {}),
+      moneda: monedaDoc,
+    }));
+    if (esRect) {
+      return {
+        customer: { id: clienteId },
+        // Sin serie elegida, la de rectificativas por defecto (la de tickets se crea con la primera R5).
+        ...(serieRect ? { serie: serieRect } : {}),
+        // El servidor lo calcula del motivo; si se manda, tiene que coincidir.
+        ...(tipoR && opciones ? { tipoFactura: tipoR } : {}),
+        formaPago,
+        fechaEmision,
+        fechaVencimiento,
+        // Una rectificativa no lleva fecha de la operación.
+        fechaOperacion: null,
+        observaciones: observaciones.trim() || undefined,
+        // Con una original de la app, la moneda, el tipo de cambio y el tipo de operación son los suyos.
+        ...(conOriginalApp
+          ? {}
+          : { moneda: monedaDoc, ...(enDivisa && tipoManual.trim() ? { tipoCambio: manual } : volverAlBce ? { tipoCambio: null } : {}), ...fiscal }),
+        lineas: lineasCuerpo,
+        rectificativa: bloqueParaEnviar(rect, { ticket, reparto: repartoLineas.porOriginal }),
+      };
+    }
     return {
       customer: { id: clienteId },
       // La proforma va siempre en su serie de proformas (la pone el servidor).
@@ -612,72 +915,122 @@ function FormularioFactura() {
       // Solo el tipo escrito a mano; sin el, el del BCE (null: volver al del BCE).
       ...(enDivisa && tipoManual.trim() ? { tipoCambio: manual } : volverAlBce ? { tipoCambio: null } : {}),
       ...fiscal,
-      // Abono de una factura de fuera de la app: R1 por diferencias en la serie de rectificativas (la pone el servidor).
-      ...(rectFuera
-        ? { serie: undefined, tipoFactura: 'R1', tipoRectificativa: 'I', rectificaFuera: { numero: rectFuera.numero.trim(), fecha: rectFuera.fecha }, motivoRectificacion: motivoRect.trim() }
-        : {}),
-      lineas: lineas.map((l) => ({
-        descripcion: l.descripcion.trim(),
-        cantidad: num(l.cantidad),
-        precioUnitario: num(l.precioUnitario),
-        descuentoPorcentaje: num(l.descuentoPorcentaje),
-        tipoIva: sinCuota ? 0 : l.tipoIva,
-        tipoRetencion: sinRetencion ? 0 : irpf,
-        productoServicioId: l.productoServicioId || undefined,
-        // Sin cuenta, el servidor usa la del producto (o la 700).
-        ...(l.cuenta ? { cuenta: l.cuenta } : {}),
-        moneda: monedaDoc,
-      })),
+      lineas: lineasCuerpo,
     };
   };
 
-  const comprobar = (emitir: boolean): string => {
+  /** Lo primero que falta antes de guardar o emitir, con el campo que lo arregla (null si nada). */
+  const comprobar = (emitir: boolean): { mensaje: string; campo?: string } | null => {
+    const falla = (mensaje: string, campo?: string) => ({ mensaje, campo });
     if (!contexto && emitir) {
-      return errorContexto ? `No se han podido cargar los datos fiscales de la empresa: ${errorContexto}` : 'Cargando los datos de la empresa…';
+      return falla(errorContexto ? `No se han podido cargar los datos fiscales de la empresa: ${errorContexto}` : 'Cargando los datos de la empresa…');
     }
-    if (!clienteId) return 'Elige el cliente.';
-    if (!serie && !esProforma && !rectFuera) return 'Elige la serie.';
-    if (rectFuera) {
-      if (!rectFuera.numero.trim()) return 'Escribe el número de la factura que rectificas.';
-      if (!rectFuera.fecha) return 'Escribe la fecha de la factura que rectificas.';
-      if (rectFuera.fecha > fechaEmision) return 'La factura que rectificas no puede ser posterior a la rectificativa.';
-      if (emitir && !motivoRect.trim()) return 'Escribe el motivo de la rectificación.';
-    }
-    if (fechaVencimiento < fechaEmision) return 'El vencimiento no puede ser anterior a la fecha de emisión.';
-    if (fechaOperacion && fechaOperacion > fechaEmision) return 'La fecha de la operación no puede ser posterior a la de emisión.';
-    const mal = lineas.findIndex((l) => !l.descripcion.trim() || num(l.cantidad) === 0 || l.precioUnitario === '');
-    if (mal >= 0) return `Completa la línea ${mal + 1}: descripción, cantidad y precio.`;
-    if (enDivisa && tipoManual.trim() && !(manual > 0)) return 'El tipo de cambio tiene que ser un número mayor que cero.';
-    if (enDivisa && tipoManual.trim() && bce?.tipoCambio && pareceInvertido(manual, bce.tipoCambio)) return avisoTipo;
-    if (emitir && !esProforma) {
-      if (emisionBloqueada) return redSeguridad?.motivo ?? 'Ahora mismo no se pueden emitir facturas de esta empresa.';
-      if (fechaEmision > hoy()) return 'La fecha de emisión no puede ser posterior a hoy. Guarda el borrador y pásalo a factura ese día.';
-      if (simplificadaExcedida) {
-        return 'Una factura simplificada no puede pasar de 3.000 € (base más IVA). Cámbiala a completa (F1) para emitirla.';
+    if (esRect) {
+      const f = faltaEnBloque(rect, { emitir, fechaEmision });
+      if (f) return falla(f.mensaje, f.campo);
+      const sinDatos = idsApp.find((id) => !datos[id]);
+      if (sinDatos) {
+        const i = rect.originales.findIndex((o) => o.id === sinDatos);
+        return falla(
+          erroresDatos[sinDatos]
+            ? `No se han podido cargar los datos de la factura que rectificas: ${erroresDatos[sinDatos]}`
+            : 'Espera un momento: se están cargando los datos de la factura que rectificas.',
+          `rectificativa.originales.${i}`,
+        );
       }
-      if (espanola && !tipoOperacion) return 'Elige el tipo de operación de la factura.';
-      if (enDivisa && !tipoAplicado) return `Sin tipo de cambio del BCE: indica el tipo a mano (1 ${monedaCuenta} = … ${monedaDoc}).`;
+      for (const id of idsApp) {
+        const d = datos[id];
+        const i = rect.originales.findIndex((o) => o.id === id);
+        if (!d.rectificable) return falla(d.motivoNoRectificable ?? `La ${d.original.numeroCompleto} no se puede rectificar.`, `rectificativa.originales.${i}`);
+        if (fechaEmision < d.original.fechaEmision) {
+          return falla(
+            `La rectificativa no puede tener fecha anterior a la factura que rectifica (la ${d.original.numeroCompleto} es del ${fechaES(d.original.fechaEmision)}).`,
+            'fechaEmision',
+          );
+        }
+      }
+    }
+    if (!clienteId) return falla('Elige el cliente.', 'customer');
+    if (!serie && !esProforma && !esRect) return falla('Elige la serie.', 'serie');
+    if (esRect && seriesRect && seriesRect.length === 0 && !(ticket && opciones?.series.tickets.existe === false)) {
+      return falla(`No hay ninguna serie de ${ticket ? 'rectificativas de tickets' : 'rectificativas'} activa. Actívala o crea una en Configuración > Series.`, 'serie');
+    }
+    if (fechaVencimiento < fechaEmision) return falla('El vencimiento no puede ser anterior a la fecha de emisión.', 'fechaVencimiento');
+    if (!esRect && fechaOperacion && fechaOperacion > fechaEmision) return falla('La fecha de la operación no puede ser posterior a la de emisión.', 'fechaOperacion');
+    const mal = lineas.findIndex((l) => !l.descripcion.trim() || num(l.cantidad) === 0 || l.precioUnitario === '');
+    if (mal >= 0) {
+      const l = lineas[mal];
+      const que = !l.descripcion.trim() ? 'descripcion' : num(l.cantidad) === 0 ? 'cantidad' : 'precioUnitario';
+      return falla(`Completa la línea ${mal + 1}: descripción, cantidad y precio.`, `lineas.${mal}.${que}`);
+    }
+    if (enDivisa && tipoManual.trim() && !(manual > 0)) return falla('El tipo de cambio tiene que ser un número mayor que cero.', 'tipoCambio');
+    if (enDivisa && tipoManual.trim() && bce?.tipoCambio && pareceInvertido(manual, bce.tipoCambio)) return falla(avisoTipo, 'tipoCambio');
+    if (esRect) {
+      // Devolución, descuento, rappel, impago y concurso solo restan (el servidor lo vuelve a mirar).
+      if (infoR?.soloResta) {
+        const resta = sustitucion ? diferencia : { base: totales.base, total: totales.total };
+        if (resta && !(resta.base < 0 && resta.total < 0)) {
+          return falla(
+            sustitucion
+              ? `${infoR.texto}: la factura corregida tiene que quedar por debajo de la original.`
+              : `${infoR.texto}: tiene que restar. Escribe las cantidades en negativo (por ejemplo, -2).`,
+            'lineas',
+          );
+        }
+      }
+      const r = faltaEnReparto(rect, repartoLineas.porOriginal, calculo.cuenta ?? totales);
+      if (r) return falla(r.mensaje, r.campo);
+    }
+    if (emitir && !esProforma) {
+      if (emisionBloqueada) return falla(redSeguridad?.motivo ?? 'Ahora mismo no se pueden emitir facturas de esta empresa.');
+      if (fechaEmision > hoy()) return falla('La fecha de emisión no puede ser posterior a hoy. Guarda el borrador y pásalo a factura ese día.', 'fechaEmision');
+      if (simplificadaExcedida) {
+        return falla('Una factura simplificada no puede pasar de 3.000 € (base más IVA). Cámbiala a completa (F1) para emitirla.', 'tipoFactura');
+      }
+      // Al rectificar una factura de la app, el tipo de operación es el suyo.
+      if (espanola && !tipoOperacion && !(esRect && conOriginalApp)) return falla('Elige el tipo de operación de la factura.', 'tipoOperacion');
+      if (enDivisa && !tipoAplicado) return falla(`Sin tipo de cambio del BCE: indica el tipo a mano (1 ${monedaCuenta} = … ${monedaDoc}).`, 'tipoCambio');
       // Al emitir nunca vale un tipo viejo: el que se ve es orientativo (de dias anteriores).
-      if (enDivisa && !tipoManual.trim() && bce?.provisional) {
-        return `Aún no está el tipo del BCE de la fecha de la operación (el que se ve es orientativo, del ${fechaES(bce.fechaTipoCambio)}): indica el tipo a mano o guarda el borrador y pásalo a factura más tarde.`;
+      if (enDivisa && !tipoHeredado && !tipoManual.trim() && bce?.provisional) {
+        return falla(
+          `Aún no está el tipo del BCE de la fecha de la operación (el que se ve es orientativo, del ${fechaES(bce.fechaTipoCambio)}): indica el tipo a mano o guarda el borrador y pásalo a factura más tarde.`,
+          'tipoCambio',
+        );
       }
       const errores = revision?.revision?.errores ?? [];
-      if (errores.length > 0) return errores.map((e) => e.mensaje).join(' ');
+      if (errores.length > 0) return falla(errores.map((e) => e.mensaje).join(' '));
     }
-    return '';
+    return null;
   };
+
+  // Número que tendrá la rectificativa (para la confirmación).
+  const numeroRect = serieElegidaRect
+    ? `número ${serieElegidaRect.codigo}-${(serieElegidaRect.ultimoNumero ?? 0) + 1}, aprox.`
+    : ticket && opciones?.series.tickets.existe === false
+      ? `el primero de la serie ${opciones.series.tickets.codigo}, que se crea ahora`
+      : 'con el siguiente número de la serie de rectificativas';
 
   const guardar = async (emitir: boolean) => {
     const fallo = comprobar(emitir);
-    if (fallo) return setError(fallo);
+    if (fallo) {
+      setError(fallo.mensaje);
+      setCampoError(fallo.campo);
+      setIntentoFallido((n) => n + 1);
+      return;
+    }
+    setCampoError(undefined);
     if (emitir) {
       const siguiente = (serieElegida?.ultimoNumero ?? 0) + 1;
-      const tipoTxt = enDivisa
-        ? `\n\nTipo de cambio: ${tipoManual.trim() ? `${textoTipo(monedaCuenta, monedaDoc, manual)} (indicado a mano)` : `el del BCE del día de la operación${tipoAplicado ? ` (hoy, ${textoTipo(monedaCuenta, monedaDoc, tipoAplicado)})` : ''}`}.`
-        : '';
+      const tipoTxt =
+        enDivisa && !tipoHeredado
+          ? `\n\nTipo de cambio: ${tipoManual.trim() ? `${textoTipo(monedaCuenta, monedaDoc, manual)} (indicado a mano)` : `el del BCE del día de la operación${tipoAplicado ? ` (hoy, ${textoTipo(monedaCuenta, monedaDoc, tipoAplicado)})` : ''}`}.`
+          : '';
       const ok = window.confirm(
-        `Vas a pasar a factura por ${fmt(totales.total)} (${rectFuera ? 'con el siguiente número de la serie de rectificativas' : `número ${serie}-${siguiente}, aprox.`}).${tipoTxt}\n\n` +
-          'Una vez pasada a factura recibirá el número de la serie y no se podrá modificar ni borrar; solo corregir con una rectificativa.',
+        esRect
+          ? `Vas a emitir ${totales.total < 0 ? 'el abono' : 'la rectificativa'} por ${fmt(totales.total)} (${numeroRect}).\n\n` +
+              'Una vez emitida recibirá el número de la serie de rectificativas y no se podrá modificar ni borrar.'
+          : `Vas a pasar a factura por ${fmt(totales.total)} (número ${serie}-${siguiente}, aprox.).${tipoTxt}\n\n` +
+              'Una vez pasada a factura recibirá el número de la serie y no se podrá modificar ni borrar; solo corregir con una rectificativa.',
       );
       if (!ok) return;
     }
@@ -686,11 +1039,16 @@ function FormularioFactura() {
     try {
       let id = borradorId ?? idCreado;
       if (id) {
-        await apiFetch(companyPath(`/income-invoices/${id}`), { method: 'PUT', body: JSON.stringify(cuerpo()) });
+        const r = await apiFetch<{ invoice?: { avisosFiscales?: AvisoFiscal[] } } | null>(companyPath(`/income-invoices/${id}`), {
+          method: 'PUT',
+          body: JSON.stringify(cuerpo()),
+        });
+        // Avisos que no bloquean (IVA al periodo de la original, plazos...): se enseñan en la ficha.
+        guardarAvisosVenta(id, r?.invoice?.avisosFiscales);
       } else {
         // Primer cliente de una empresa española sin el plan de la gestoría: se pregunta antes.
         const creada = await avisoPlan.intentar((extra) =>
-          apiFetch<{ invoice: { id: string } }>(companyPath('/income-invoices'), {
+          apiFetch<{ invoice: { id: string; avisosFiscales?: AvisoFiscal[] } }>(companyPath('/income-invoices'), {
             method: 'POST',
             body: JSON.stringify(esProforma ? { ...cuerpo(), proforma: true, ...extra } : { ...cuerpo(), borrador: true, ...extra }),
           }),
@@ -703,24 +1061,27 @@ function FormularioFactura() {
         id = invoice.id;
         // Si pasarlo a factura falla, el siguiente intento modifica este borrador (no crea otro).
         setIdCreado(invoice.id);
-        // La factura rectificada y el motivo quedan guardados con el borrador.
-        if (rectFuera) setRectFueraGuardada(true);
+        guardarAvisosVenta(invoice.id, invoice.avisosFiscales);
       }
       if (emitir && !esProforma) {
         // Operación de un periodo cuyo 303 presenta la gestoría: se pregunta antes de emitirla.
         const emitida = await conDevengoFuera((extra) =>
-          apiFetch<{ invoice: { contabilizada?: boolean; motivoSinAsiento?: string | null } }>(companyPath(`/income-invoices/${id}/finalizar`), {
-            method: 'POST',
-            body: JSON.stringify({ fechaEmision, ...(enDivisa && tipoManual.trim() ? { tipoCambio: manual } : {}), ...extra }),
-          }),
+          apiFetch<{ invoice: { contabilizada?: boolean; motivoSinAsiento?: string | null; avisosFiscales?: AvisoFiscal[] } }>(
+            companyPath(`/income-invoices/${id}/finalizar`),
+            {
+              method: 'POST',
+              body: JSON.stringify({ fechaEmision, ...(enDivisa && !tipoHeredado && tipoManual.trim() ? { tipoCambio: manual } : {}), ...extra }),
+            },
+          ),
         );
         if (emitida === null) {
           // Sin confirmar: queda guardada como borrador.
           setGuardando(false);
-          setError('No se ha pasado a factura: queda guardada como borrador.');
+          setError(`No se ha ${esRect ? 'emitido' : 'pasado a factura'}: queda guardada como borrador.`);
           return;
         }
         const { invoice } = emitida.r;
+        guardarAvisosVenta(id, invoice.avisosFiscales);
         if (invoice.contabilizada === false) {
           try {
             sessionStorage.setItem(`conta_sin_asiento_${id}`, invoice.motivoSinAsiento || 'No se pudo contabilizar.');
@@ -732,6 +1093,9 @@ function FormularioFactura() {
       router.push(`/dashboard/${esProforma ? 'proformas' : 'facturas'}/${id}`);
     } catch (e) {
       setError(errorMessage(e));
+      // El campo que señala el servidor (details.campo) se marca y recibe el foco.
+      setCampoError(campoDelError(e));
+      setIntentoFallido((n) => n + 1);
       setGuardando(false);
     }
   };
@@ -742,10 +1106,12 @@ function FormularioFactura() {
     ? borradorId
       ? `Editar proforma ${numeroProforma}`.trim()
       : 'Nueva proforma'
-    : rectFuera
+    : esRect
       ? borradorId
         ? 'Editar borrador de rectificativa'
-        : 'Nueva rectificativa'
+        : ticket
+          ? 'Nueva rectificativa de un ticket'
+          : 'Nueva rectificativa o abono'
       : borradorId
         ? 'Editar borrador'
         : 'Nueva factura';
@@ -759,6 +1125,8 @@ function FormularioFactura() {
     .filter((a, i, arr) => arr.findIndex((b) => b.codigo === a.codigo) === i && !revisionErrores.some((e) => e.codigo === a.codigo));
   const supuestosLista = tipoOperacion === 'EXENTA' ? contexto?.supuestosExencion ?? [] : tipoOperacion === 'ISP_NACIONAL' ? contexto?.supuestosIsp ?? [] : [];
   const etiquetaSinCuota = regla && !regla.llevaCuota ? regla.etiquetaCorta : 'Sin IVA';
+  // Lo que resta (abonos), en rojo.
+  const rojo = (n: number) => (n < 0 ? 'text-red-700' : '');
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-6">
@@ -776,7 +1144,9 @@ function FormularioFactura() {
           text={
             esProforma
               ? 'La proforma recibe su número P al guardarla. No es una factura: no cuenta para el IVA ni la contabilidad. Si el cliente la acepta, pásala a factura desde su ficha.'
-              : 'Guarda como borrador mientras la preparas. Al pasarla a factura recibe el siguiente número de la serie y ya no se puede cambiar.'
+              : esRect
+                ? 'Guárdala como borrador mientras la preparas. Al emitirla recibe el siguiente número de la serie de rectificativas y ya no se puede cambiar.'
+                : 'Guarda como borrador mientras la preparas. Al pasarla a factura recibe el siguiente número de la serie y ya no se puede cambiar.'
           }
         />
       </div>
@@ -803,86 +1173,128 @@ function FormularioFactura() {
       {!esProforma && <AvisoRedSeguridad estado={redSeguridad} donde="formulario" />}
 
       {error && (
-        <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+        <p id="nf-error" role="alert" tabIndex={-1} className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 focus:outline-none">
           {error}
         </p>
       )}
 
-      {rectFuera && (
-        <section className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-5" aria-labelledby="rf-titulo">
-          <div>
-            <h2 id="rf-titulo" className="font-semibold text-slate-900">
-              Factura que rectificas
-            </h2>
-            <p className="mt-1 text-sm text-slate-700">
-              Es de antes de llevar la facturación en la app (por ejemplo, una de las que trajo la gestoría). En las líneas, escribe solo lo que cambia: en
-              negativo lo que baja, como una devolución o un descuento.
-            </p>
-          </div>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <label className={etiqueta} htmlFor="rf-numero">Número de la factura</label>
-              <input
-                id="rf-numero"
-                className={campo}
-                value={rectFuera.numero}
-                maxLength={60}
-                disabled={rectFueraGuardada}
-                onChange={(e) => setRectFuera({ ...rectFuera, numero: e.target.value })}
-              />
-            </div>
-            <div>
-              <label className={etiqueta} htmlFor="rf-fecha">Fecha de la factura</label>
-              <input
-                id="rf-fecha"
-                type="date"
-                className={campo}
-                value={rectFuera.fecha}
-                disabled={rectFueraGuardada}
-                onChange={(e) => setRectFuera({ ...rectFuera, fecha: e.target.value })}
-              />
-            </div>
-            <div className="sm:col-span-2">
-              <label className={etiqueta} htmlFor="rf-motivo">Motivo de la rectificación</label>
-              <textarea
-                id="rf-motivo"
-                className={campo}
-                rows={2}
-                maxLength={500}
-                value={motivoRect}
-                disabled={rectFueraGuardada}
-                placeholder="Por ejemplo: devolución de parte del pedido"
-                onChange={(e) => setMotivoRect(e.target.value)}
-              />
-            </div>
+      {(espanola || !esProforma) && (
+        <section className="rounded-xl border border-slate-200 bg-white p-4 md:p-5">
+          <div className="max-w-md">
+            <label className={etiqueta} htmlFor="tipo">
+              Tipo de factura
+            </label>
+            <select id="tipo" className={campo} value={esRect ? modo : tipoFactura} onChange={(e) => cambiarTipo(e.target.value)} {...(esRect ? {} : marca('tipoFactura'))}>
+              {/* Un borrador guardado no pasa de factura a rectificativa ni al revés. */}
+              {!(modoFijo && esRect) && <option value="F1">{espanola ? 'Completa (F1)' : 'Factura'}</option>}
+              {espanola && !(modoFijo && esRect) && (
+                <option value="F2" disabled={!!regla?.tiposFacturaProhibidos.includes('F2')}>
+                  Simplificada / ticket (F2)
+                </option>
+              )}
+              {!esProforma && !(modoFijo && !esRect) && <option value="rectificativa">Rectificativa o abono</option>}
+              {!esProforma && espanola && !(modoFijo && !esRect) && <option value="ticket">Rectificativa de un ticket</option>}
+            </select>
+            {!esRect && tipoFactura === 'F2' && (
+              <p className={`mt-1 text-xs ${simplificadaExcedida ? 'text-red-700' : 'text-slate-500'}`}>
+                {simplificadaExcedida
+                  ? `Esta factura suma ${fmtCuenta(totalSimplificada ?? 0)} con IVA: una simplificada solo llega a 3.000 €. Cámbiala a completa (F1).`
+                  : 'Hasta 3.000 € con IVA. En VERI*FACTU la simplificada no lleva los datos del cliente: si hay que identificarlo, usa la completa (F1).'}
+              </p>
+            )}
+            {esRect && (
+              <p className="mt-1 text-xs text-slate-500">
+                {ticket
+                  ? 'Corrige un ticket o una factura simplificada ya emitidos. Va en su propia serie, distinta de la de rectificativas.'
+                  : 'Corrige o anula, entera o en parte, una factura ya emitida. Va en la serie de rectificativas, nunca en la A ni en la B.'}
+              </p>
+            )}
           </div>
         </section>
       )}
 
+      {esRect && (
+        <BloqueRectificativaVenta
+          valor={rect}
+          onCambio={setRect}
+          opciones={opciones}
+          errorOpciones={errorOpciones}
+          onReintentarOpciones={recargarOpciones}
+          ticket={ticket}
+          clienteId={clienteId || null}
+          datos={datos}
+          erroresDatos={erroresDatos}
+          reparto={repartoLineas.porOriginal}
+          conRetencion={!sinRetencion && irpf > 0}
+          monedaCuenta={monedaCuenta}
+          marca={marca}
+          error={error ? { campo: campoError, mensaje: error } : null}
+        />
+      )}
+
       <section className="grid grid-cols-1 gap-4 rounded-xl border border-slate-200 bg-white p-5 md:grid-cols-3">
         <div className="md:col-span-2">
-          <label className={etiqueta} htmlFor="cliente">Cliente</label>
-          <select id="cliente" className={campo} value={clienteId} onChange={(e) => setClienteId(e.target.value)}>
-            <option value="">Elige un cliente…</option>
-            {clientes.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.nombreFiscal} — {c.nifCif}
-                {c.pais && c.pais !== 'ES' ? ` (${c.pais})` : ''}
-              </option>
-            ))}
-          </select>
-          {clientes.length === 0 && (
-            <p className="mt-1 text-xs text-slate-500">
-              No hay clientes. <Link href="/dashboard/clientes" className="text-blue-700 underline">Da de alta uno</Link> antes de facturar.
-            </p>
+          {esRect && conOriginalApp ? (
+            <>
+              <p className={etiqueta}>Cliente</p>
+              <p id="cliente" tabIndex={-1} className={`${campo} bg-slate-50 text-slate-700`}>
+                <span className="sr-only">Cliente: </span>
+                {datosPrincipal
+                  ? `${datosPrincipal.original.cliente.nombreFiscal}${datosPrincipal.original.cliente.nifCif ? ` — ${datosPrincipal.original.cliente.nifCif}` : ''}`
+                  : 'Cargando…'}
+              </p>
+              <p className="mt-1 text-xs text-slate-500">Es el de la factura que rectificas y no se puede cambiar.</p>
+            </>
+          ) : (
+            <>
+              <label className={etiqueta} htmlFor="cliente">Cliente</label>
+              <select id="cliente" className={campo} value={clienteId} onChange={(e) => setClienteId(e.target.value)} {...marca('customer', 'customer.id', 'clienteId')}>
+                <option value="">Elige un cliente…</option>
+                {clientes.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.nombreFiscal} — {c.nifCif}
+                    {c.pais && c.pais !== 'ES' ? ` (${c.pais})` : ''}
+                  </option>
+                ))}
+              </select>
+              {clientes.length === 0 && (
+                <p className="mt-1 text-xs text-slate-500">
+                  No hay clientes. <Link href="/dashboard/clientes" className="text-blue-700 underline">Da de alta uno</Link> antes de facturar.
+                </p>
+              )}
+            </>
           )}
         </div>
         <div>
           <label className={etiqueta} htmlFor="serie">Serie</label>
-          {rectFuera ? (
-            <p id="serie" className={`${campo} bg-slate-50 text-slate-600`}>
-              Rectificativas: el número se asigna al pasarla a factura
-            </p>
+          {esRect ? (
+            seriesRect === null ? (
+              <p id="serie" className={`${campo} bg-slate-50 text-slate-500`}>
+                Cargando…
+              </p>
+            ) : seriesRect.length === 0 ? (
+              ticket && opciones?.series.tickets.existe === false ? (
+                <p id="serie" tabIndex={-1} className={`${campo} bg-slate-50 text-slate-600`}>
+                  {opciones.series.tickets.codigo}: se crea al guardar
+                </p>
+              ) : (
+                <p id="serie" tabIndex={-1} className="mt-1 rounded-lg border border-amber-200 bg-amber-50 p-2 text-sm text-amber-900">
+                  No hay ninguna serie de {ticket ? 'rectificativas de tickets' : 'rectificativas'} activa.{' '}
+                  <Link href="/dashboard/configuracion/series" className="font-medium underline">
+                    Actívala o crea una en Configuración
+                  </Link>
+                  .
+                </p>
+              )
+            ) : (
+              <select id="serie" className={campo} value={serieRect} onChange={(e) => setSerieRect(e.target.value)} {...marca('serie')}>
+                {seriesRect.map((s) => (
+                  <option key={s.id} value={s.codigo}>
+                    {s.codigo} — {s.descripcion}
+                  </option>
+                ))}
+              </select>
+            )
           ) : esProforma ? (
             <p id="serie" className={`${campo} bg-slate-50 text-slate-600`}>
               {numeroProforma ? `Proforma ${numeroProforma}` : 'Proformas (P): el número se asigna al guardar'}
@@ -896,7 +1308,7 @@ function FormularioFactura() {
               .
             </p>
           ) : (
-            <select id="serie" className={campo} value={serie} onChange={(e) => setSerie(e.target.value)}>
+            <select id="serie" className={campo} value={serie} onChange={(e) => setSerie(e.target.value)} {...marca('serie')}>
               {series.map((s) => (
                 <option key={s.id} value={s.codigo}>
                   {s.codigo} — {s.descripcion}
@@ -904,9 +1316,28 @@ function FormularioFactura() {
               ))}
             </select>
           )}
+          {esRect && (
+            <p className="mt-1 text-xs text-slate-500">
+              {ticket ? 'Solo series de rectificativas de tickets.' : 'Solo series de rectificativas: nunca la A ni la B.'}
+            </p>
+          )}
         </div>
 
-        {espanola && contexto && (
+        {espanola && contexto && esRect && conOriginalApp && (
+          <>
+            <div className="md:col-span-2">
+              <p className={etiqueta}>Tipo de operación (IVA)</p>
+              <p id="tipo-operacion" className={`${campo} bg-slate-50 text-slate-700`}>
+                {regla?.etiqueta ?? (tipoOperacion || 'Sin indicar en la factura que rectificas')}
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                El de la factura que rectificas.{referenciaLegal ? ` ${referenciaLegal}` : ''}
+              </p>
+            </div>
+            <div className="hidden md:block" />
+          </>
+        )}
+        {espanola && contexto && !(esRect && conOriginalApp) && (
           <>
             <div className="md:col-span-2">
               <label className={etiqueta} htmlFor="tipo-operacion">
@@ -916,6 +1347,7 @@ function FormularioFactura() {
                 id="tipo-operacion"
                 className={campo}
                 value={tipoOperacion}
+                {...marca('tipoOperacion')}
                 onChange={(e) => {
                   setTipoTocado(true);
                   aplicarTipo(e.target.value);
@@ -973,8 +1405,9 @@ function FormularioFactura() {
             id="moneda"
             className={campo}
             value={monedaDoc}
-            disabled={!contexto || !espanola || (contexto.monedasFactura?.length ?? 0) < 2}
+            disabled={!contexto || !espanola || (contexto.monedasFactura?.length ?? 0) < 2 || (esRect && conOriginalApp)}
             onChange={(e) => void cambiarMoneda(e.target.value)}
+            {...marca('moneda')}
           >
             {(contexto?.monedasFactura ?? [{ codigo: monedaCuenta, nombre: monedaCuenta, simbolo: monedaCuenta }]).map((m) => (
               <option key={m.codigo} value={m.codigo}>
@@ -983,7 +1416,16 @@ function FormularioFactura() {
             ))}
           </select>
         </div>
-        {enDivisa && (
+        {enDivisa && esRect && conOriginalApp && (
+          <div className="md:col-span-2">
+            <p className={etiqueta}>Tipo de cambio</p>
+            <p id="tipo-cambio" className="text-sm text-slate-700">
+              {tipoHeredado ? <span className="font-mono">{textoTipo(monedaCuenta, monedaDoc, tipoHeredado)}</span> : 'Cargando…'}{' '}
+              <span className="text-xs text-slate-500">(el de la factura que rectificas)</span>
+            </p>
+          </div>
+        )}
+        {enDivisa && !(esRect && conOriginalApp) && (
           <div className="md:col-span-2">
             <label className={etiqueta} htmlFor="tipo-cambio">
               Tipo de cambio
@@ -1037,30 +1479,6 @@ function FormularioFactura() {
           </div>
         )}
 
-        {espanola && (
-          <div>
-            <label className={etiqueta} htmlFor="tipo">Tipo de factura</label>
-            {rectFuera ? (
-              <p id="tipo" className={`${campo} bg-slate-50 text-slate-600`}>
-                Rectificativa por diferencias (R1)
-              </p>
-            ) : (
-            <select id="tipo" className={campo} value={tipoFactura} onChange={(e) => setTipoFactura(e.target.value)}>
-              <option value="F1">Completa (F1)</option>
-              <option value="F2" disabled={!!regla?.tiposFacturaProhibidos.includes('F2')}>
-                Simplificada / ticket (F2)
-              </option>
-            </select>
-            )}
-            {tipoFactura === 'F2' && (
-              <p className={`mt-1 text-xs ${simplificadaExcedida ? 'text-red-700' : 'text-slate-500'}`}>
-                {simplificadaExcedida
-                  ? `Esta factura suma ${fmtCuenta(totalSimplificada ?? 0)} con IVA: una simplificada solo llega a 3.000 €. Cámbiala a completa (F1).`
-                  : 'Hasta 3.000 € con IVA. En VERI*FACTU la simplificada no lleva los datos del cliente: si hay que identificarlo, usa la completa (F1).'}
-              </p>
-            )}
-          </div>
-        )}
         <div>
           <label className={etiqueta} htmlFor="forma-pago">Forma de pago</label>
           <select id="forma-pago" className={campo} value={formaPago} onChange={(e) => setFormaPago(e.target.value)}>
@@ -1077,6 +1495,7 @@ function FormularioFactura() {
             id="emision"
             type="date"
             className={campo}
+            {...marca('fechaEmision')}
             value={fechaEmision}
             onChange={(e) => {
               setFechaEmision(e.target.value);
@@ -1090,6 +1509,7 @@ function FormularioFactura() {
             id="vencimiento"
             type="date"
             className={campo}
+            {...marca('fechaVencimiento')}
             value={fechaVencimiento}
             onChange={(e) => {
               setFechaVencimiento(e.target.value);
@@ -1097,19 +1517,23 @@ function FormularioFactura() {
             }}
           />
         </div>
-        <div>
-          <label className={etiqueta} htmlFor="operacion">
-            Fecha de la operación <span className="font-normal text-slate-500">(si es distinta)</span>
-          </label>
-          <input
-            id="operacion"
-            type="date"
-            className={campo}
-            max={fechaEmision}
-            value={fechaOperacion}
-            onChange={(e) => setFechaOperacion(e.target.value)}
-          />
-        </div>
+        {/* Una rectificativa no lleva fecha de la operación. */}
+        {!esRect && (
+          <div>
+            <label className={etiqueta} htmlFor="operacion">
+              Fecha de la operación <span className="font-normal text-slate-500">(si es distinta)</span>
+            </label>
+            <input
+              id="operacion"
+              type="date"
+              className={campo}
+              max={fechaEmision}
+              value={fechaOperacion}
+              onChange={(e) => setFechaOperacion(e.target.value)}
+              {...marca('fechaOperacion')}
+            />
+          </div>
+        )}
       </section>
 
       {espanola && contexto && clienteId && (revision?.mencion || revisionErrores.length > 0 || avisosFiscales.length > 0) && (
@@ -1148,16 +1572,42 @@ function FormularioFactura() {
       )}
 
       <section className="rounded-xl border border-slate-200 bg-white">
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
-          <h2 className="font-semibold text-slate-900">Líneas</h2>
-          <button
-            type="button"
-            onClick={() => setLineas((ls) => [...ls, lineaVacia(sinCuota ? 0 : 21)])}
-            className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
-          >
-            <Plus size={16} /> Añadir línea
-          </button>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-5 py-3">
+          <h2 id="lineas-titulo" tabIndex={-1} className="font-semibold text-slate-900 focus:outline-none">
+            Líneas
+          </h2>
+          <div className="flex flex-wrap gap-2">
+            {propuestaPendiente && (
+              <button
+                type="button"
+                onClick={() => aplicarPropuesta(propuestaPendiente)}
+                className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+              >
+                <ArrowCounterClockwise size={16} /> Usar las líneas de la factura que rectificas
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setLineasTocadas(true);
+                setLineas((ls) => [...ls, lineaVacia(sinCuota ? 0 : 21)]);
+              }}
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+            >
+              <Plus size={16} /> Añadir línea
+            </button>
+          </div>
         </div>
+        {esRect && (
+          <p className="border-b border-slate-100 px-5 py-2 text-sm text-slate-600">
+            {sustitucion
+              ? 'Escribe la factura corregida entera, en positivo. Se registra solo la diferencia con la original.'
+              : conOriginalApp
+                ? 'Salen las de la factura que rectificas, en negativo. Deja solo lo que se devuelve o se descuenta y ajusta las cantidades. Un rappel puede ir en una línea: 1 × -500.'
+                : 'Escribe lo que cambia: en negativo lo que baja, como una devolución o un descuento.'}
+            {propuestaPendiente && ' Has cambiado las líneas: si quieres volver a las de la factura que rectificas, usa el botón de arriba.'}
+          </p>
+        )}
         <div className="overflow-x-auto">
           <table className={`w-full text-sm ${espanola ? 'min-w-[860px]' : 'min-w-[720px]'}`}>
             <thead className="bg-slate-50 text-left text-slate-600">
@@ -1174,8 +1624,10 @@ function FormularioFactura() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {lineas.map((l, i) => {
-                const bruto = r2(num(l.cantidad) * num(l.precioUnitario));
-                const importe = r2(bruto - r2((bruto * num(l.descuentoPorcentaje)) / 100));
+                // En una rectificativa, con signo (-0,525 da -0,53), como el servidor.
+                const red = (n: number) => (esRect ? Math.sign(n) * r2(Math.abs(n)) : r2(n));
+                const bruto = red(num(l.cantidad) * num(l.precioUnitario));
+                const importe = red(bruto - red((bruto * num(l.descuentoPorcentaje)) / 100));
                 return (
                   <Fragment key={l.clave}>
                   <tr>
@@ -1196,7 +1648,9 @@ function FormularioFactura() {
                     </td>
                     <td className="px-3 py-2">
                       <input
+                        id={`linea-${i}-descripcion`}
                         aria-label={`Descripción de la línea ${i + 1}`}
+                        {...marca(`lineas.${i}.descripcion`)}
                         className={campo}
                         value={l.descripcion}
                         onChange={(e) => cambiarLinea(l.clave, { descripcion: e.target.value })}
@@ -1204,7 +1658,9 @@ function FormularioFactura() {
                     </td>
                     <td className="px-3 py-2">
                       <input
+                        id={`linea-${i}-cantidad`}
                         aria-label={`Cantidad de la línea ${i + 1}`}
+                        {...marca(`lineas.${i}.cantidad`)}
                         inputMode="decimal"
                         className={`${campo} text-right`}
                         value={l.cantidad}
@@ -1213,7 +1669,9 @@ function FormularioFactura() {
                     </td>
                     <td className="px-3 py-2">
                       <input
+                        id={`linea-${i}-precioUnitario`}
                         aria-label={`Precio de la línea ${i + 1} en ${monedaDoc}`}
+                        {...marca(`lineas.${i}.precioUnitario`)}
                         inputMode="decimal"
                         className={`${campo} text-right`}
                         value={l.precioUnitario}
@@ -1251,13 +1709,16 @@ function FormularioFactura() {
                         )}
                       </td>
                     )}
-                    <td className="px-3 py-2 text-right font-mono tabular-nums text-slate-900">{fmt(importe)}</td>
+                    <td className={`px-3 py-2 text-right font-mono tabular-nums ${importe < 0 ? 'text-red-700' : 'text-slate-900'}`}>{fmt(importe)}</td>
                     <td className="px-1 py-2">
                       <button
                         type="button"
                         aria-label={`Quitar la línea ${i + 1}`}
                         disabled={lineas.length === 1}
-                        onClick={() => setLineas((ls) => ls.filter((x) => x.clave !== l.clave))}
+                        onClick={() => {
+                          setLineasTocadas(true);
+                          setLineas((ls) => ls.filter((x) => x.clave !== l.clave));
+                        }}
                         className="rounded p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-30"
                       >
                         <Trash size={16} />
@@ -1326,7 +1787,7 @@ function FormularioFactura() {
           <dl className="space-y-2 text-sm">
             <div className="flex justify-between gap-3">
               <dt className="text-slate-600">Base imponible</dt>
-              <dd className="font-mono tabular-nums">{fmt(totales.base)}</dd>
+              <dd className={`font-mono tabular-nums ${rojo(totales.base)}`}>{fmt(totales.base)}</dd>
             </div>
             {espanola &&
               totales.porTipo.map((t) => (
@@ -1334,7 +1795,7 @@ function FormularioFactura() {
                   <dt className="text-slate-600">
                     {t.tipoIva === 0 && regla && !regla.llevaCuota ? `${regla.etiquetaCorta} sobre ${fmt(t.base)}` : `IVA ${t.tipoIva} % sobre ${fmt(t.base)}`}
                   </dt>
-                  <dd className="font-mono tabular-nums">{fmt(t.cuota)}</dd>
+                  <dd className={`font-mono tabular-nums ${rojo(t.cuota)}`}>{fmt(t.cuota)}</dd>
                 </div>
               ))}
             {totales.retencion > 0 && (
@@ -1345,9 +1806,52 @@ function FormularioFactura() {
             )}
             <div className="flex justify-between gap-3 border-t border-slate-300 pt-2 text-base font-bold text-slate-900">
               <dt>Total</dt>
-              <dd className="font-mono tabular-nums">{fmt(totales.total)}</dd>
+              <dd className={`font-mono tabular-nums ${rojo(totales.total)}`}>{fmt(totales.total)}</dd>
             </div>
           </dl>
+          {esRect && !sustitucion && totales.total < 0 && (
+            <p className="text-xs text-slate-600">
+              Es un abono: resta de lo que te debe el cliente. Lo que no quepa en lo pendiente de cobro quedará a su favor y podrás devolvérselo desde la ficha.
+            </p>
+          )}
+          {sustitucion && datosPrincipal && diferencia && (
+            <div className="rounded-lg border border-violet-200 bg-white p-3 text-sm">
+              <p className="font-medium text-slate-700">Diferencia que se registra</p>
+              <p className="mb-2 text-xs text-slate-500">
+                La factura corregida menos la {datosPrincipal.original.numeroCompleto} ({fmt(datosPrincipal.original.totalFacturaDoc ?? datosPrincipal.original.totalFactura)}). Es lo que
+                va a la contabilidad y al IVA.
+              </p>
+              <dl className="space-y-1">
+                <div className="flex justify-between gap-3">
+                  <dt className="text-slate-600">Base imponible</dt>
+                  <dd className={`font-mono tabular-nums ${rojo(diferencia.base)}`}>{fmt(diferencia.base)}</dd>
+                </div>
+                {espanola &&
+                  diferencia.porTipo.map((t) => (
+                    <div key={t.tipoIva} className="flex justify-between gap-3">
+                      <dt className="text-slate-600">IVA {t.tipoIva} %</dt>
+                      <dd className={`font-mono tabular-nums ${rojo(t.cuota)}`}>{fmt(t.cuota)}</dd>
+                    </div>
+                  ))}
+                {diferencia.retencion !== 0 && (
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-slate-600">Retención</dt>
+                    <dd className="font-mono tabular-nums">{fmt(-diferencia.retencion)}</dd>
+                  </div>
+                )}
+                <div className="flex justify-between gap-3 font-semibold text-slate-900">
+                  <dt>Total</dt>
+                  <dd className={`font-mono tabular-nums ${rojo(diferencia.total)}`}>{fmt(diferencia.total)}</dd>
+                </div>
+              </dl>
+            </div>
+          )}
+          {esRect && !sustitucion && idsApp.length === 1 && datosPrincipal && calculo.cuenta && calculo.cuenta.total < 0 && -calculo.cuenta.total > datosPrincipal.restante.total + 0.005 && (
+            <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              Resta {fmtCuenta(-calculo.cuenta.total)} y de la {datosPrincipal.original.numeroCompleto} solo queda por rectificar {fmtCuenta(datosPrincipal.restante.total)}.
+              Revisa las líneas: así no se podrá guardar.
+            </p>
+          )}
           {enDivisa && (
             <div className="rounded-lg border border-slate-200 bg-white p-3 text-sm">
               <p className="mb-1 font-medium text-slate-700">
@@ -1418,7 +1922,7 @@ function FormularioFactura() {
               aria-describedby={emisionBloqueada ? 'motivo-sin-emitir' : undefined}
               className={emisionBloqueada ? BOTON_SECUNDARIO : BOTON_PRINCIPAL}
             >
-              {guardando ? 'Guardando…' : 'Pasar a factura'}
+              {guardando ? 'Guardando…' : esRect ? 'Emitir rectificativa' : 'Pasar a factura'}
             </button>
           </>
         )}
