@@ -156,11 +156,11 @@ export default function DashboardPage() {
   const [userEmail, setUserEmail] = useState<string>('');
   // Año en curso en España por defecto (o el de la URL, al volver al panel).
   const [selectedYear, setSelectedYear] = useState(() => anioOTodosDeUrl() ?? anioEspana());
-  // Periodo de las cifras, del gráfico mensual y de las categorías: '' (todo el año), 'AAAA-Qn' o 'AAAA-MM'.
-  // Al abrir, el trimestre en curso del año que se abre.
-  const [selectedPeriod, setSelectedPeriod] = useState(() => `${selectedYear}${getCurrentQuarter().slice(4)}`);
+  // Periodo de toda la pantalla (cifras, gráfico, evolución y categorías): '' (todo el año), 'AAAA-Qn' o 'AAAA-MM'.
+  // Al abrir, todo el año: una venta de un trimestre anterior tiene que verse sin tocar nada.
+  const [selectedPeriod, setSelectedPeriod] = useState('');
   const periodType = tipoDePeriodo(selectedPeriod);
-  // Periodo del análisis de ingresos y de gastos (el mismo formato; por defecto, todo el año).
+  // Periodo del análisis por cliente y por proveedor (el mismo formato; por defecto, todo el año).
   const [selectedAnalysisPeriod, setSelectedAnalysisPeriod] = useState('');
   const aniosEmpresa = useAniosEmpresa();
   const availableYears = aniosEmpresa.anios([selectedYear]);
@@ -637,7 +637,15 @@ export default function DashboardPage() {
               ) : !meses.datos ? (
                 <div className="h-72 sm:h-96 animate-pulse bg-slate-100 rounded-lg" />
               ) : periodoVacio ? (
-                <Vacio alto="h-72 sm:h-96">No hay facturas {enPeriodo(selectedYear, selectedPeriod)}.</Vacio>
+                <Vacio alto="h-72 sm:h-96">
+                  {/* El año sí tiene facturas (si no, saldría el aviso del año vacío): se ofrece verlo entero. */}
+                  <span>
+                    No hay facturas {enPeriodo(selectedYear, selectedPeriod)}.{' '}
+                    <button type="button" onClick={() => setSelectedPeriod('')} className="font-medium text-accent-600 underline hover:no-underline">
+                      Ver todo {selectedYear}
+                    </button>
+                  </span>
+                </Vacio>
               ) : (
                 <div className={atenuar(meses)}>
                   <IncomeExpenseChart data={filteredMonths} viewType={incomeExpenseViewType} moneda={moneda} />
