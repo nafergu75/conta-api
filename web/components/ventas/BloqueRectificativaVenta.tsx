@@ -82,6 +82,12 @@ interface Props {
   buscarEnTodas?: boolean;
   /** Ayuda del reparto entre varias facturas, si no sale de las líneas. */
   textoReparto?: string;
+  /** El reparto se escribe sin signo (quien lo usa le pone el de la rectificativa): la propuesta se enseña sin él. */
+  repartoSinSigno?: boolean;
+  /** Empresa española: enseña el tipo R de VERI*FACTU y el artículo de la ley (fuera de España no aplican). */
+  espanola?: boolean;
+  /** Mientras se guarda: nada se puede cambiar. */
+  disabled?: boolean;
 }
 
 const campo =
@@ -117,6 +123,9 @@ export default function BloqueRectificativaVenta({
   sinForma = false,
   buscarEnTodas = false,
   textoReparto,
+  repartoSinSigno = false,
+  espanola = true,
+  disabled = false,
 }: Props) {
   const fmt = (n: number) => formatoImporte(n, monedaCuenta);
   /** El mensaje del error, junto al campo que lo causa (el campo ya lo lee el lector de pantalla con aria-describedby). */
@@ -180,271 +189,281 @@ export default function BloqueRectificativaVenta({
   const sueltos = (opciones?.motivos ?? []).map((m) => m.codigo).filter((c) => !agrupados.has(c));
 
   return (
-    <section id="rv-bloque" aria-labelledby="rv-titulo" className={`space-y-5 rounded-xl border border-violet-200 bg-white ${compacto ? 'p-4' : 'p-4 md:p-5'}`}>
-      <div>
-        <h2 id="rv-titulo" className="font-semibold text-slate-900">
-          {ticket ? '¿Qué ticket rectificas?' : '¿Qué rectificas?'}
-        </h2>
-        {!compacto && (
-          <p className="mt-1 text-sm text-slate-600">
-            {ticket
-              ? 'Busca el ticket o la factura simplificada. La rectificativa va en su propia serie, distinta de la R.'
-              : 'Busca la factura que corriges. Puedes elegir varias del mismo cliente o, para un rappel, un periodo.'}
-          </p>
-        )}
-      </div>
+    <section id="rv-bloque" aria-labelledby="rv-titulo" className={`rounded-xl border border-violet-200 bg-white ${compacto ? 'p-4' : 'p-4 md:p-5'}`}>
+      <fieldset role="none" disabled={disabled} className="m-0 min-w-0 space-y-5 border-0 p-0">
+        <div>
+          <h2 id="rv-titulo" className="font-semibold text-slate-900">
+            {ticket ? '¿Qué ticket rectificas?' : '¿Qué rectificas?'}
+          </h2>
+          {!compacto && (
+            <p className="mt-1 text-sm text-slate-600">
+              {ticket
+                ? 'Busca el ticket o la factura simplificada. La rectificativa va en su propia serie, distinta de la de rectificativas.'
+                : 'Busca la factura que corriges. Puedes elegir varias del mismo cliente o, para un rappel, un periodo.'}
+            </p>
+          )}
+        </div>
 
-      {/* Facturas que se rectifican o periodo */}
-      <fieldset id="rv-originales" tabIndex={-1} className="space-y-3 focus:outline-none" {...marca('rectificativa.originales', 'rectificativa')}>
-        <legend className={etiqueta}>{ticket ? 'Ticket que rectificas' : 'Factura que rectificas'} *</legend>
-        {algunoConPeriodo && (
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <label className={opcion(e.que === 'facturas')}>
-              <input type="radio" name="rv-que" checked={e.que === 'facturas'} onChange={() => elegirQue('facturas')} className="mt-0.5" />
-              <span className="font-medium">{ticket ? 'Uno o varios tickets' : 'Una o varias facturas'}</span>
-            </label>
-            <label className={opcion(e.que === 'periodo')}>
-              <input type="radio" name="rv-que" checked={e.que === 'periodo'} onChange={() => elegirQue('periodo')} className="mt-0.5" />
-              <span>
-                <span className="font-medium">Un periodo</span>
-                <span className="block text-xs text-slate-500">Rappel o descuento sobre lo vendido entre dos fechas.</span>
-              </span>
-            </label>
-          </div>
-        )}
+        {/* Facturas que se rectifican o periodo */}
+        <fieldset id="rv-originales" tabIndex={-1} className="space-y-3 focus:outline-none" {...marca('rectificativa.originales', 'rectificativa')}>
+          <legend className={etiqueta}>{ticket ? 'Ticket que rectificas' : 'Factura que rectificas'} *</legend>
+          {algunoConPeriodo && (
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <label className={opcion(e.que === 'facturas')}>
+                <input type="radio" name="rv-que" checked={e.que === 'facturas'} onChange={() => elegirQue('facturas')} className="mt-0.5" />
+                <span className="font-medium">{ticket ? 'Uno o varios tickets' : 'Una o varias facturas'}</span>
+              </label>
+              <label className={opcion(e.que === 'periodo')}>
+                <input type="radio" name="rv-que" checked={e.que === 'periodo'} onChange={() => elegirQue('periodo')} className="mt-0.5" />
+                <span>
+                  <span className="font-medium">Un periodo</span>
+                  <span className="block text-xs text-slate-500">Rappel o descuento sobre lo vendido entre dos fechas.</span>
+                </span>
+              </label>
+            </div>
+          )}
 
-        {e.que === 'periodo' ? (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <label htmlFor="rv-desde" className={etiqueta}>
-                Desde *
-              </label>
-              <input
-                id="rv-desde"
-                type="date"
-                className={campo}
-                value={e.periodo.desde}
-                onChange={(ev) => cambiar({ periodo: { ...e.periodo, desde: ev.target.value } })}
-                {...marca('rectificativa.periodo', 'rectificativa.periodo.desde')}
-              />
+          {e.que === 'periodo' ? (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <label htmlFor="rv-desde" className={etiqueta}>
+                  Desde *
+                </label>
+                <input
+                  id="rv-desde"
+                  type="date"
+                  className={campo}
+                  value={e.periodo.desde}
+                  onChange={(ev) => cambiar({ periodo: { ...e.periodo, desde: ev.target.value } })}
+                  {...marca('rectificativa.periodo', 'rectificativa.periodo.desde')}
+                />
+              </div>
+              <div>
+                <label htmlFor="rv-hasta" className={etiqueta}>
+                  Hasta *
+                </label>
+                <input
+                  id="rv-hasta"
+                  type="date"
+                  className={campo}
+                  value={e.periodo.hasta}
+                  onChange={(ev) => cambiar({ periodo: { ...e.periodo, hasta: ev.target.value } })}
+                  {...marca('rectificativa.periodo.hasta')}
+                />
+              </div>
+              <p className="text-xs text-slate-500 sm:col-span-2">El periodo sale en la factura en lugar del número de cada venta. Elige también el cliente de la rectificativa.</p>
+              <div className="sm:col-span-2">{mensaje('rectificativa.periodo', 'rectificativa.periodo.desde', 'rectificativa.periodo.hasta')}</div>
             </div>
-            <div>
-              <label htmlFor="rv-hasta" className={etiqueta}>
-                Hasta *
-              </label>
-              <input
-                id="rv-hasta"
-                type="date"
-                className={campo}
-                value={e.periodo.hasta}
-                onChange={(ev) => cambiar({ periodo: { ...e.periodo, hasta: ev.target.value } })}
-                {...marca('rectificativa.periodo.hasta')}
-              />
+          ) : (
+            <div className="space-y-3">
+              {originales.length > 0 && (
+                <ul className="space-y-2">
+                  {originales.map((o, i) => (
+                    <li key={o.clave} id={`rv-original-${i}`} tabIndex={-1} className="rounded-lg border border-slate-200 p-3 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                      {o.origen === 'app' ? (
+                        <OriginalDeApp o={o} d={o.id ? datos[o.id] : undefined} error={o.id ? erroresDatos[o.id] : undefined} fmt={fmt} onQuitar={() => quitar(o.clave)} />
+                      ) : (
+                        <OriginalDeFuera o={o} i={i} fmt={fmt} marca={marca} onCambio={(c) => cambiarOriginal(o.clave, c)} onQuitar={() => quitar(o.clave)} />
+                      )}
+                      {varias && (
+                        <Reparto
+                          o={o}
+                          i={i}
+                          propuesto={o.id ? reparto?.[o.id] : undefined}
+                          sinSigno={repartoSinSigno}
+                          conRetencion={conRetencion}
+                          marca={marca}
+                          onCambio={(c) => cambiarOriginal(o.clave, c)}
+                        />
+                      )}
+                      {mensaje(...['', '.numero', '.fecha', '.base', '.cuota', '.retencion'].map((s) => `rectificativa.originales.${i}${s}`))}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {varias && (
+                <p className="text-xs text-slate-500">
+                  {textoReparto ??
+                    'Reparto: sale de las líneas de cada factura. Cámbialo solo si quieres repartirlo de otra forma; la suma tiene que dar lo mismo que la rectificativa.'}
+                </p>
+              )}
+
+              {caben && (
+                <BuscadorOriginalesVenta
+                  ticket={buscarEnTodas ? null : ticket}
+                  customerId={clienteDelBuscador}
+                  yaElegidas={deApp.map((o) => o.id ?? '')}
+                  numeroInicial={e.originales.length === 0 ? numeroLeido ?? '' : ''}
+                  compacto={compacto}
+                  monedaCuenta={monedaCuenta}
+                  onElegir={(c) => cambiar({ originales: [...e.originales, originalDeCandidata(c)] })}
+                />
+              )}
+              {caben && (
+                <div>
+                  <button
+                    type="button"
+                    aria-expanded={mostrarFuera}
+                    aria-controls="rv-fuera"
+                    onClick={() => setMostrarFuera((v) => !v)}
+                    className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-700 hover:underline"
+                  >
+                    <Plus size={16} /> No está en la app
+                  </button>
+                  {mostrarFuera && (
+                    <FacturaDeFuera
+                      clienteId={clienteBusqueda}
+                      ticket={ticket}
+                      yaElegidas={e.originales.filter((o) => o.origen === 'fuera').map((o) => o.partidaId ?? '')}
+                      monedaCuenta={monedaCuenta}
+                      onElegirPartida={(p) => {
+                        cambiar({ originales: [...e.originales, originalDePartida(p)] });
+                        setMostrarFuera(false);
+                      }}
+                      onEscribir={() => {
+                        cambiar({ originales: [...e.originales, originalDeFuera(e.originales.length === 0 && numeroLeido ? numeroLeido : '')] });
+                        setMostrarFuera(false);
+                      }}
+                    />
+                  )}
+                </div>
+              )}
+              {e.forma === 'S' && e.originales.length === 1 && <p className="text-xs text-slate-500">Por sustitución se corrige una sola factura.</p>}
             </div>
-            <p className="text-xs text-slate-500 sm:col-span-2">El periodo sale en la factura en lugar del número de cada venta. Elige también el cliente de la rectificativa.</p>
-            <div className="sm:col-span-2">{mensaje('rectificativa.periodo', 'rectificativa.periodo.desde', 'rectificativa.periodo.hasta')}</div>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {originales.length > 0 && (
-              <ul className="space-y-2">
-                {originales.map((o, i) => (
-                  <li key={o.clave} id={`rv-original-${i}`} tabIndex={-1} className="rounded-lg border border-slate-200 p-3 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    {o.origen === 'app' ? (
-                      <OriginalDeApp o={o} d={o.id ? datos[o.id] : undefined} error={o.id ? erroresDatos[o.id] : undefined} fmt={fmt} onQuitar={() => quitar(o.clave)} />
-                    ) : (
-                      <OriginalDeFuera o={o} i={i} fmt={fmt} marca={marca} onCambio={(c) => cambiarOriginal(o.clave, c)} onQuitar={() => quitar(o.clave)} />
-                    )}
-                    {varias && (
-                      <Reparto o={o} i={i} propuesto={o.id ? reparto?.[o.id] : undefined} conRetencion={conRetencion} marca={marca} onCambio={(c) => cambiarOriginal(o.clave, c)} />
-                    )}
-                    {mensaje(...['', '.numero', '.fecha', '.base', '.cuota', '.retencion'].map((s) => `rectificativa.originales.${i}${s}`))}
+          )}
+          {mensaje('rectificativa.originales', 'rectificativa')}
+        </fieldset>
+
+        {/* Motivo y forma */}
+        <div className={`grid grid-cols-1 gap-5 ${sinForma ? '' : 'lg:grid-cols-2'}`}>
+          <div>
+            <label htmlFor="rv-motivo" className={etiqueta}>
+              Motivo *
+            </label>
+            {!opciones ? (
+              errorOpciones ? (
+                <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-2 text-sm text-red-700">
+                  No se han podido cargar los motivos: {errorOpciones}{' '}
+                  {onReintentarOpciones && (
+                    <button type="button" onClick={onReintentarOpciones} className="font-medium underline">
+                      Reintentar
+                    </button>
+                  )}
+                </p>
+              ) : (
+                <select id="rv-motivo" className={campo} disabled>
+                  <option>Cargando los motivos…</option>
+                </select>
+              )
+            ) : (
+              <select id="rv-motivo" className={campo} value={motivoEnSelect} onChange={(ev) => elegirMotivo(ev.target.value)} {...marca('rectificativa.motivo', 'tipoFactura')}>
+                <option value="">Elige el motivo…</option>
+                {[...GRUPOS_MOTIVO, { titulo: 'Más motivos', motivos: sueltos }].map((g) => {
+                  const lista = g.motivos.map((m) => opciones.motivos.find((x) => x.codigo === m)).filter((m): m is NonNullable<typeof m> => !!m);
+                  if (!lista.length) return null;
+                  return (
+                    <optgroup key={g.titulo} label={g.titulo}>
+                      {lista.map((m) => (
+                        <option key={m.codigo} value={m.codigo} disabled={!m.disponible || (e.que === 'periodo' && !m.admitePeriodo)}>
+                          {m.texto}
+                          {!m.disponible ? ' (todavía no disponible)' : ''}
+                        </option>
+                      ))}
+                    </optgroup>
+                  );
+                })}
+              </select>
+            )}
+            {(e.motivo === 'ERROR' || e.motivo === 'ERROR_DERECHO') && opciones?.motivos.some((m) => m.codigo === 'ERROR_DERECHO' && m.disponible) && (
+              <label className="mt-2 flex items-start gap-2 text-sm text-slate-700">
+                <input type="checkbox" className="mt-0.5" checked={e.motivo === 'ERROR_DERECHO'} onChange={(ev) => elegirMotivo('ERROR', ev.target.checked)} />
+                <span>
+                  Fue un error al aplicar la ley (por ejemplo, un tipo de IVA equivocado por interpretar mal la norma), no un error al escribir los datos.
+                </span>
+              </label>
+            )}
+            {mensaje('rectificativa.motivo', 'tipoFactura')}
+            {info?.ayuda && <p className={ayuda}>{info.ayuda}</p>}
+            {tipoR && espanola && (
+              <p className="mt-1 text-xs text-slate-600">
+                Para Hacienda (VERI*FACTU) es una {tipoR}: {TEXTO_TIPO_R[tipoR]}
+                {info?.articulo && !ticket ? ` (${info.articulo})` : ''}.
+              </p>
+            )}
+            {info?.aviso && (
+              <p className="mt-2 flex gap-1.5 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+                <WarningCircle size={14} className="mt-0.5 shrink-0" aria-hidden="true" /> {info.aviso}
+              </p>
+            )}
+            {e.que === 'periodo' && <p className={ayuda}>Con un periodo, el motivo es un descuento o un rappel.</p>}
+            {noDisponibles.length > 0 && !compacto && (
+              <ul className="mt-2 space-y-1 text-xs text-slate-500">
+                {noDisponibles.map((m) => (
+                  <li key={m.codigo}>
+                    {m.texto}: {m.aviso ?? 'todavía no se puede hacer desde aquí.'}
                   </li>
                 ))}
               </ul>
             )}
-            {varias && (
-              <p className="text-xs text-slate-500">
-                {textoReparto ??
-                  'Reparto: sale de las líneas de cada factura. Cámbialo solo si quieres repartirlo de otra forma; la suma tiene que dar lo mismo que la rectificativa.'}
-              </p>
-            )}
-
-            {caben && (
-              <BuscadorOriginalesVenta
-                ticket={buscarEnTodas ? null : ticket}
-                customerId={clienteDelBuscador}
-                yaElegidas={deApp.map((o) => o.id ?? '')}
-                numeroInicial={e.originales.length === 0 ? numeroLeido ?? '' : ''}
-                compacto={compacto}
-                monedaCuenta={monedaCuenta}
-                onElegir={(c) => cambiar({ originales: [...e.originales, originalDeCandidata(c)] })}
-              />
-            )}
-            {caben && (
-              <div>
-                <button
-                  type="button"
-                  aria-expanded={mostrarFuera}
-                  aria-controls="rv-fuera"
-                  onClick={() => setMostrarFuera((v) => !v)}
-                  className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-700 hover:underline"
-                >
-                  <Plus size={16} /> No está en la app
-                </button>
-                {mostrarFuera && (
-                  <FacturaDeFuera
-                    clienteId={clienteBusqueda}
-                    ticket={ticket}
-                    yaElegidas={e.originales.filter((o) => o.origen === 'fuera').map((o) => o.partidaId ?? '')}
-                    monedaCuenta={monedaCuenta}
-                    onElegirPartida={(p) => {
-                      cambiar({ originales: [...e.originales, originalDePartida(p)] });
-                      setMostrarFuera(false);
-                    }}
-                    onEscribir={() => {
-                      cambiar({ originales: [...e.originales, originalDeFuera(e.originales.length === 0 && numeroLeido ? numeroLeido : '')] });
-                      setMostrarFuera(false);
-                    }}
-                  />
-                )}
-              </div>
-            )}
-            {e.forma === 'S' && e.originales.length === 1 && <p className="text-xs text-slate-500">Por sustitución se corrige una sola factura.</p>}
           </div>
-        )}
-        {mensaje('rectificativa.originales', 'rectificativa')}
-      </fieldset>
 
-      {/* Motivo y forma */}
-      <div className={`grid grid-cols-1 gap-5 ${sinForma ? '' : 'lg:grid-cols-2'}`}>
-        <div>
-          <label htmlFor="rv-motivo" className={etiqueta}>
-            Motivo *
-          </label>
-          {!opciones ? (
-            errorOpciones ? (
-              <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-2 text-sm text-red-700">
-                No se han podido cargar los motivos: {errorOpciones}{' '}
-                {onReintentarOpciones && (
-                  <button type="button" onClick={onReintentarOpciones} className="font-medium underline">
-                    Reintentar
-                  </button>
-                )}
-              </p>
-            ) : (
-              <select id="rv-motivo" className={campo} disabled>
-                <option>Cargando los motivos…</option>
-              </select>
-            )
-          ) : (
-            <select id="rv-motivo" className={campo} value={motivoEnSelect} onChange={(ev) => elegirMotivo(ev.target.value)} {...marca('rectificativa.motivo', 'tipoFactura')}>
-              <option value="">Elige el motivo…</option>
-              {[...GRUPOS_MOTIVO, { titulo: 'Más motivos', motivos: sueltos }].map((g) => {
-                const lista = g.motivos.map((m) => opciones.motivos.find((x) => x.codigo === m)).filter((m): m is NonNullable<typeof m> => !!m);
-                if (!lista.length) return null;
-                return (
-                  <optgroup key={g.titulo} label={g.titulo}>
-                    {lista.map((m) => (
-                      <option key={m.codigo} value={m.codigo} disabled={!m.disponible || (e.que === 'periodo' && !m.admitePeriodo)}>
-                        {m.texto}
-                        {!m.disponible ? ' (todavía no disponible)' : ''}
-                      </option>
-                    ))}
-                  </optgroup>
-                );
-              })}
-            </select>
-          )}
-          {(e.motivo === 'ERROR' || e.motivo === 'ERROR_DERECHO') && opciones?.motivos.some((m) => m.codigo === 'ERROR_DERECHO' && m.disponible) && (
-            <label className="mt-2 flex items-start gap-2 text-sm text-slate-700">
-              <input type="checkbox" className="mt-0.5" checked={e.motivo === 'ERROR_DERECHO'} onChange={(ev) => elegirMotivo('ERROR', ev.target.checked)} />
-              <span>
-                Fue un error al aplicar la ley (por ejemplo, un tipo de IVA equivocado por interpretar mal la norma), no un error al escribir los datos.
-              </span>
-            </label>
-          )}
-          {mensaje('rectificativa.motivo', 'tipoFactura')}
-          {info?.ayuda && <p className={ayuda}>{info.ayuda}</p>}
-          {tipoR && (
-            <p className="mt-1 text-xs text-slate-600">
-              Para Hacienda (VERI*FACTU) es una {tipoR}: {TEXTO_TIPO_R[tipoR]}
-              {info?.articulo && !ticket ? ` (${info.articulo})` : ''}.
-            </p>
-          )}
-          {info?.aviso && (
-            <p className="mt-2 flex gap-1.5 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
-              <WarningCircle size={14} className="mt-0.5 shrink-0" aria-hidden="true" /> {info.aviso}
-            </p>
-          )}
-          {e.que === 'periodo' && <p className={ayuda}>Con un periodo, el motivo es un descuento o un rappel.</p>}
-          {noDisponibles.length > 0 && !compacto && (
-            <ul className="mt-2 space-y-1 text-xs text-slate-500">
-              {noDisponibles.map((m) => (
-                <li key={m.codigo}>
-                  {m.texto}: {m.aviso ?? 'todavía no se puede hacer desde aquí.'}
-                </li>
-              ))}
-            </ul>
+          {!sinForma && (
+            <fieldset id="rv-forma" tabIndex={-1} className="focus:outline-none" {...marca('rectificativa.forma')}>
+              <legend className={etiqueta}>¿Cómo la rectificas? *</legend>
+              <div className="grid grid-cols-1 gap-2">
+                <label className={opcion(e.forma === 'I')}>
+                  <input id="rv-forma-I" type="radio" name="rv-forma" checked={e.forma === 'I'} onChange={() => cambiar({ forma: 'I' })} className="mt-0.5" />
+                  <span>
+                    <span className="font-medium">Por diferencias</span>
+                    <span className="block text-xs text-slate-500">Solo lo que cambia: lo devuelto o descontado, en negativo.</span>
+                  </span>
+                </label>
+                <label className={opcion(e.forma === 'S', !sustituible)}>
+                  <input
+                    type="radio"
+                    name="rv-forma"
+                    checked={e.forma === 'S'}
+                    disabled={!sustituible}
+                    onChange={() => cambiar({ forma: 'S' })}
+                    aria-describedby={!sustituible && porqueNoSustituir ? 'rv-forma-porque' : undefined}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <span className="font-medium">Por sustitución</span>
+                    <span className="block text-xs text-slate-500">La factura corregida entera, en positivo. Se registra la diferencia con la original.</span>
+                  </span>
+                </label>
+              </div>
+              {!sustituible && porqueNoSustituir && (
+                <p id="rv-forma-porque" className={ayuda}>
+                  {porqueNoSustituir}
+                </p>
+              )}
+              {mensaje('rectificativa.forma')}
+            </fieldset>
           )}
         </div>
 
-        {!sinForma && (
-          <fieldset id="rv-forma" tabIndex={-1} className="focus:outline-none" {...marca('rectificativa.forma')}>
-            <legend className={etiqueta}>¿Cómo la rectificas? *</legend>
-            <div className="grid grid-cols-1 gap-2">
-              <label className={opcion(e.forma === 'I')}>
-                <input id="rv-forma-I" type="radio" name="rv-forma" checked={e.forma === 'I'} onChange={() => cambiar({ forma: 'I' })} className="mt-0.5" />
-                <span>
-                  <span className="font-medium">Por diferencias</span>
-                  <span className="block text-xs text-slate-500">Solo lo que cambia: lo devuelto o descontado, en negativo.</span>
-                </span>
-              </label>
-              <label className={opcion(e.forma === 'S', !sustituible)}>
-                <input
-                  type="radio"
-                  name="rv-forma"
-                  checked={e.forma === 'S'}
-                  disabled={!sustituible}
-                  onChange={() => cambiar({ forma: 'S' })}
-                  aria-describedby={!sustituible && porqueNoSustituir ? 'rv-forma-porque' : undefined}
-                  className="mt-0.5"
-                />
-                <span>
-                  <span className="font-medium">Por sustitución</span>
-                  <span className="block text-xs text-slate-500">La factura corregida entera, en positivo. Se registra la diferencia con la original.</span>
-                </span>
-              </label>
-            </div>
-            {!sustituible && porqueNoSustituir && (
-              <p id="rv-forma-porque" className={ayuda}>
-                {porqueNoSustituir}
-              </p>
-            )}
-            {mensaje('rectificativa.forma')}
-          </fieldset>
-        )}
-      </div>
-
-      <div>
-        <label htmlFor="rv-explicacion" className={etiqueta}>
-          Explicación de la causa *
-        </label>
-        <textarea
-          id="rv-explicacion"
-          rows={2}
-          maxLength={500}
-          className={campo}
-          value={e.explicacion}
-          placeholder="Por ejemplo: el cliente devolvió 2 cajas del pedido 1234"
-          onChange={(ev) => cambiar({ explicacion: ev.target.value })}
-          {...marca('rectificativa.explicacion')}
-        />
-        {mensaje('rectificativa.explicacion')}
-        <p className={ayuda}>
-          {compacto ? 'Queda guardada con la rectificativa. Si la factura trae el motivo, ya lo hemos puesto.' : 'Sale en la factura junto al número de la que rectificas. Hace falta para pasarla a factura.'}
-        </p>
-      </div>
+        <div>
+          <label htmlFor="rv-explicacion" className={etiqueta}>
+            Explicación de la causa *
+          </label>
+          <textarea
+            id="rv-explicacion"
+            rows={2}
+            maxLength={500}
+            className={campo}
+            value={e.explicacion}
+            placeholder="Por ejemplo: el cliente devolvió 2 cajas del pedido 1234"
+            onChange={(ev) => cambiar({ explicacion: ev.target.value })}
+            {...marca('rectificativa.explicacion')}
+          />
+          {mensaje('rectificativa.explicacion')}
+          <p className={ayuda}>
+            {compacto ? 'Queda guardada con la rectificativa. Si la factura trae el motivo, ya lo hemos puesto.' : 'Sale en la factura junto al número de la que rectificas. Hace falta para emitirla.'}
+          </p>
+        </div>
+      </fieldset>
     </section>
   );
 }
@@ -567,6 +586,7 @@ function Reparto({
   o,
   i,
   propuesto,
+  sinSigno,
   conRetencion,
   marca,
   onCambio,
@@ -574,6 +594,8 @@ function Reparto({
   o: OriginalVentaForm;
   i: number;
   propuesto?: ParteReparto;
+  /** Se escribe sin signo: la propuesta se enseña sin él. */
+  sinSigno: boolean;
   conRetencion: boolean;
   marca: Marca;
   onCambio: (c: Partial<OriginalVentaForm>) => void;
@@ -583,19 +605,22 @@ function Reparto({
     ['cuota', 'IVA que le toca'],
     ...(conRetencion ? [['retencion', 'Retención'] as ['retencion', string]] : []),
   ];
+  // Con varias facturas, cada campo dice de cuál es (para quien no ve la tarjeta).
+  const deCual = o.numero.trim() ? ` a la ${o.numero.trim()}` : ` a la factura ${i + 1}`;
   return (
     <div className={`mt-3 grid grid-cols-2 gap-3 border-t border-slate-100 pt-3 ${conRetencion ? 'sm:grid-cols-3' : ''} sm:max-w-lg`}>
       {campos.map(([k, texto]) => (
         <div key={k}>
           <label htmlFor={`rv-original-${i}-${k}`} className="mb-1 block text-xs font-medium text-slate-600">
             {texto}
+            <span className="sr-only">{k === 'retencion' ? ` que le toca${deCual}` : deCual}</span>
           </label>
           <input
             id={`rv-original-${i}-${k}`}
             inputMode="decimal"
             className={`${campo} text-right font-mono`}
             value={o[k]}
-            placeholder={propuesto ? enCampo(propuesto[k]) : 'Escríbelo'}
+            placeholder={propuesto ? enCampo(sinSigno ? Math.abs(propuesto[k]) : propuesto[k]) : 'Escríbelo'}
             onChange={(ev) => onCambio({ [k]: ev.target.value })}
             {...marca(`rectificativa.originales.${i}.${k}`)}
           />
@@ -708,6 +733,15 @@ function BuscadorOriginalesVenta({
           {error}
         </p>
       )}
+      {/* Para el lector de pantalla: cuántas ha encontrado (o que está buscando). */}
+      <p role="status" className="sr-only">
+        {buscando ? 'Buscando…' : r ? (lista.length === 1 ? 'Una factura encontrada.' : `${lista.length} facturas encontradas.`) : ''}
+      </p>
+      {buscando && r && (
+        <p aria-hidden="true" className="text-xs text-slate-500">
+          Buscando…
+        </p>
+      )}
       <ul aria-label="Facturas encontradas" aria-busy={buscando} className="max-h-72 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-200">
         {buscando && !r && <li className="px-3 py-2 text-sm text-slate-500">Buscando…</li>}
         {r && lista.length === 0 && (
@@ -723,10 +757,11 @@ function BuscadorOriginalesVenta({
           <li key={c.id}>
             <button
               type="button"
-              disabled={!c.rectificable}
-              onClick={() => onElegir(c)}
+              // aria-disabled y no disabled: se llega con el teclado y se oye por qué no se puede elegir.
+              aria-disabled={!c.rectificable}
+              onClick={() => c.rectificable && onElegir(c)}
               aria-describedby={!c.rectificable ? `rv-cand-${c.id}` : undefined}
-              className="flex w-full flex-col gap-0.5 px-3 py-2 text-left text-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:bg-transparent"
+              className="flex w-full flex-col gap-0.5 px-3 py-2 text-left text-sm hover:bg-slate-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-70 aria-disabled:hover:bg-transparent"
             >
               <span className="flex flex-wrap items-center gap-2 font-medium text-slate-900">
                 {c.numeroCompleto}
@@ -776,14 +811,16 @@ function FacturaDeFuera({
   const [partidas, setPartidas] = useState<PartidaFueraVenta[] | null>(null);
   const [error, setError] = useState('');
   useEffect(() => {
+    setError('');
     if (!clienteId) {
       setPartidas(null);
       return;
     }
     let vivo = true;
+    setPartidas(null);
     buscarOriginales({ customerId: clienteId, ticket, take: 1 })
       .then((r) => vivo && setPartidas(r.partidasFuera ?? []))
-      .catch((err) => vivo && (setPartidas([]), setError(errorMessage(err))));
+      .catch((err) => vivo && setError(errorMessage(err)));
     return () => {
       vivo = false;
     };
@@ -792,7 +829,11 @@ function FacturaDeFuera({
   return (
     <div id="rv-fuera" className="mt-2 space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
       {clienteId ? (
-        partidas === null ? (
+        error ? (
+          <p role="alert" className="text-sm text-red-700">
+            No se han podido buscar sus facturas de 2026 pendientes: {error} Puedes escribir el número y la fecha.
+          </p>
+        ) : partidas === null ? (
           <p className="text-sm text-slate-500">Buscando sus facturas de 2026 pendientes…</p>
         ) : lista.length > 0 ? (
           <>
@@ -820,7 +861,6 @@ function FacturaDeFuera({
       ) : (
         <p className="text-sm text-slate-600">Elige antes el cliente para ver sus facturas de 2026 pendientes de cobro, o escribe el número y la fecha.</p>
       )}
-      {error && <p className="text-xs text-red-700">{error}</p>}
       <button type="button" onClick={onEscribir} className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-700 hover:underline">
         <Plus size={16} /> Escribir su número y su fecha
       </button>
