@@ -600,14 +600,16 @@ export default function DashboardPage() {
 
         {!sinAccesoResumen && !anioVacio && (
           <>
-            {/* Gráfico de ingresos y gastos por mes */}
+            {/* Gráfico de ingresos y gastos por mes, del año y el periodo de arriba */}
             <section aria-labelledby="grafico-ingresos-gastos" aria-busy={meses.estado === 'cargando'} className="rounded-xl bg-white border border-slate-200 p-4 sm:p-6 md:p-8">
-              <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+              <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
                 <div>
                   <h2 id="grafico-ingresos-gastos" className="text-base font-semibold text-slate-900">
-                    Ingresos y gastos
+                    Ingresos y gastos · {periodoTexto}
                   </h2>
-                  <p className="mt-1 text-xs text-slate-500">Por mes, según la fecha de las facturas, cobradas o no. Los gastos incluyen las nóminas.</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Por mes, según la fecha de las facturas, cobradas o no. Los gastos incluyen las nóminas. El periodo se cambia arriba.
+                  </p>
                 </div>
                 <div className="flex gap-2" role="group" aria-label="Qué enseña el gráfico">
                   <button
@@ -633,19 +635,6 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {/* Filtros del gráfico (los mismos del resumen de arriba) */}
-              <div className="flex items-center gap-3 mb-6 flex-wrap">
-                <SelectorAnio
-                  id="grafico-anio"
-                  etiqueta=""
-                  valor={selectedYear}
-                  anios={availableYears}
-                  onChange={(y) => y !== null && cambiarAnio(y)}
-                  className={CLASE_SELECT}
-                />
-                <SelectorPeriodo id="grafico-periodo" etiqueta="Trimestre o mes del gráfico" anio={selectedYear} valor={selectedPeriod} onChange={setSelectedPeriod} />
-              </div>
-
               {meses.estado === 'error' ? (
                 <ErrorBloque texto="No se ha podido cargar el gráfico." error={meses.error} onReintentar={meses.reintentar} />
               ) : !meses.datos ? (
@@ -667,104 +656,70 @@ export default function DashboardPage() {
               )}
             </section>
 
-            {/* Análisis de ingresos: ventas por cliente */}
-            <section aria-labelledby="analisis-ingresos" aria-busy={clientes.estado === 'cargando'} className="rounded-xl bg-white border border-slate-200 p-4 sm:p-6 md:p-8">
-              <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+            {/* Clientes y proveedores: un solo periodo para los dos análisis (por defecto, todo el año) */}
+            <section aria-labelledby="clientes-proveedores" className="flex flex-col gap-4">
+              <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
-                  <h2 id="analisis-ingresos" className="text-base font-semibold text-slate-900">
-                    Análisis de ingresos
+                  <h2 id="clientes-proveedores" className="text-base font-semibold text-slate-900">
+                    Clientes y proveedores · {nombrePeriodo(selectedYear, selectedAnalysisPeriod)}
                   </h2>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Ventas por cliente, sin IVA, según la fecha de las facturas, cobradas o no. Las rectificativas ya están restadas.
-                  </p>
+                  <p className="mt-1 text-xs text-slate-500">Ventas por cliente y gastos por proveedor, con su propio periodo dentro del año de arriba.</p>
                 </div>
-                <label className="flex items-center gap-2 text-sm text-slate-700">
-                  <span>Agrupar por</span>
-                  <select className={CLASE_SELECT}>
-                    <option>Clientes</option>
-                  </select>
-                </label>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-slate-700" aria-hidden>
+                    Periodo:
+                  </span>
+                  <SelectorPeriodo
+                    id="analisis-periodo"
+                    etiqueta={`Periodo de clientes y proveedores de ${selectedYear}`}
+                    anio={selectedYear}
+                    valor={selectedAnalysisPeriod}
+                    onChange={setSelectedAnalysisPeriod}
+                  />
+                </div>
               </div>
 
-              <div className="flex items-center gap-3 mb-6 flex-wrap">
-                <SelectorAnio
-                  id="ingresos-anio"
-                  etiqueta=""
-                  valor={selectedYear}
-                  anios={availableYears}
-                  onChange={(y) => y !== null && cambiarAnio(y)}
-                  className={CLASE_SELECT}
-                />
-                <SelectorPeriodo
-                  id="ingresos-periodo"
-                  etiqueta="Trimestre o mes del análisis"
-                  anio={selectedYear}
-                  valor={selectedAnalysisPeriod}
-                  onChange={setSelectedAnalysisPeriod}
-                />
-              </div>
+              {/* Análisis de ingresos: ventas por cliente */}
+              <section aria-labelledby="analisis-ingresos" aria-busy={clientes.estado === 'cargando'} className="rounded-xl bg-white border border-slate-200 p-4 sm:p-6 md:p-8">
+                <h3 id="analisis-ingresos" className="text-base font-semibold text-slate-900">
+                  Análisis de ingresos
+                </h3>
+                <p className="mt-1 mb-6 text-xs text-slate-500">
+                  Ventas por cliente, sin IVA, según la fecha de las facturas, cobradas o no. Las rectificativas ya están restadas.
+                </p>
+                {clientes.estado === 'error' ? (
+                  <ErrorBloque texto="No se ha podido cargar el análisis de ingresos." error={clientes.error} onReintentar={clientes.reintentar} />
+                ) : !clientes.datos ? (
+                  <div className="h-64 sm:h-80 animate-pulse bg-slate-100 rounded-lg" />
+                ) : clientes.datos.length === 0 ? (
+                  <Vacio alto="h-64 sm:h-80">No hay facturas de venta {analisisTexto}.</Vacio>
+                ) : (
+                  <div className={atenuar(clientes)}>
+                    <IncomeAnalysisChart clients={clientes.datos} moneda={moneda} conEnlace={!!acceso?.abrirVentas} />
+                  </div>
+                )}
+              </section>
 
-              {clientes.estado === 'error' ? (
-                <ErrorBloque texto="No se ha podido cargar el análisis de ingresos." error={clientes.error} onReintentar={clientes.reintentar} />
-              ) : !clientes.datos ? (
-                <div className="h-64 sm:h-80 animate-pulse bg-slate-100 rounded-lg" />
-              ) : clientes.datos.length === 0 ? (
-                <Vacio alto="h-64 sm:h-80">No hay facturas de venta {analisisTexto}.</Vacio>
-              ) : (
-                <div className={atenuar(clientes)}>
-                  <IncomeAnalysisChart clients={clientes.datos} moneda={moneda} conEnlace={!!acceso?.abrirVentas} />
-                </div>
-              )}
-            </section>
-
-            {/* Detalle de gastos: por proveedor y nóminas */}
-            <section aria-labelledby="detalle-gastos" aria-busy={proveedores.estado === 'cargando'} className="rounded-xl bg-white border border-slate-200 p-4 sm:p-6 md:p-8">
-              <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
-                <div>
-                  <h2 id="detalle-gastos" className="text-base font-semibold text-slate-900">
-                    Detalle de gastos
-                  </h2>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Gastos por proveedor, sin IVA, según la fecha de las facturas, pagadas o no. Los abonos ya están restados.
-                  </p>
-                </div>
-                <label className="flex items-center gap-2 text-sm text-slate-700">
-                  <span>Agrupar por</span>
-                  <select className={CLASE_SELECT}>
-                    <option>Proveedores</option>
-                  </select>
-                </label>
-              </div>
-
-              <div className="flex items-center gap-3 mb-6 flex-wrap">
-                <SelectorAnio
-                  id="gastos-anio"
-                  etiqueta=""
-                  valor={selectedYear}
-                  anios={availableYears}
-                  onChange={(y) => y !== null && cambiarAnio(y)}
-                  className={CLASE_SELECT}
-                />
-                <SelectorPeriodo
-                  id="gastos-periodo"
-                  etiqueta="Trimestre o mes del detalle de gastos"
-                  anio={selectedYear}
-                  valor={selectedAnalysisPeriod}
-                  onChange={setSelectedAnalysisPeriod}
-                />
-              </div>
-
-              {proveedores.estado === 'error' ? (
-                <ErrorBloque texto="No se ha podido cargar el detalle de gastos." error={proveedores.error} onReintentar={proveedores.reintentar} />
-              ) : !proveedores.datos ? (
-                <div className="h-64 sm:h-80 animate-pulse bg-slate-100 rounded-lg" />
-              ) : proveedores.datos.length === 0 ? (
-                <Vacio alto="h-64 sm:h-80">No hay gastos {analisisTexto}.</Vacio>
-              ) : (
-                <div className={atenuar(proveedores)}>
-                  <ExpenseDetailChart suppliers={proveedores.datos} moneda={moneda} conEnlace={!!acceso?.abrirGastos} />
-                </div>
-              )}
+              {/* Detalle de gastos: por proveedor y nóminas */}
+              <section aria-labelledby="detalle-gastos" aria-busy={proveedores.estado === 'cargando'} className="rounded-xl bg-white border border-slate-200 p-4 sm:p-6 md:p-8">
+                <h3 id="detalle-gastos" className="text-base font-semibold text-slate-900">
+                  Detalle de gastos
+                </h3>
+                <p className="mt-1 mb-6 text-xs text-slate-500">
+                  Gastos por proveedor, sin IVA, según la fecha de las facturas, pagadas o no, y las nóminas aparte. Los abonos ya están restados.
+                </p>
+                {proveedores.estado === 'error' ? (
+                  <ErrorBloque texto="No se ha podido cargar el detalle de gastos." error={proveedores.error} onReintentar={proveedores.reintentar} />
+                ) : !proveedores.datos ? (
+                  <div className="h-64 sm:h-80 animate-pulse bg-slate-100 rounded-lg" />
+                ) : proveedores.datos.length === 0 ? (
+                  <Vacio alto="h-64 sm:h-80">No hay gastos {analisisTexto}.</Vacio>
+                ) : (
+                  <div className={atenuar(proveedores)}>
+                    <ExpenseDetailChart suppliers={proveedores.datos} moneda={moneda} conEnlace={!!acceso?.abrirGastos} />
+                  </div>
+                )}
+              </section>
             </section>
 
             <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
