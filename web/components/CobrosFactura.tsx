@@ -653,6 +653,12 @@ function ModalCobro({
       );
     }
     if (!fechaCobro) return setError('Indica la fecha.');
+    // El min= del campo no se impone al escribirla a mano: se comprueba aquí, como en el servidor.
+    const minima = fechaMinima?.slice(0, 10);
+    if (minima && fechaCobro < minima) {
+      fechaRef.current?.focus();
+      return setError(`La fecha no puede ser anterior a la de la factura (${minima.split('-').reverse().join('/')}).`);
+    }
     if (!medio) {
       selectRef.current?.focus();
       return setError(`Falta elegir ${textoMedio}: da de alta la cuenta del banco o elige «Caja / efectivo».`);
