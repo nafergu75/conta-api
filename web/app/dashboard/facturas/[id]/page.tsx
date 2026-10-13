@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Copy, FilePdf, PencilSimple, Prohibit, Receipt, Trash, WarningCircle } from '@phosphor-icons/react';
 import ContabilizarButton from '@/components/ContabilizarButton';
-import { AvisosFactura } from './AvisosFactura';
+import { AvisosFactura, esAvisoDeLaFicha } from './AvisosFactura';
 import CobrosFactura from '@/components/CobrosFactura';
 import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getCompanyId, getUser, tieneAlgunPermiso } from '@/lib/auth';
@@ -13,7 +13,14 @@ import { formatoImporte, NOMBRE_MONEDA, parseTipo, textoTipo, tipoParaEditar } f
 import { conDevengoFuera, ETIQUETA_CORTA, ETIQUETA_LARGA, nombrePais } from '@/lib/fiscal';
 import { useRedSeguridad } from '@/lib/verifactu';
 import AvisoRedSeguridad from '@/components/verifactu/AvisoRedSeguridad';
-import { leerAvisosVenta, type RectificativaVentaResp, TEXTO_TIPO_R, type TipoRectificativaVenta } from '@/lib/rectificativasVenta';
+import {
+  leerAvisosVenta,
+  type RectificativaVentaResp,
+  servidorConRectificativasNuevas,
+  TEXTO_TIPO_R,
+  type TipoRectificativaVenta,
+} from '@/lib/rectificativasVenta';
+import { ModalRectificativaAnterior } from '@/components/ventas/RectificativaServidorAnterior';
 
 interface Linea {
   id: string;
@@ -135,6 +142,8 @@ const ESTADO_PROFORMA: Record<string, { texto: string; clase: string }> = {
 
 const CONFIRMAR_PASAR_A_FACTURA =
   'Una vez pasada a factura recibirá el número de la serie y no se podrá modificar ni borrar; solo corregir con una rectificativa.';
+const CONFIRMAR_EMITIR_RECTIFICATIVA =
+  'Una vez emitida recibirá el número de la serie de rectificativas y no se podrá modificar ni borrar.';
 
 const FORMA_PAGO: Record<string, string> = {
   TRANSFERENCIA: 'Transferencia bancaria',
@@ -159,8 +168,10 @@ export default function FacturaDetallePage() {
   const [ocupado, setOcupado] = useState(false);
   const [error, setError] = useState('');
   const [aviso, setAviso] = useState('');
-  // Avisos del servidor al guardar o emitir en Nueva factura (IVA al periodo de la original, plazos...).
+  // Avisos del servidor al guardar o emitir una rectificativa (IVA al periodo de la original, plazos...).
   const [avisosGuardado, setAvisosGuardado] = useState<Array<{ codigo: string; mensaje: string }>>([]);
+  // Servidor anterior a las rectificativas nuevas: «Hacer rectificativa» abre el modal de siempre.
+  const [rectificandoAnterior, setRectificandoAnterior] = useState(false);
   // VERI*FACTU: desde el 1-1-2027, sin VERI*FACTU activo no se emite (el borrador si se guarda).
   const redSeguridad = useRedSeguridad();
   // Emitida pero sin asiento (p. ej. sin plan contable): lo dice la respuesta de emitir.
@@ -262,6 +273,9 @@ export default function FacturaDetallePage() {
           ? 'heredado'
           : 'definitivo';
 
+  // Los de guardar o emitir la rectificativa, sin los que ya enseña AvisosFactura (NIF-IVA del cliente...).
+  const avisosPropios = avisosGuardado.filter((a) => !esAvisoDeLaFicha(a.codigo));
+
   const esProforma = factura.estadoDocumento === 'PROFORMA';
   const esBorrador = factura.estadoDocumento === 'BORRADOR';
   const esFinal = factura.estadoDocumento === 'FINAL';
@@ -288,17 +302,31 @@ export default function FacturaDetallePage() {
         : 'Borrador de factura'
       : `${factura.esRectificativa ? 'Rectificativa' : 'Factura'} ${factura.numeroCompleto}`;
 
+  // Una rectificativa de una factura de la app hereda su tipo de cambio: no se pregunta al emitirla.
+  const tipoHeredado =
+    factura.esRectificativa &&
+    (factura.fuenteTipoCambio === 'HEREDADO' || !!factura.facturaOriginalId || (factura.rectificativa?.originales ?? []).some((o) => o.enApp));
+  const confirmarEmitir = factura.esRectificativa ? CONFIRMAR_EMITIR_RECTIFICATIVA : CONFIRMAR_PASAR_A_FACTURA;
+
   const emitir = () => {
     // undefined: lo decide el servidor; null: volver al del BCE.
     let tipoCambio: number | null | undefined;
-    if (enDivisa) {
+    if (enDivisa && tipoHeredado) {
+      if (
+        !window.confirm(
+          `Vas a emitir la rectificativa por ${fmtDoc(totalDoc)} con fecha de hoy, con el tipo de cambio de la factura que rectifica.\n\n${confirmarEmitir}`,
+        )
+      ) {
+        return;
+      }
+    } else if (enDivisa) {
       // En divisa se aplica el tipo del BCE de la fecha de la operacion, salvo que se indique otro.
       // El manual del borrador se propone con todos sus decimales (aceptarlo no lo cambia).
       const actual = factura.fuenteTipoCambio === 'MANUAL' && factura.tipoCambio ? tipoParaEditar(factura.tipoCambio) : '';
       const respuesta = window.prompt(
         `Vas a ${factura.esRectificativa ? 'emitir la rectificativa' : 'pasar a factura'} por ${fmtDoc(totalDoc)} con fecha de hoy.\n\n` +
           `Tipo de cambio: déjalo vacío para aplicar el de referencia del BCE de la fecha de la operación, o escribe el tuyo (1 ${monedaCuenta} = … ${moneda}).\n\n` +
-          CONFIRMAR_PASAR_A_FACTURA,
+          confirmarEmitir,
         actual,
       );
       if (respuesta === null) return;
@@ -315,7 +343,7 @@ export default function FacturaDetallePage() {
       }
     } else if (
       !window.confirm(
-        `Vas a ${factura.esRectificativa ? 'emitir la rectificativa' : 'pasar a factura'} por ${fmtDoc(totalDoc)} con fecha de hoy.\n\n${CONFIRMAR_PASAR_A_FACTURA}`,
+        `Vas a ${factura.esRectificativa ? 'emitir la rectificativa' : 'pasar a factura'} por ${fmtDoc(totalDoc)} con fecha de hoy.\n\n${confirmarEmitir}`,
       )
     ) {
       return;
@@ -323,18 +351,38 @@ export default function FacturaDetallePage() {
     accion(async () => {
       // Operación de un periodo cuyo 303 presenta la gestoría: se pregunta antes de emitirla.
       const emitida = await conDevengoFuera((extra) =>
-        apiFetch<{ invoice: { contabilizada?: boolean; motivoSinAsiento?: string | null } }>(companyPath(`/income-invoices/${id}/finalizar`), {
-          method: 'POST',
-          body: JSON.stringify({ ...(tipoCambio !== undefined ? { tipoCambio } : {}), ...extra }),
-        }),
+        apiFetch<{ invoice: { contabilizada?: boolean; motivoSinAsiento?: string | null; avisosFiscales?: Array<{ codigo: string; mensaje: string }> } }>(
+          companyPath(`/income-invoices/${id}/finalizar`),
+          {
+            method: 'POST',
+            body: JSON.stringify({ ...(tipoCambio !== undefined ? { tipoCambio } : {}), ...extra }),
+          },
+        ),
       );
       if (emitida === null) return;
       if (emitida.r.invoice.contabilizada === false) setSinAsiento(emitida.r.invoice.motivoSinAsiento || 'No se pudo contabilizar.');
+      // Rectificativa: los avisos que no bloquean (IVA al periodo de la original, plazos, modelo 952...).
+      const nuevos = factura.esRectificativa ? emitida.r.invoice.avisosFiscales ?? [] : [];
+      if (nuevos.length) setAvisosGuardado((prev) => [...prev, ...nuevos].filter((a, i, arr) => arr.findIndex((b) => b.codigo === a.codigo) === i));
       await cargar();
       const hecho = factura.esRectificativa ? 'Rectificativa emitida.' : 'Factura emitida.';
       setAviso(emitida.aviso ? `${hecho} ${emitida.aviso}` : hecho);
     });
   };
+
+  /**
+   * Abre Nueva factura con esta elegida y sus líneas en negativo (un ticket, F2,
+   * se rectifica con R5). Con el servidor anterior a las rectificativas nuevas,
+   * el modal de siempre, que anula la factura entera.
+   */
+  const hacerRectificativa = () =>
+    accion(async () => {
+      if (await servidorConRectificativasNuevas()) {
+        router.push(`/dashboard/facturas/nueva?rectifica=${encodeURIComponent(id)}${factura.tipoFactura === 'F2' ? '&ticket=1' : ''}`);
+      } else {
+        setRectificandoAnterior(true);
+      }
+    });
 
   // Proforma aceptada por el cliente: se crea un borrador de factura con sus datos.
   const pasarProformaAFactura = () => {
@@ -465,12 +513,9 @@ export default function FacturaDetallePage() {
             {/* Una rectificativa no se rectifica, y una factura ya anulada entera tampoco (el servidor da 400 o 409).
                 Abre Nueva factura con esta elegida y sus líneas en negativo; un ticket (F2) se rectifica con R5. */}
             {!factura.esRectificativa && !anulada && (
-              <Link
-                href={`/dashboard/facturas/nueva?rectifica=${encodeURIComponent(id)}${factura.tipoFactura === 'F2' ? '&ticket=1' : ''}`}
-                className={boton}
-              >
+              <button type="button" disabled={ocupado} onClick={hacerRectificativa} className={boton}>
                 Hacer rectificativa
-              </Link>
+              </button>
             )}
           </>
         )}
@@ -478,9 +523,9 @@ export default function FacturaDetallePage() {
 
       <AvisosFactura facturaId={id} />
 
-      {avisosGuardado.length > 0 && (
+      {avisosPropios.length > 0 && (
         <ul role="status" className="space-y-1 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-          {avisosGuardado.map((a) => (
+          {avisosPropios.map((a) => (
             <li key={a.codigo} className="flex gap-2">
               <WarningCircle size={16} className="mt-0.5 shrink-0" aria-hidden="true" /> {a.mensaje}
             </li>
@@ -519,7 +564,7 @@ export default function FacturaDetallePage() {
         </p>
       )}
 
-      {factura.esRectificativa && <DatosRectificativa factura={factura} original={original} fmt={fmtCuenta} />}
+      {factura.esRectificativa && <DatosRectificativa factura={factura} original={original} fmt={fmtCuenta} espanola={!sinIva} />}
 
       <section className="grid grid-cols-2 gap-4 rounded-xl border border-slate-200 bg-white p-5 md:grid-cols-4">
         <Dato etiqueta="Número" valor={factura.numeroCompleto ?? '—'} />
@@ -715,6 +760,15 @@ export default function FacturaDetallePage() {
           )}
         </section>
       )}
+
+      {rectificandoAnterior && (
+        <ModalRectificativaAnterior
+          factura={factura}
+          redSeguridad={redSeguridad}
+          onCerrar={() => setRectificandoAnterior(false)}
+          onCreada={(nuevaId) => router.push(`/dashboard/facturas/${nuevaId}`)}
+        />
+      )}
     </div>
   );
 }
@@ -727,7 +781,18 @@ const esTipoR = (t: string): t is TipoRectificativaVenta => t in TEXTO_TIPO_R;
  * rappel; el tipo, la forma y la causa. Las anteriores al bloque
  * `rectificativa` salen de facturaOriginalId o rectificaFuera.
  */
-function DatosRectificativa({ factura, original, fmt }: { factura: Factura; original: Factura | null; fmt: (n: number) => string }) {
+function DatosRectificativa({
+  factura,
+  original,
+  fmt,
+  espanola,
+}: {
+  factura: Factura;
+  original: Factura | null;
+  fmt: (n: number) => string;
+  /** Fuera de España no hay tipos R de VERI*FACTU: solo la forma y la causa. */
+  espanola: boolean;
+}) {
   const r = factura.rectificativa ?? null;
   const forma = (r?.forma ?? factura.tipoRectificativa) === 'S' ? 'Por sustitución' : 'Por diferencias';
   const originales = r?.originales ?? [];
@@ -780,8 +845,8 @@ function DatosRectificativa({ factura, original, fmt }: { factura: Factura; orig
         </p>
       )}
       <p className="text-slate-600">
-        {forma}.{' '}
-        {esTipoR(factura.tipoFactura) ? `Tipo ${factura.tipoFactura}: ${TEXTO_TIPO_R[factura.tipoFactura]}.` : `Tipo ${factura.tipoFactura}.`}
+        {forma}.
+        {espanola && (esTipoR(factura.tipoFactura) ? ` Tipo ${factura.tipoFactura}: ${TEXTO_TIPO_R[factura.tipoFactura]}.` : ` Tipo ${factura.tipoFactura}.`)}
       </p>
       {causa.length > 0 && <p>Causa: {causa.join('. ')}</p>}
     </section>
