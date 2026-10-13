@@ -207,9 +207,12 @@ export function Pendientes() {
   const user = getUser();
   const puedeEscribir = tieneAlgunPermiso(user, ['tesoreria:write']);
   const puedeVender = tieneAlgunPermiso(user, ['ventas:write']);
-  /** Abono (rectificativa) de una factura de venta que solo está en la cartera de la gestoría: cita su número y su fecha. */
+  /**
+   * Abono (rectificativa) de una factura de venta que solo está en la cartera de la gestoría: cita su
+   * número y su fecha, y lleva la partida para que el abono rebaje lo pendiente de esa factura.
+   */
   const enlaceAbono = (p: PartidaVista) =>
-    `/dashboard/facturas/nueva?${new URLSearchParams({ rectificaFuera: '1', numero: p.numeroDocumento, fecha: p.fechaDocumento ?? '', cliente: p.customerId ?? '' }).toString()}`;
+    `/dashboard/facturas/nueva?${new URLSearchParams({ rectificaFuera: '1', numero: p.numeroDocumento, fecha: p.fechaDocumento ?? '', cliente: p.customerId ?? '', partida: p.id }).toString()}`;
   const [tipo, setTipo] = useState('');
   const [estado, setEstado] = useState('ABIERTAS');
   const [q, setQ] = useState('');
