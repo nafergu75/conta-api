@@ -202,7 +202,7 @@ export default function PanelLectura({ info, lector, revisado, onRevisado, conCa
               return (
                 <li key={id} className={`rounded-lg border p-3 ${error ? 'border-rose-200 bg-rose-50 text-rose-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
                   <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                    <span className="font-semibold">{etiquetaCampo(id, lector, variosTramos, c.tipoIva)}</span>
+                    <span className="font-semibold">{etiquetaCampo(id, lector, variosTramos, c.tipoIva, info.tercero?.numeroFiscal)}</span>
                     <span className="text-xs font-semibold uppercase tracking-wide">{etiquetaEstado(lector, error, !sinArreglo.includes(id))}</span>
                   </div>
                   <p className="mt-1 break-words">
@@ -218,7 +218,7 @@ export default function PanelLectura({ info, lector, revisado, onRevisado, conCa
                       ))}
                     </ul>
                   )}
-                  {c.sugerencia && !mencionaQr(c) && <p className="mt-1 break-words font-medium">{c.sugerencia}</p>}
+                  {c.sugerencia && !mencionaQr(c) && !c.motivos.some((m) => m.includes(c.sugerencia as string)) && <p className="mt-1 break-words font-medium">{c.sugerencia}</p>}
                 </li>
               );
             })}
