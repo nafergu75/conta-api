@@ -1204,14 +1204,16 @@ function FormularioFactura() {
       if (esRect) setModoGuardado(ticket ? 'ticket' : 'rectificativa');
       if (emitir && !esProforma) {
         // Operación de un periodo cuyo 303 presenta la gestoría: se pregunta antes de emitirla.
-        const emitida = await conDevengoFuera((extra) =>
-          apiFetch<{ invoice: { contabilizada?: boolean; motivoSinAsiento?: string | null; avisosFiscales?: AvisoFiscal[] } }>(
-            companyPath(`/income-invoices/${id}/finalizar`),
-            {
-              method: 'POST',
-              body: JSON.stringify({ fechaEmision, ...(enDivisa && !tipoHeredado && tipoManual.trim() ? { tipoCambio: manual } : {}), ...extra }),
-            },
-          ),
+        const emitida = await conDevengoFuera(
+          (extra) =>
+            apiFetch<{ invoice: { contabilizada?: boolean; motivoSinAsiento?: string | null; avisosFiscales?: AvisoFiscal[] } }>(
+              companyPath(`/income-invoices/${id}/finalizar`),
+              {
+                method: 'POST',
+                body: JSON.stringify({ fechaEmision, ...(enDivisa && !tipoHeredado && tipoManual.trim() ? { tipoCambio: manual } : {}), ...extra }),
+              },
+            ),
+          esRect ? '¿La emites igualmente?' : undefined,
         );
         if (emitida === null) {
           // Sin confirmar: queda guardada como borrador.
