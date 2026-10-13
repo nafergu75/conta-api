@@ -19,6 +19,11 @@ import { hoyIso } from '@/lib/anios';
  * Abono de proveedor (factura de gasto en negativo): no se paga, el proveedor
  * devuelve lo que queda a tu favor. Aqui se registra esa devolucion (el
  * servidor la guarda en negativo; se escribe en positivo).
+ *
+ * Abono de venta (factura de venta en negativo): lo que no se come la factura
+ * que rectifica queda a favor del cliente (`aFavor`, de la ficha) y aqui se
+ * registra su devolucion al cliente (en positivo; el servidor la guarda en
+ * negativo, con el asiento de la cuenta del cliente contra el banco o la caja).
  */
 
 type Tipo = 'INGRESO' | 'GASTO';
@@ -101,6 +106,20 @@ const TEXTOS_ABONO = {
   nada: 'Todavía no hay devoluciones.',
   sinBancos: 'No hay cuentas bancarias activas: créalas en Tesorería para registrar lo recibido en el banco.',
 } as const;
+/** Abono de venta: lo que se registra es la devolución al cliente. */
+const TEXTOS_DEVOLUCION_CLIENTE = {
+  ruta: 'income-invoices',
+  recurso: 'cobros',
+  uno: 'devolución',
+  titulo: 'Devoluciones al cliente',
+  registrar: 'Registrar devolución',
+  hecho: 'Devolución registrada.',
+  nada: 'Todavía no hay devoluciones.',
+  sinBancos: 'No hay cuentas bancarias activas: créalas en Tesorería para devolver por banco.',
+} as const;
+
+/** Textos según el tipo y si es un abono (devoluciones en vez de cobros o pagos). */
+const textosDe = (tipo: Tipo, abono: boolean) => (!abono ? TEXTOS[tipo] : tipo === 'GASTO' ? TEXTOS_ABONO : TEXTOS_DEVOLUCION_CLIENTE);
 
 export default function CobrosFactura({
   tipo,
@@ -110,6 +129,7 @@ export default function CobrosFactura({
   moneda: monedaProp = 'EUR',
   monedaCuenta: monedaCuentaProp = 'EUR',
   abono = false,
+  aFavor,
   onCambio,
 }: {
   tipo: Tipo;
@@ -120,13 +140,16 @@ export default function CobrosFactura({
   /** Moneda de la factura y de la contabilidad (por defecto EUR: las compras van siempre en la de cuenta). */
   moneda?: string;
   monedaCuenta?: string;
-  /** Abono de proveedor (gasto en negativo): devoluciones recibidas en vez de pagos. */
+  /** Abono (factura en negativo): devoluciones recibidas (gasto) o devoluciones al cliente (venta). */
   abono?: boolean;
+  /** Abono de venta: lo que queda a favor del cliente (tope de la devolución), de la ficha. */
+  aFavor?: number;
   /** Se llama tras registrar o anular (para recargar la factura). */
   onCambio?: () => void;
 }) {
-  const esAbono = tipo === 'GASTO' && abono;
-  const t = esAbono ? TEXTOS_ABONO : TEXTOS[tipo];
+  const esAbono = abono;
+  const abonoVenta = abono && tipo === 'INGRESO';
+  const t = textosDe(tipo, esAbono);
   const base = companyPath(`/${t.ruta}/${facturaId}/${t.recurso}`);
   const [resumen, setResumen] = useState<Resumen | null>(null);
   const [error, setError] = useState('');
@@ -170,8 +193,10 @@ export default function CobrosFactura({
     }
   };
 
-  // En un abono el pendiente llega en negativo: lo que queda a tu favor, en positivo.
-  const pendiente = esAbono ? -(resumen?.importePendiente ?? 0) : resumen?.importePendiente ?? 0;
+  // En un abono el pendiente llega en negativo: lo que queda a tu favor, en positivo. En uno de
+  // venta, lo que queda a favor del cliente lo dice la ficha (aFavor).
+  const pendiente = abonoVenta && aFavor !== undefined ? Math.max(0, aFavor) : esAbono ? -(resumen?.importePendiente ?? 0) : resumen?.importePendiente ?? 0;
+  const devuelto = (resumen?.cobros ?? []).filter((c) => c.estado === 'ACTIVO').reduce((a, c) => a + Math.abs(c.importeDoc ?? c.importe), 0);
   const compensado = Math.abs(resumen?.importeCompensado ?? 0);
 
   return (
@@ -181,7 +206,12 @@ export default function CobrosFactura({
           <h2 className="font-semibold text-slate-900">{t.titulo}</h2>
           {resumen && (
             <p className="mt-0.5 text-sm text-slate-600">
-              {esAbono ? (
+              {abonoVenta ? (
+                <>
+                  Devuelto {fmt(Math.round(devuelto * 100) / 100)} ·{' '}
+                  <span className={`font-semibold ${pendiente > 0 ? 'text-amber-700' : 'text-green-700'}`}>A favor del cliente: {fmt(pendiente)}</span>
+                </>
+              ) : esAbono ? (
                 <>
                   Devuelto o aplicado {fmt(Math.abs(resumen.importeCobrado))} de {fmt(Math.abs(resumen.totalFactura))} ·{' '}
                   <span className={`font-semibold ${pendiente > 0 ? 'text-amber-700' : 'text-green-700'}`}>A tu favor: {fmt(pendiente)}</span>
@@ -214,7 +244,11 @@ export default function CobrosFactura({
       {error && <p role="alert" className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
       {aviso && <p role="status" className="mt-3 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">{aviso}</p>}
 
-      {resumen && resumen.cobros.length === 0 && <p className="mt-3 text-sm text-slate-500">{t.nada}</p>}
+      {resumen && resumen.cobros.length === 0 && (
+        <p className="mt-3 text-sm text-slate-500">
+          {abonoVenta && pendiente <= 0 ? 'No hay nada que devolver: el abono se ha descontado de lo que debía el cliente.' : t.nada}
+        </p>
+      )}
       {resumen && resumen.cobros.length > 0 && (
         <ul className="mt-3 divide-y divide-slate-100 text-sm">
           {resumen.cobros.map((c) => (
@@ -291,7 +325,7 @@ function ModalCobro({
   onHecho,
 }: {
   tipo: Tipo;
-  /** Devolución recibida de un abono de proveedor (el pendiente es lo que queda a tu favor). */
+  /** Devolución de un abono (el pendiente es lo que queda a favor: el tuyo en compras, el del cliente en ventas). */
   abono?: boolean;
   base: string;
   /** Subcuenta del tercero (null si aun no tiene: la recibe al registrar). */
@@ -306,7 +340,8 @@ function ModalCobro({
   onCerrar: () => void;
   onHecho: (r: Resumen) => void;
 }) {
-  const t = abono ? TEXTOS_ABONO : TEXTOS[tipo];
+  const t = textosDe(tipo, abono);
+  const abonoVenta = abono && tipo === 'INGRESO';
   const enDivisa = moneda !== monedaCuenta;
   const fmt = (n: number) => formatoImporte(n, moneda);
   const fmtCuenta = (n: number) => formatoImporte(n, monedaCuenta);
@@ -380,7 +415,13 @@ function ModalCobro({
   const guardar = async () => {
     if (!Number.isFinite(valor) || valor <= 0) return setError('Indica un importe mayor que cero.');
     if (Math.round(valor * 100) > Math.round(pendiente * 100)) {
-      return setError(abono ? `El importe no puede superar lo que queda a tu favor (${fmt(pendiente)}).` : `El importe no puede superar lo pendiente (${fmt(pendiente)}).`);
+      return setError(
+        abonoVenta
+          ? `El importe no puede superar lo que queda a favor del cliente (${fmt(pendiente)}).`
+          : abono
+            ? `El importe no puede superar lo que queda a tu favor (${fmt(pendiente)}).`
+            : `El importe no puede superar lo pendiente (${fmt(pendiente)}).`,
+      );
     }
     if (!fechaCobro) return setError('Indica la fecha.');
     const divisa: Record<string, number> = {};
@@ -431,8 +472,16 @@ function ModalCobro({
           </button>
         </div>
         <p className="text-sm text-slate-600">
-          {abono ? 'A tu favor' : 'Pendiente'}: <span className="font-semibold">{fmt(pendiente)}</span>. Puedes registrar una parte; se genera su asiento{' '}
-          {tipo === 'INGRESO' ? '(banco o caja contra la cuenta del cliente)' : abono ? '(banco o caja contra la cuenta del proveedor)' : '(cuenta del proveedor contra banco o caja)'}.
+          {abonoVenta ? 'A favor del cliente' : abono ? 'A tu favor' : 'Pendiente'}: <span className="font-semibold">{fmt(pendiente)}</span>. Puedes registrar una
+          parte; se genera su asiento{' '}
+          {abonoVenta
+            ? '(cuenta del cliente contra banco o caja)'
+            : tipo === 'INGRESO'
+              ? '(banco o caja contra la cuenta del cliente)'
+              : abono
+                ? '(banco o caja contra la cuenta del proveedor)'
+                : '(cuenta del proveedor contra banco o caja)'}
+          .
         </p>
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -447,7 +496,7 @@ function ModalCobro({
           </div>
         </div>
         <div>
-          <label htmlFor="cobro-cuenta" className="mb-1 block text-sm font-medium text-slate-700">{tipo === 'INGRESO' ? 'Dónde se cobra' : abono ? 'Dónde lo recibes' : 'Desde dónde se paga'}</label>
+          <label htmlFor="cobro-cuenta" className="mb-1 block text-sm font-medium text-slate-700">{abonoVenta ? 'Desde dónde se devuelve' : tipo === 'INGRESO' ? 'Dónde se cobra' : abono ? 'Dónde lo recibes' : 'Desde dónde se paga'}</label>
           {cuentas === null ? (
             <p className="text-sm text-slate-500">Cargando cuentas…</p>
           ) : (
