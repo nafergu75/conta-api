@@ -471,11 +471,13 @@ interface Props {
   ingreso: IngresoExtraido;
   /** Cliente leído (encontrado por su NIF, dado de alta o elegido): para sus facturas de 2026 pendientes. */
   clienteLeidoId: string | null;
+  /** País del cliente según lo leído (lectura.tercero.pais), para nombrar el número leído. null: no se sabe. */
+  paisLeido?: string | null;
   disabled?: boolean;
 }
 
 /** Aviso, pregunta del signo, bloque «¿Qué rectificas?» e importes de la original, debajo de lo leído. */
-export default function RectificativaVentaLector({ rv, ingreso, clienteLeidoId, disabled }: Props) {
+export default function RectificativaVentaLector({ rv, ingreso, clienteLeidoId, paisLeido, disabled }: Props) {
   const { leida, estado, error } = rv;
   const r = estado.rect;
 
@@ -592,7 +594,7 @@ export default function RectificativaVentaLector({ rv, ingreso, clienteLeidoId, 
               <p className="flex gap-1.5 rounded-lg border border-amber-200 bg-amber-50 p-2 text-amber-900">
                 <WarningCircle size={16} className="mt-0.5 shrink-0" aria-hidden="true" />
                 <span>
-                  En la factura se leyó el {numeroFiscalEnFrase(rv.clienteOriginal?.pais)} {nifLeido || 'de otro cliente'}, que no es el de este cliente. Comprueba que la factura que rectifica es la buena.
+                  En la factura se leyó el {paisLeido ? numeroFiscalEnFrase(paisLeido) : 'número fiscal'} {nifLeido || 'de otro cliente'}, que no es el de este cliente. Comprueba que la factura que rectifica es la buena.
                 </span>
               </p>
             )}
