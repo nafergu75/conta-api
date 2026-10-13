@@ -84,8 +84,12 @@ export interface CatalogoCuentas {
 /**
  * Cuentas activas del plan para las lineas de una factura (una sola peticion
  * por formulario: todas las lineas comparten el catalogo).
+ *
+ * `rectificativa`: rectificativa o abono de venta. El servidor anade a la lista
+ * la 706, la 708 y la 709 (descuentos, devoluciones y rappels) para elegirlas en
+ * «Cambiar cuenta»; ninguna se propone sola.
  */
-export function useCuentasLinea(tipo: TipoCuentaLinea, activo = true): CatalogoCuentas {
+export function useCuentasLinea(tipo: TipoCuentaLinea, activo = true, { rectificativa = false }: { rectificativa?: boolean } = {}): CatalogoCuentas {
   const [listado, setListado] = useState<ListadoCuentasLinea | null>(null);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState('');
@@ -95,7 +99,7 @@ export function useCuentasLinea(tipo: TipoCuentaLinea, activo = true): CatalogoC
     if (!activo) return;
     let vigente = true;
     setCargando(true);
-    apiFetch<ListadoCuentasLinea>(companyPath(`/cuentas-linea?tipo=${tipo}`))
+    apiFetch<ListadoCuentasLinea>(companyPath(`/cuentas-linea?tipo=${tipo}${rectificativa ? '&rectificativa=1' : ''}`))
       .then((l) => {
         if (!vigente) return;
         setListado(l);
@@ -106,7 +110,7 @@ export function useCuentasLinea(tipo: TipoCuentaLinea, activo = true): CatalogoC
     return () => {
       vigente = false;
     };
-  }, [tipo, activo, vuelta]);
+  }, [tipo, activo, rectificativa, vuelta]);
 
   // Nombres sueltos (GET /cuentas-linea/nombres), fuera de la lista, por «tipo:codigo».
   const [sueltos, setSueltos] = useState<Record<string, string>>({});
