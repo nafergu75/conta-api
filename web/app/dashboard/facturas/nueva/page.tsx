@@ -31,6 +31,7 @@ import { useAvisoPlanAnterior } from '@/components/contabilidad/AvisoPlanAnterio
 import BloqueRectificativaVenta from '@/components/ventas/BloqueRectificativaVenta';
 import { AvisoServidorAnterior, BloqueRectificaFueraAnterior } from '@/components/ventas/RectificativaServidorAnterior';
 import {
+  anuladaEntera,
   bloqueParaEnviar,
   diferenciaSustitucion,
   estadoDesdeResp,
@@ -1335,6 +1336,8 @@ function FormularioFactura() {
       : idsApp.length === 1
         ? `las de la ${sustitutas[0]}, que sustituyó a la factura que rectificas`
         : `las de cada factura que rectificas (de su sustituta si se sustituyó: ${sustitutas.join(', ')})`;
+  // Anulada por completo: solo se puede deshacer la anulación, con las líneas en positivo.
+  const anuladas = idsApp.map((id) => datos[id]).filter((d): d is NonNullable<typeof d> => !!d && anuladaEntera(d)).map((d) => d.original.numeroCompleto);
 
   // Reparto entre varias facturas: sin signo, y lo que tienen que sumar.
   const textoReparto =
@@ -1766,7 +1769,9 @@ function FormularioFactura() {
           <p className="border-b border-slate-100 px-5 py-2 text-sm text-slate-600">
             {sustitucion
               ? 'Escribe la factura corregida entera, en positivo. Se registra solo la diferencia con la original.'
-              : conOriginalApp
+              : conOriginalApp && anuladas.length > 0
+                ? `${anuladas.length === 1 ? `La ${anuladas[0]} ya está anulada` : `Las ${anuladas.join(', ')} ya están anuladas`} por completo: salen sus líneas en positivo, que es como se deshace la anulación. Elige el motivo (una devolución, un descuento, un rappel, un impago o un concurso no valen: solo restan) y explica por qué se deshace.`
+                : conOriginalApp
                 ? `Salen ${deDondeSalen}, en negativo. Deja solo lo que se devuelve o se descuenta y ajusta las cantidades. Un rappel puede ir en una línea: 1 × -500.`
                 : 'Escribe lo que cambia: en negativo lo que baja, como una devolución o un descuento.'}
             {propuestaPendiente &&
@@ -2033,8 +2038,9 @@ function FormularioFactura() {
           )}
           {esRect && !sustitucion && idsApp.length === 1 && datosPrincipal && calculo.cuenta && calculo.cuenta.total < 0 && -calculo.cuenta.total > datosPrincipal.restante.total + 0.005 && (
             <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-              Resta {fmtCuenta(-calculo.cuenta.total)} y de la {datosPrincipal.original.numeroCompleto} solo queda por rectificar {fmtCuenta(datosPrincipal.restante.total)}.
-              Revisa las líneas: así no se podrá guardar.
+              {anuladaEntera(datosPrincipal)
+                ? `La ${datosPrincipal.original.numeroCompleto} ya está anulada por completo: no se puede restar más. Si quieres deshacer la anulación, escribe las líneas en positivo.`
+                : `Resta ${fmtCuenta(-calculo.cuenta.total)} y de la ${datosPrincipal.original.numeroCompleto} solo queda por rectificar ${fmtCuenta(datosPrincipal.restante.total)}. Revisa las líneas: así no se podrá guardar.`}
             </p>
           )}
           {enDivisa && (
