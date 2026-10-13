@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CheckCircle, MagnifyingGlass, UserPlus, WarningCircle, X } from '@phosphor-icons/react';
+import { ArrowLineLeft, ArrowLineRight, CheckCircle, DotsSixVertical, MagnifyingGlass, UserPlus, WarningCircle, X } from '@phosphor-icons/react';
 import { ApiError, apiFetch, campoDelError, companyPath, errorMessage } from '@/lib/api';
 import { PAISES, pareceNifIvaUe } from '@/lib/fiscal';
 import { paisDelPrefijo } from '@/lib/compras';
@@ -29,6 +29,10 @@ import { useAvisoPlanAnterior } from '@/components/contabilidad/AvisoPlanAnterio
  *   PLAN_ANTERIOR_PENDIENTE y sale el mismo aviso que en Clientes y
  *   Proveedores (AvisoPlanAnterior), encima de la ficha.
  * - Una vez enlazado, el aviso pasa a verde («Dado de alta»).
+ * - En pantallas anchas (desde 1024 px) las dos ventanas son flotantes: se
+ *   mueven arrastrando su barra de titulo y no tapan la pagina con un fondo
+ *   oscuro, para poder comparar con la factura y con lo leido. En el movil
+ *   siguen siendo un modal a pantalla completa.
  */
 
 export type TipoTercero = 'proveedor' | 'cliente';
@@ -42,6 +46,9 @@ export interface TerceroEnlazado {
   como: 'alta' | 'elegido';
 }
 
+/** Campos de la direccion en la ficha del alta. */
+export type CampoDireccion = 'direccion' | 'cp' | 'municipio' | 'provincia';
+
 /** Lo leido (y corregido) del tercero: rellena la ficha del alta. */
 export interface DatosTercero {
   nombreFiscal: string;
@@ -53,6 +60,26 @@ export interface DatosTercero {
   provincia?: string;
   email?: string;
   telefono?: string;
+  /** Campos de la direccion leidos con poca seguridad: salen en ambar en la ficha hasta que se cambian. */
+  dudosos?: CampoDireccion[];
+}
+
+/** Direccion leida en la factura (direccionProveedor en gastos, direccionCliente en ventas). */
+type DireccionLeida = { calle: string | null; cp: string | null; municipio: string | null; provincia: string | null; revisar: boolean };
+
+/**
+ * Los campos de la direccion leida con poca seguridad (`revisar`) que hay que
+ * marcar en la ficha del alta. Con `actual` (lo que hay ahora en el formulario
+ * de la factura), solo los que siguen con el valor leido: si ya se ha
+ * corregido, no se marca.
+ */
+export function camposDudosos(d: DireccionLeida | null | undefined, actual?: Partial<Record<CampoDireccion, string>>): CampoDireccion[] {
+  if (!d?.revisar) return [];
+  const leido: Record<CampoDireccion, string | null> = { direccion: d.calle, cp: d.cp, municipio: d.municipio, provincia: d.provincia };
+  return (Object.keys(leido) as CampoDireccion[]).filter((c) => {
+    const v = (leido[c] ?? '').trim();
+    return !!v && (actual === undefined || (actual[c] ?? '').trim() === v);
+  });
 }
 
 const TEXTOS: Record<TipoTercero, { este: string; el: string; plural: string; ruta: string; idRepetido: 'proveedorId' | 'clienteId' }> = {
@@ -121,6 +148,8 @@ interface Props {
   datos: DatosTercero;
   /** NIF que ya miro el servidor al leer (no hace falta volver a mirarlo). */
   nifLeido?: string;
+  /** Nombre leido en la factura: con nifLeido, la linea «En la factura» de las ventanas, para comparar mientras se edita. */
+  nombreLeido?: string;
   /** El tercero ya enlazado en esta lectura (aviso en verde), o null. */
   enlazado: TerceroEnlazado | null;
   /** Permiso de alta: proveedores con compras:write, clientes con ventas:write. */
@@ -134,7 +163,7 @@ interface Props {
   onSinPermiso?: () => void;
 }
 
-export default function AvisoTerceroNuevo({ tipo, datos, nifLeido, enlazado, puedeDarDeAlta, onEnlazar, onCambiar, id, onSinPermiso }: Props) {
+export default function AvisoTerceroNuevo({ tipo, datos, nifLeido, nombreLeido, enlazado, puedeDarDeAlta, onEnlazar, onCambiar, id, onSinPermiso }: Props) {
   const t = TEXTOS[tipo];
   const [dialogo, setDialogo] = useState<'alta' | 'buscar' | null>(null);
   // El servidor dijo que no hay permiso (la sesion puede ser de antes de un cambio de permisos).
@@ -185,6 +214,13 @@ export default function AvisoTerceroNuevo({ tipo, datos, nifLeido, enlazado, pue
 
   const quien = quienEs(datos.nombreFiscal, datos.nifCif);
   const usarExistente = (f: Ficha) => enlazar(deFicha(f, 'elegido'));
+  // Lo que se leyo en la factura, a la vista dentro de la ventana aunque se cambie en la ficha.
+  const leidoEnFactura = quienEs(nombreLeido, nifLeido);
+  const referencia = leidoEnFactura ? (
+    <>
+      En la factura: <strong className="font-semibold text-slate-900">{leidoEnFactura}</strong>
+    </>
+  ) : undefined;
 
   return (
     <div id={id} className="flex flex-col gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
@@ -244,6 +280,7 @@ export default function AvisoTerceroNuevo({ tipo, datos, nifLeido, enlazado, pue
         <DialogoAlta
           tipo={tipo}
           datos={datos}
+          referencia={referencia}
           onCerrar={() => setDialogo(null)}
           onSinPermiso={() => {
             setSinPermiso(true);
@@ -256,6 +293,7 @@ export default function AvisoTerceroNuevo({ tipo, datos, nifLeido, enlazado, pue
         <DialogoBuscar
           tipo={tipo}
           inicial={datos.nombreFiscal}
+          referencia={referencia}
           onCerrar={() => setDialogo(null)}
           onElegir={enlazar}
         />
@@ -265,24 +303,89 @@ export default function AvisoTerceroNuevo({ tipo, datos, nifLeido, enlazado, pue
 }
 
 // ---------------------------------------------------------------------------
-// Dialogo comun: foco dentro, Escape cierra y el foco vuelve a donde estaba
+// Dialogo comun. Desde 1024 px, una ventana flotante que se mueve arrastrando
+// su barra de titulo y deja ver, desplazar y usar la pagina de detras (la
+// factura y lo leido). En el movil, modal a pantalla completa, con el foco
+// dentro. En los dos: Escape cierra y el foco vuelve a donde estaba.
 // ---------------------------------------------------------------------------
 
-function Dialogo({ titulo, onCerrar, children, ancho = 'max-w-lg' }: { titulo: string; onCerrar: () => void; children: React.ReactNode; ancho?: string }) {
+/** Desde este ancho (lg de Tailwind), ventana movible en vez de modal. */
+const PANTALLA_ANCHA = '(min-width: 1024px)';
+/** Hueco que queda siempre entre la ventana y el borde de la pantalla. */
+const MARGEN = 16;
+/** Altura a la que se abre: justo debajo de la cabecera fija de la pagina (64 px). */
+const ARRIBA = 80;
+
+function usePantallaAncha(): boolean {
+  const [ancha, setAncha] = useState(() => typeof window !== 'undefined' && !!window.matchMedia?.(PANTALLA_ANCHA).matches);
+  useEffect(() => {
+    const mq = window.matchMedia?.(PANTALLA_ANCHA);
+    if (!mq) return;
+    const alCambiar = () => setAncha(mq.matches);
+    alCambiar();
+    mq.addEventListener('change', alCambiar);
+    return () => mq.removeEventListener('change', alCambiar);
+  }, []);
+  return ancha;
+}
+
+type Punto = { x: number; y: number };
+
+/** La posicion mas cercana a `p` con la ventana entera dentro de la pantalla. */
+function dentroDePantalla(p: Punto, caja: HTMLElement): Punto {
+  const { width, height } = caja.getBoundingClientRect();
+  const maxX = Math.max(MARGEN, window.innerWidth - width - MARGEN);
+  const maxY = Math.max(MARGEN, window.innerHeight - height - MARGEN);
+  return { x: Math.round(Math.min(Math.max(p.x, MARGEN), maxX)), y: Math.round(Math.min(Math.max(p.y, MARGEN), maxY)) };
+}
+
+const botonBarra = 'shrink-0 rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-900';
+
+function Dialogo({
+  titulo,
+  referencia,
+  onCerrar,
+  children,
+  ancho = 'max-w-lg',
+}: {
+  titulo: string;
+  /** Linea pequeña bajo el titulo (lo leido en la factura), siempre a la vista. */
+  referencia?: React.ReactNode;
+  onCerrar: () => void;
+  children: React.ReactNode;
+  ancho?: string;
+}) {
   const tituloId = useId();
   const cajaRef = useRef<HTMLDivElement>(null);
   const antesRef = useRef<Element | null>(null);
   const onCerrarRef = useRef(onCerrar);
   onCerrarRef.current = onCerrar;
+  const ventana = usePantallaAncha();
+  const ventanaRef = useRef(ventana);
+  ventanaRef.current = ventana;
+  // Donde esta la ventana: null es donde se abre (arriba, a la derecha o a la izquierda segun `lado`);
+  // con un punto, donde la ha dejado la persona. Se monta al abrirla: cada vez vuelve a su sitio.
+  const [pos, setPos] = useState<Punto | null>(null);
+  const [lado, setLado] = useState<'derecha' | 'izquierda'>('derecha');
+  const arrastre = useRef<{ id: number; dx: number; dy: number } | null>(null);
+  const [arrastrando, setArrastrando] = useState(false);
+  const movida = pos !== null;
 
   useEffect(() => {
     antesRef.current = document.activeElement;
-    // El primer campo (o el primer boton) recibe el foco.
-    const primero = cajaRef.current?.querySelector<HTMLElement>('input, select, textarea, button:not([data-cerrar])');
-    primero?.focus();
-    // Escape cierra aunque el foco se haya perdido (un boton que se desactiva al guardar).
+    // El primer campo (o el primer boton que no sea de la barra) recibe el foco.
+    const primero = cajaRef.current?.querySelector<HTMLElement>('input, select, textarea, button:not([data-barra])');
+    primero?.focus({ preventScroll: true });
     const alEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCerrarRef.current();
+      if (e.key !== 'Escape') return;
+      // Cierra aunque el foco se haya perdido (un boton que se desactiva al guardar) o este en la pagina.
+      // En la ventana flotante la pagina de detras se sigue usando: si se esta escribiendo en uno de
+      // sus campos, Escape es de ese campo y no cierra la ventana.
+      const activo = document.activeElement;
+      const campoDeLaPagina =
+        activo instanceof HTMLElement && !cajaRef.current?.contains(activo) && (activo.matches('input, select, textarea') || activo.isContentEditable);
+      if (ventanaRef.current && campoDeLaPagina) return;
+      onCerrarRef.current();
     };
     document.addEventListener('keydown', alEscape);
     return () => {
@@ -292,9 +395,28 @@ function Dialogo({ titulo, onCerrar, children, ancho = 'max-w-lg' }: { titulo: s
     };
   }, []);
 
+  // Movida a mano: si cambia su alto (un aviso de error) o el de la pantalla, que siga entera a la vista.
+  useEffect(() => {
+    const caja = cajaRef.current;
+    if (!ventana || !movida || !caja) return;
+    const recolocar = () =>
+      setPos((p) => {
+        if (!p) return p;
+        const q = dentroDePantalla(p, caja);
+        return q.x === p.x && q.y === p.y ? p : q;
+      });
+    window.addEventListener('resize', recolocar);
+    const obs = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(recolocar) : null;
+    obs?.observe(caja);
+    return () => {
+      window.removeEventListener('resize', recolocar);
+      obs?.disconnect();
+    };
+  }, [ventana, movida]);
+
   const alTeclear = (e: React.KeyboardEvent) => {
-    if (e.key !== 'Tab' || !cajaRef.current) return;
-    // El tabulador no sale del dialogo.
+    // En la ventana flotante el tabulador sigue por la pagina; en el modal no sale del dialogo.
+    if (ventana || e.key !== 'Tab' || !cajaRef.current) return;
     const enfocables = Array.from(cajaRef.current.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])'));
     if (!enfocables.length) return;
     const primero = enfocables[0];
@@ -308,30 +430,104 @@ function Dialogo({ titulo, onCerrar, children, ancho = 'max-w-lg' }: { titulo: s
     }
   };
 
+  // Arrastre desde la barra de titulo (raton, lapiz o dedo), sin salirse de la pantalla.
+  const enBoton = (e: React.SyntheticEvent) => e.target instanceof Element && !!e.target.closest('button');
+  const empezarArrastre = (e: React.PointerEvent<HTMLDivElement>) => {
+    const caja = cajaRef.current;
+    if (!ventana || !caja || e.button !== 0 || enBoton(e)) return;
+    const r = caja.getBoundingClientRect();
+    arrastre.current = { id: e.pointerId, dx: e.clientX - r.left, dy: e.clientY - r.top };
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setPos({ x: Math.round(r.left), y: Math.round(r.top) });
+    setArrastrando(true);
+  };
+  const arrastrar = (e: React.PointerEvent<HTMLDivElement>) => {
+    const a = arrastre.current;
+    const caja = cajaRef.current;
+    if (!a || a.id !== e.pointerId || !caja) return;
+    setPos(dentroDePantalla({ x: e.clientX - a.dx, y: e.clientY - a.dy }, caja));
+  };
+  const soltar = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (arrastre.current?.id !== e.pointerId) return;
+    arrastre.current = null;
+    setArrastrando(false);
+    const r = cajaRef.current?.getBoundingClientRect();
+    if (r) setLado(r.left + r.width / 2 > window.innerWidth / 2 ? 'derecha' : 'izquierda');
+  };
+  // Lo mismo sin arrastrar (con un clic o con el teclado): la ventana pasa al otro lado de la pantalla.
+  const pasarAlOtroLado = () => {
+    setPos(null);
+    setLado((l) => (l === 'derecha' ? 'izquierda' : 'derecha'));
+  };
+
   // Fuera del formulario de la factura (en gastos el aviso va dentro de el: un <form> dentro de otro
   // enviaria los dos), pero dentro de .zona-app, que es la que lleva el modo noche.
   const destino = typeof document !== 'undefined' ? (document.querySelector('.zona-app') ?? document.body) : null;
   if (!destino) return null;
+  const sitio: React.CSSProperties = pos ? { left: pos.x, top: pos.y } : lado === 'derecha' ? { right: MARGEN, top: ARRIBA } : { left: MARGEN, top: ARRIBA };
   return createPortal(
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 p-4" onMouseDown={(e) => e.target === e.currentTarget && onCerrar()}>
+    // Ventana: la capa no recoge el raton (la pagina de detras se desplaza con la rueda y responde a los clics).
+    <div
+      className={ventana ? 'pointer-events-none fixed inset-0 z-[70]' : 'fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 p-4'}
+      onMouseDown={(e) => !ventana && e.target === e.currentTarget && onCerrar()}
+    >
       <div
         ref={cajaRef}
         role="dialog"
-        aria-modal="true"
+        aria-modal={ventana ? undefined : true}
         aria-labelledby={tituloId}
         onKeyDown={alTeclear}
-        className={`flex max-h-[90dvh] w-full ${ancho} flex-col overflow-hidden rounded-xl bg-white text-slate-900 shadow-xl`}
+        style={ventana ? { ...sitio, maxHeight: `calc(100dvh - ${ARRIBA + MARGEN}px)` } : undefined}
+        className={
+          ventana
+            ? `pointer-events-auto absolute flex w-full ${ancho} flex-col overflow-hidden rounded-xl border border-slate-200 bg-white text-slate-900 shadow-2xl`
+            : `flex max-h-[90dvh] w-full ${ancho} flex-col overflow-hidden rounded-xl bg-white text-slate-900 shadow-xl`
+        }
       >
-        {/* El titulo no se va con el desplazamiento: en el movil el formulario es mas alto que la pantalla. */}
-        <div className="flex shrink-0 items-start justify-between gap-3 px-5 pt-5 pb-3 sm:px-6 sm:pt-6">
-          <h2 id={tituloId} className="text-lg font-semibold text-slate-900">
-            {titulo}
-          </h2>
-          <button type="button" data-cerrar onClick={onCerrar} aria-label="Cerrar" className="shrink-0 rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-900">
-            <X size={20} />
-          </button>
+        {/* El titulo no se va con el desplazamiento: el formulario puede ser mas alto que la pantalla. En la ventana, es la barra para moverla. */}
+        <div
+          onPointerDown={empezarArrastre}
+          onPointerMove={arrastrar}
+          onPointerUp={soltar}
+          onPointerCancel={soltar}
+          // Al arrastrar no se selecciona texto ni se pierde el foco del campo en que se esta escribiendo.
+          onMouseDown={(e) => ventana && !enBoton(e) && e.preventDefault()}
+          title={ventana ? 'Arrastra la ventana desde esta barra para moverla' : undefined}
+          className={
+            ventana
+              ? `flex shrink-0 touch-none select-none items-start justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 ${arrastrando ? 'cursor-grabbing' : 'cursor-grab'}`
+              : 'flex shrink-0 items-start justify-between gap-3 px-5 pt-5 pb-3 sm:px-6 sm:pt-6'
+          }
+        >
+          <div className="flex min-w-0 items-start gap-2">
+            {ventana && <DotsSixVertical size={20} weight="bold" className="mt-1 shrink-0 text-slate-400" aria-hidden="true" />}
+            <div className="min-w-0">
+              <h2 id={tituloId} className="text-lg font-semibold text-slate-900">
+                {titulo}
+              </h2>
+              {ventana && <p className="text-xs text-slate-500">Arrástrala desde esta barra para moverla.</p>}
+              {referencia && <p className="mt-1 break-words text-xs text-slate-600">{referencia}</p>}
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            {ventana && (
+              <button
+                type="button"
+                data-barra
+                onClick={pasarAlOtroLado}
+                aria-label={lado === 'derecha' ? 'Llevar la ventana a la izquierda' : 'Llevar la ventana a la derecha'}
+                title={lado === 'derecha' ? 'Llevar la ventana a la izquierda' : 'Llevar la ventana a la derecha'}
+                className={botonBarra}
+              >
+                {lado === 'derecha' ? <ArrowLineLeft size={20} aria-hidden="true" /> : <ArrowLineRight size={20} aria-hidden="true" />}
+              </button>
+            )}
+            <button type="button" data-barra onClick={onCerrar} aria-label="Cerrar" title={ventana ? 'Cerrar' : undefined} className={botonBarra}>
+              <X size={20} aria-hidden="true" />
+            </button>
+          </div>
         </div>
-        <div className="min-h-0 overflow-y-auto px-5 pb-5 sm:px-6 sm:pb-6">{children}</div>
+        <div className={`min-h-0 overflow-y-auto overscroll-contain ${ventana ? 'px-5 py-4' : 'px-5 pb-5 sm:px-6 sm:pb-6'}`}>{children}</div>
       </div>
     </div>,
     destino,
@@ -339,7 +535,7 @@ function Dialogo({ titulo, onCerrar, children, ancho = 'max-w-lg' }: { titulo: s
 }
 
 const campo =
-  'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-accent-600 focus:border-accent-600 aria-[invalid=true]:border-red-500 aria-[invalid=true]:bg-red-50';
+  'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-accent-600 focus:border-accent-600 aria-[invalid=true]:border-red-500 aria-[invalid=true]:bg-red-50 data-[lector=revisar]:border-amber-500 data-[lector=revisar]:bg-amber-50';
 const etiqueta = 'mb-1 block text-sm font-medium text-slate-700';
 
 const esEspana = (pais: string) => ['ES', 'ESP', ''].includes((pais || '').trim().toUpperCase());
@@ -351,12 +547,14 @@ const esEspana = (pais: string) => ['ES', 'ESP', ''].includes((pais || '').trim(
 function DialogoAlta({
   tipo,
   datos,
+  referencia,
   onCerrar,
   onSinPermiso,
   onHecho,
 }: {
   tipo: TipoTercero;
   datos: DatosTercero;
+  referencia?: React.ReactNode;
   onCerrar: () => void;
   onSinPermiso: () => void;
   onHecho: (t: TerceroEnlazado) => void;
@@ -377,6 +575,8 @@ function DialogoAlta({
       telefono: datos.telefono ?? '',
     };
   });
+  // Lo que traia la ficha al abrirla: un dato dudoso deja de marcarse en cuanto se cambia.
+  const leidosRef = useRef(f);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState('');
   const [campoMal, setCampoMal] = useState<string | undefined>();
@@ -466,16 +666,29 @@ function DialogoAlta({
     }
   };
 
-  const mal = (c: string) => ({ 'aria-invalid': campoMal === c, 'aria-describedby': campoMal === c ? idDe('error') : undefined });
+  /** Direccion leida con poca seguridad que sigue como se leyo: va en ambar. */
+  const dudoso = (c: string): boolean => {
+    if (!(datos.dudosos ?? []).some((d) => d === c)) return false;
+    const v = f[c as CampoDireccion];
+    return v.trim() !== '' && v === leidosRef.current[c as CampoDireccion];
+  };
+  const hayDudas = (['direccion', 'cp', 'municipio', 'provincia'] as const).some(dudoso);
+  /** aria-invalid con el error del servidor o, si no lo hay, la marca ambar de un dato dudoso. */
+  const mal = (c: string) => {
+    if (campoMal === c) return { 'aria-invalid': true, 'aria-describedby': idDe('error') };
+    if (dudoso(c)) return { 'aria-invalid': false, 'aria-describedby': idDe('dudas'), 'data-lector': 'revisar' };
+    return { 'aria-invalid': false, 'aria-describedby': undefined };
+  };
   const es = esEspana(f.pais);
   const ue = !es && pareceNifIvaUe(f.nifCif);
 
   return (
-    <Dialogo titulo={tipo === 'proveedor' ? 'Dar de alta el proveedor' : 'Dar de alta el cliente'} onCerrar={onCerrar}>
+    <Dialogo titulo={tipo === 'proveedor' ? 'Dar de alta el proveedor' : 'Dar de alta el cliente'} referencia={referencia} onCerrar={onCerrar}>
       {avisoPlan.dialogo}
       <form onSubmit={guardar} noValidate className="flex flex-col gap-4">
         <p className="text-sm text-slate-600">
-          Lo hemos rellenado con lo que pone la factura. Corrige lo que haga falta: se guarda en tu lista de {t.plural} con su subcuenta y la factura queda a su nombre.
+          Lo hemos rellenado con lo que pone la factura, menos el correo y el teléfono, que no se leen. Corrige lo que haga falta: se guarda en tu lista de {t.plural} con su
+          subcuenta y la factura queda a su nombre.
         </p>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="sm:col-span-2">
@@ -512,6 +725,11 @@ function DialogoAlta({
                 Usar ese
               </button>
             </div>
+          )}
+          {hayDudas && (
+            <p id={idDe('dudas')} className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 sm:col-span-2">
+              La dirección se ha leído con poca seguridad: compara con la factura los datos marcados en ámbar. La marca se quita al cambiarlos.
+            </p>
           )}
           <div className="sm:col-span-2">
             <label htmlFor={idDe('direccion')} className={etiqueta}>
@@ -586,7 +804,19 @@ function DialogoAlta({
 // «Es uno que ya tengo»: buscador por nombre o NIF
 // ---------------------------------------------------------------------------
 
-function DialogoBuscar({ tipo, inicial, onCerrar, onElegir }: { tipo: TipoTercero; inicial: string; onCerrar: () => void; onElegir: (t: TerceroEnlazado) => void }) {
+function DialogoBuscar({
+  tipo,
+  inicial,
+  referencia,
+  onCerrar,
+  onElegir,
+}: {
+  tipo: TipoTercero;
+  inicial: string;
+  referencia?: React.ReactNode;
+  onCerrar: () => void;
+  onElegir: (t: TerceroEnlazado) => void;
+}) {
   const t = TEXTOS[tipo];
   const [q, setQ] = useState(inicial.trim());
   const [resultados, setResultados] = useState<Encontrado[]>([]);
@@ -624,7 +854,7 @@ function DialogoBuscar({ tipo, inicial, onCerrar, onElegir }: { tipo: TipoTercer
   }, [q, tipo]);
 
   return (
-    <Dialogo titulo={tipo === 'proveedor' ? 'Elegir un proveedor que ya tengo' : 'Elegir un cliente que ya tengo'} onCerrar={onCerrar}>
+    <Dialogo titulo={tipo === 'proveedor' ? 'Elegir un proveedor que ya tengo' : 'Elegir un cliente que ya tengo'} referencia={referencia} onCerrar={onCerrar}>
       <div className="flex flex-col gap-3">
         <p className="text-sm text-slate-600">Por si el NIF se ha leído mal: busca por el nombre o por el NIF bueno. La factura queda a nombre del que elijas.</p>
         <label htmlFor={`${ids}-q`} className={etiqueta}>
