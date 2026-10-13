@@ -514,6 +514,11 @@ function OriginalDeApp({
           {d && <> · pendiente de cobro {fmt(d.pendienteCobro)}</>}
         </p>
       )}
+      {d?.lineasDe && (
+        <p className="text-xs text-slate-600">
+          La sustituyó la {d.lineasDe.numeroCompleto}: se rectifica sobre ella, así que las líneas y las cuentas que se proponen son las suyas.
+        </p>
+      )}
       {d && !d.rectificable && d.motivoNoRectificable && (
         <p role="alert" className="text-sm text-red-700">
           {d.motivoNoRectificable}
