@@ -822,7 +822,8 @@ export default function DashboardPage() {
                         <div className="flex justify-between gap-3 text-sm">
                           <span className="min-w-0 font-medium text-slate-700">
                             {c.category}
-                            {c.cuenta && <span className="ml-1.5 font-mono text-xs font-normal text-slate-500">{c.cuenta}</span>}
+                            {/* Sin nombre en el plan, el servidor ya dice «Cuenta 629»: el código no se repite. */}
+                            {c.cuenta && !c.category.includes(c.cuenta) && <span className="ml-1.5 font-mono text-xs font-normal text-slate-500">{c.cuenta}</span>}
                           </span>
                           <span className={`shrink-0 font-mono ${c.expense < 0 ? 'text-rose-600' : 'text-slate-500'}`}>{importe(c.expense)}</span>
                         </div>
