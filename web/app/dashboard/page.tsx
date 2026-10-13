@@ -242,9 +242,24 @@ export default function DashboardPage() {
   const sinAccesoResumen = resumen.estado === 'sinAcceso';
   // Con solo Ventas no hay resumen, pero sí sus ventas por cliente (GET /stats/ingresos-por-cliente).
   const soloVentasPorCliente = sinAccesoResumen && clientes.estado !== 'sinAcceso';
+  // La moneda llega con el resumen o con el IVA. Con solo Ventas no llega ninguno: se lee de los datos de la empresa
+  // (GET /legal-config, que puede leer cualquiera de la empresa), para que una de EE. UU. no salga en euros.
+  const [monedaEmpresa, setMonedaEmpresa] = useState<string | null>(null);
+  useEffect(() => {
+    if (!soloVentasPorCliente || monedaEmpresa) return;
+    let vigente = true;
+    apiFetch<{ monedaCuenta?: string | null } | null>(companyPath('/legal-config'))
+      .then((cfg) => {
+        if (vigente && cfg?.monedaCuenta) setMonedaEmpresa(cfg.monedaCuenta);
+      })
+      .catch(() => undefined);
+    return () => {
+      vigente = false;
+    };
+  }, [soloVentasPorCliente, monedaEmpresa]);
   const r = resumen.datos;
   const f = fiscal.datos;
-  const moneda = r?.monedaCuenta ?? f?.monedaCuenta ?? 'EUR';
+  const moneda = r?.monedaCuenta ?? f?.monedaCuenta ?? monedaEmpresa ?? 'EUR';
   const importe = (n: number) => formatoImporte(n, moneda);
   // Una empresa no establecida en España no lleva IVA: sin esas cifras.
   const conIva = f?.empresaEspanola !== false;
