@@ -86,6 +86,8 @@ function useLectura<T>(ruta: string): Lectura<T> {
 
 const facturasTexto = (n: number, de: string) => `${n} ${n === 1 ? 'factura' : 'facturas'} de ${de}`;
 const nominasTexto = (n: number) => `${n} ${n === 1 ? 'nómina' : 'nóminas'}`;
+/** «cobrada o no» con una sola, «cobradas o no» con varias. */
+const oNo = (n: number, participio: 'cobrada' | 'pagada') => `${n === 1 ? participio : `${participio}s`} o no`;
 const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 const CLASE_SELECT =
@@ -473,7 +475,9 @@ export default function DashboardPage() {
                   <div className="rounded-xl bg-white border border-slate-200 p-6 md:p-8">
                     <p className="text-sm font-semibold text-slate-500">Ingresos · {periodoTexto}</p>
                     <p className="mt-2 text-3xl md:text-4xl font-bold text-emerald-700 break-words">{importe(r.totalIncome)}</p>
-                    <p className="mt-1 text-xs text-slate-500">Base sin IVA de {facturasTexto(r.facturasVenta, 'venta')}, cobradas o no.</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Base sin IVA de {facturasTexto(r.facturasVenta, 'venta')}, {oNo(r.facturasVenta, 'cobrada')}.
+                    </p>
                     {f && (conIva || !!f.ventas.retencion) && (
                       <div className="mt-5 space-y-3 border-t border-slate-100 pt-4">
                         {conIva && <Fila etiqueta="IVA repercutido" valor={importe(f.ventas.iva)} />}
@@ -488,12 +492,18 @@ export default function DashboardPage() {
                     <p className="mt-2 text-3xl md:text-4xl font-bold text-rose-600 break-words">{importe(r.totalExpense)}</p>
                     <p className="mt-1 text-xs text-slate-500">
                       Base sin IVA de {facturasTexto(r.facturasGasto, 'gasto')}
-                      {r.nominas > 0 ? ` y coste de ${nominasTexto(r.nominas)}` : ''}, pagadas o no.
+                      {r.nominas > 0 ? ` y coste de ${nominasTexto(r.nominas)}` : ''}, {oNo(r.facturasGasto + r.nominas, 'pagada')}.
                     </p>
                     <div className="mt-5 space-y-3 border-t border-slate-100 pt-4">
                       <Fila etiqueta="Facturas de gasto" valor={importe(r.gastoFacturas)} />
                       {/* Una empresa de fuera de España no lleva nóminas en la app: sin la fila, salvo que tenga alguna. */}
-                      {r.nominasIncluidas && (conIva || r.nominas > 0) && <Fila etiqueta="Nóminas" ayuda="Coste para la empresa: bruto y Seguridad Social" valor={importe(r.gastoPersonal)} />}
+                      {r.nominasIncluidas && (conIva || r.nominas > 0) && (
+                        <Fila
+                          etiqueta="Nóminas"
+                          ayuda="Coste para la empresa: bruto, dietas, indemnizaciones, Seguridad Social de la empresa y el ingreso a cuenta de la retribución en especie que asume la empresa"
+                          valor={importe(r.gastoPersonal)}
+                        />
+                      )}
                       {f && conIva && <Fila etiqueta="IVA soportado" valor={importe(f.gastos.iva)} />}
                       {!!f?.gastos.retencion && <Fila etiqueta="Retenciones practicadas" valor={importe(f.gastos.retencion)} />}
                     </div>
