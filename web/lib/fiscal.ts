@@ -459,24 +459,22 @@ export function useContextoFiscal(customerId?: string): {
 export const EVENTO_DATOS_EMPRESA = 'conta:datos-empresa-actualizados';
 
 /**
- * ¿La empresa activa esta establecida en Espana? Lee el pais de /legal-config,
- * que puede leer cualquier usuario de la empresa, con la misma regla que el
- * backend (esPaisEspana: vacio, ES o ESP). Se vuelve a leer con
- * EVENTO_DATOS_EMPRESA. null mientras carga o si falla (demo sin backend):
- * quien lo usa no oculta nada, y el servidor sigue impidiendo lo que no toca.
+ * Pais de la empresa activa, de /legal-config (que puede leer cualquier
+ * usuario de la empresa), en mayusculas: '' si no lo tiene puesto (es
+ * española). Se vuelve a leer con EVENTO_DATOS_EMPRESA. null mientras carga o
+ * si falla (demo sin backend).
  */
-export function useEmpresaEspanola(): boolean | null {
-  const [espanola, setEspanola] = useState<boolean | null>(null);
+export function usePaisEmpresa(): string | null {
+  const [pais, setPais] = useState<string | null>(null);
   useEffect(() => {
     let vivo = true;
     const leer = () =>
       apiFetch<{ pais?: string | null }>(companyPath('/legal-config'))
         .then((cfg) => {
-          const p = String(cfg?.pais ?? '').trim().toUpperCase();
-          if (vivo) setEspanola(p === '' || p === 'ES' || p === 'ESP');
+          if (vivo) setPais(String(cfg?.pais ?? '').trim().toUpperCase());
         })
         .catch(() => {
-          if (vivo) setEspanola(null);
+          if (vivo) setPais(null);
         });
     leer();
     window.addEventListener(EVENTO_DATOS_EMPRESA, leer);
@@ -485,7 +483,21 @@ export function useEmpresaEspanola(): boolean | null {
       window.removeEventListener(EVENTO_DATOS_EMPRESA, leer);
     };
   }, []);
-  return espanola;
+  return pais;
+}
+
+/** Pais de una empresa española con la regla del backend (esPaisEspana): vacio, ES o ESP. */
+export const esPaisEmpresaEspanola = (pais: string): boolean => pais === '' || pais === 'ES' || pais === 'ESP';
+
+/**
+ * ¿La empresa activa esta establecida en Espana? Con el pais de
+ * usePaisEmpresa y la misma regla que el backend (esPaisEspana: vacio, ES o
+ * ESP). null mientras carga o si falla (demo sin backend): quien lo usa no
+ * oculta nada, y el servidor sigue impidiendo lo que no toca.
+ */
+export function useEmpresaEspanola(): boolean | null {
+  const pais = usePaisEmpresa();
+  return pais === null ? null : esPaisEmpresaEspanola(pais);
 }
 
 /** Código del 409 de una venta cuya operación es de un periodo cuyo 303 presenta la gestoría. */
