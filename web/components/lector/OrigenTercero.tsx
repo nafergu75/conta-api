@@ -149,6 +149,25 @@ export function OrigenTerceroLeido({
   );
 }
 
+/**
+ * En una rectificativa que va al cliente de la factura que rectifica, de dónde
+ * es el cliente lo dice la ficha de ese cliente: no se pregunta, porque no se
+ * puede cambiar de cliente y elegir otra cosa no cambiaría nada.
+ */
+export function OrigenTerceroDeLaFicha({ tipo, pais, nombre }: { tipo: 'cliente' | 'proveedor'; pais: string | null; nombre: string }) {
+  const p = (pais || 'ES').toUpperCase();
+  const origen = origenDePais(p) ?? 'FUERA';
+  return (
+    <div className="flex flex-col gap-1 rounded-lg border border-slate-200 bg-white p-4">
+      <p className="text-sm font-semibold text-slate-900">¿De dónde es el {tipo}?</p>
+      <p className="text-sm text-slate-700">{origen === 'ES' ? 'De España' : `De ${nombrePais(p)} (${origen === 'UE' ? 'otro país de la UE' : 'fuera de la UE'})`}.</p>
+      <p className="text-xs text-slate-600">
+        Lo dice la ficha {nombre ? `de ${nombre}, el ${tipo}` : `del ${tipo}`} de la factura que rectifica. Como el {tipo} no se cambia, aquí no se elige.
+      </p>
+    </div>
+  );
+}
+
 interface Props {
   tipo: 'cliente' | 'proveedor';
   valor: EleccionOrigen;
