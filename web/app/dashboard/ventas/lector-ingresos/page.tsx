@@ -259,7 +259,8 @@ export default function LectorIngresosPage() {
           documentId: ingreso.documentId,
           ...(cliente ? { clienteId: cliente.id } : {}),
           revisado,
-          lineas: cuentas.map((cuenta) => ({ cuenta })),
+          // Rectificativa de varias facturas: sin cuenta elegida, la que se enseña (la de la original con más base).
+          lineas: cuentas.map((cuenta, i) => ({ cuenta: cuenta ?? (ingreso.lineas?.[i] ? rv.cuentaParaEnviar(ingreso.lineas[i].tipoIva) : null) })),
           ...rv.cuerpo(),
         }),
       });
