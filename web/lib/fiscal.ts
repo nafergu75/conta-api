@@ -334,6 +334,82 @@ export const PAISES_UE = new Set([
 export const nombrePais = (codigo: string | null | undefined): string =>
   PAISES.find(([c]) => c === (codigo ?? '').toUpperCase())?.[1] ?? (codigo ?? '');
 
+// ---------------------------------------------------------------------------
+// Nombre del numero fiscal de un cliente o proveedor segun su pais
+// ---------------------------------------------------------------------------
+
+/**
+ * Paises con un nombre propio para su numero fiscal (fuera de la UE). La
+ * misma tabla que el servidor (domain/numero-fiscal.ts), que la usa en los
+ * mensajes de los lectores, en las altas y en el PDF de la factura.
+ */
+const NOMBRE_NUMERO_FISCAL: Readonly<Record<string, string>> = {
+  DO: 'RNC',
+  US: 'EIN',
+  MX: 'RFC',
+  AR: 'CUIT',
+  CL: 'RUT',
+  UY: 'RUT',
+  CO: 'NIT',
+  PE: 'RUC',
+  EC: 'RUC',
+  VE: 'RIF',
+  BR: 'CNPJ',
+  MA: 'ICE',
+  GB: 'VAT number',
+  CH: 'UID (VAT)',
+};
+export const NUMERO_FISCAL_ESPANA = 'NIF';
+export const NUMERO_FISCAL_UE = 'NIF-IVA (VAT)';
+export const NUMERO_FISCAL_GENERICO = 'Número fiscal (Tax ID)';
+
+/** 'el' -> 'GR', 'uk' -> 'GB', ' fr ' -> 'FR'. */
+const paisIso = (pais: string | null | undefined): string => {
+  const p = String(pais ?? '').trim().toUpperCase();
+  return p === 'EL' ? 'GR' : p === 'UK' ? 'GB' : p;
+};
+
+/**
+ * Como se llama el numero fiscal de un tercero de ese pais: «NIF» (España o
+ * sin pais), «NIF-IVA (VAT)» (resto de la UE), «RNC», «EIN»... y, si no hay
+ * uno propio, «Número fiscal (Tax ID)». El de la propia empresa es siempre NIF.
+ */
+export function nombreNumeroFiscal(pais: string | null | undefined): string {
+  const p = paisIso(pais);
+  if (!p || p === 'ES') return NUMERO_FISCAL_ESPANA;
+  if (PAISES_UE.has(p)) return NUMERO_FISCAL_UE;
+  return NOMBRE_NUMERO_FISCAL[p] ?? NUMERO_FISCAL_GENERICO;
+}
+
+/** El mismo nombre dentro de una frase: «Escribe el RNC del cliente», «el número fiscal (Tax ID) del cliente». */
+export function numeroFiscalEnFrase(pais: string | null | undefined): string {
+  const n = nombreNumeroFiscal(pais);
+  return n === NUMERO_FISCAL_GENERICO ? 'número fiscal (Tax ID)' : n;
+}
+
+/** De donde es un cliente o proveedor: España, otro pais de la UE o fuera de la UE. */
+export type OrigenTercero = 'ES' | 'UE' | 'FUERA';
+
+/** Pais ISO-2 -> su lado (ES, UE o FUERA), o null si no hay pais. */
+export function origenDePais(pais: string | null | undefined): OrigenTercero | null {
+  const p = paisIso(pais);
+  if (!/^[A-Z]{2}$/.test(p)) return null;
+  if (p === 'ES') return 'ES';
+  return PAISES_UE.has(p) ? 'UE' : 'FUERA';
+}
+
+/** El nombre del numero fiscal cuando quiza solo se sabe el lado (UE o fuera) y no el pais. */
+export function nombreNumeroFiscalDe(origen: OrigenTercero | null | undefined, pais: string | null | undefined): string {
+  if (pais) return nombreNumeroFiscal(pais);
+  if (origen === 'UE') return NUMERO_FISCAL_UE;
+  if (origen === 'FUERA') return NUMERO_FISCAL_GENERICO;
+  return NUMERO_FISCAL_ESPANA;
+}
+
+/** «RNC 131123456»: el numero de un tercero con el nombre que tiene en su pais. */
+export const conNombreNumeroFiscal = (nif: string | null | undefined, pais: string | null | undefined): string =>
+  nif ? `${nombreNumeroFiscal(pais)} ${nif}` : '';
+
 /** NIF-IVA con el prefijo de un Estado de la UE (FR..., DE..., EL para Grecia). Solo ayuda: el backend decide. */
 export function pareceNifIvaUe(nif: string | null | undefined): boolean {
   const n = String(nif ?? '').toUpperCase().replace(/[\s.\-]/g, '');
@@ -383,24 +459,22 @@ export function useContextoFiscal(customerId?: string): {
 export const EVENTO_DATOS_EMPRESA = 'conta:datos-empresa-actualizados';
 
 /**
- * ¿La empresa activa esta establecida en Espana? Lee el pais de /legal-config,
- * que puede leer cualquier usuario de la empresa, con la misma regla que el
- * backend (esPaisEspana: vacio, ES o ESP). Se vuelve a leer con
- * EVENTO_DATOS_EMPRESA. null mientras carga o si falla (demo sin backend):
- * quien lo usa no oculta nada, y el servidor sigue impidiendo lo que no toca.
+ * Pais de la empresa activa, de /legal-config (que puede leer cualquier
+ * usuario de la empresa), en mayusculas: '' si no lo tiene puesto (es
+ * española). Se vuelve a leer con EVENTO_DATOS_EMPRESA. null mientras carga o
+ * si falla (demo sin backend).
  */
-export function useEmpresaEspanola(): boolean | null {
-  const [espanola, setEspanola] = useState<boolean | null>(null);
+export function usePaisEmpresa(): string | null {
+  const [pais, setPais] = useState<string | null>(null);
   useEffect(() => {
     let vivo = true;
     const leer = () =>
       apiFetch<{ pais?: string | null }>(companyPath('/legal-config'))
         .then((cfg) => {
-          const p = String(cfg?.pais ?? '').trim().toUpperCase();
-          if (vivo) setEspanola(p === '' || p === 'ES' || p === 'ESP');
+          if (vivo) setPais(String(cfg?.pais ?? '').trim().toUpperCase());
         })
         .catch(() => {
-          if (vivo) setEspanola(null);
+          if (vivo) setPais(null);
         });
     leer();
     window.addEventListener(EVENTO_DATOS_EMPRESA, leer);
@@ -409,7 +483,21 @@ export function useEmpresaEspanola(): boolean | null {
       window.removeEventListener(EVENTO_DATOS_EMPRESA, leer);
     };
   }, []);
-  return espanola;
+  return pais;
+}
+
+/** Pais de una empresa española con la regla del backend (esPaisEspana): vacio, ES o ESP. */
+export const esPaisEmpresaEspanola = (pais: string): boolean => pais === '' || pais === 'ES' || pais === 'ESP';
+
+/**
+ * ¿La empresa activa esta establecida en Espana? Con el pais de
+ * usePaisEmpresa y la misma regla que el backend (esPaisEspana: vacio, ES o
+ * ESP). null mientras carga o si falla (demo sin backend): quien lo usa no
+ * oculta nada, y el servidor sigue impidiendo lo que no toca.
+ */
+export function useEmpresaEspanola(): boolean | null {
+  const pais = usePaisEmpresa();
+  return pais === null ? null : esPaisEmpresaEspanola(pais);
 }
 
 /** Código del 409 de una venta cuya operación es de un periodo cuyo 303 presenta la gestoría. */

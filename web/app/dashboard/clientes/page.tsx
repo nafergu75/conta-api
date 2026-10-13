@@ -7,7 +7,7 @@ import { Plus, MagnifyingGlass, X, Trash } from '@phosphor-icons/react';
 import { getToken } from '@/lib/auth';
 import { apiFetch, companyPath } from '@/lib/api';
 import { mensajeSinAcceso, PantallaSinAcceso } from '@/components/dashboard/SinAcceso';
-import { nombrePais, PAISES, PAISES_UE, pareceNifIvaUe } from '@/lib/fiscal';
+import { nombreNumeroFiscal, nombrePais, PAISES, PAISES_UE, pareceNifIvaUe } from '@/lib/fiscal';
 import { useAvisoPlanAnterior } from '@/components/contabilidad/AvisoPlanAnterior';
 
 interface Cliente {
@@ -340,7 +340,9 @@ function NuevoClienteModal({
 
           <div className="flex flex-col gap-2">
             <label htmlFor="nif" className="text-sm font-medium text-slate-700">
-              {pais === 'ES' ? 'NIF/CIF' : ue ? 'NIF-IVA (con el prefijo del país)' : 'Identificación fiscal (Tax ID)'} *
+              {/* Como se llama en su país (NIF, NIF-IVA (VAT), RNC, EIN...): cambia con el país. */}
+              {nombreNumeroFiscal(pais)}
+              {ue ? ' (con el prefijo del país)' : ''} *
             </label>
             <input
               id="nif"

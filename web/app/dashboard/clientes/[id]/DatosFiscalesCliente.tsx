@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { CheckCircle, PencilSimple, WarningCircle } from '@phosphor-icons/react';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
-import { nombrePais, PAISES, PAISES_UE, pareceNifIvaUe } from '@/lib/fiscal';
+import { nombreNumeroFiscal, nombrePais, PAISES, PAISES_UE, pareceNifIvaUe } from '@/lib/fiscal';
 import { NOMBRE_MONEDA } from '@/lib/moneda';
 
 /**
@@ -126,7 +126,9 @@ export function DatosFiscalesCliente({ cliente, onGuardado }: { cliente: DatosFi
         </div>
         <div>
           <label htmlFor="cli-nif" className={etq}>
-            {d.pais === 'ES' ? 'NIF/CIF' : ue ? 'NIF-IVA (con el prefijo del país)' : 'Identificación fiscal (Tax ID)'}
+            {/* Como se llama en su país (NIF, NIF-IVA (VAT), RNC, EIN...): cambia con el país. */}
+            {nombreNumeroFiscal(d.pais)}
+            {ue ? ' (con el prefijo del país)' : ''}
           </label>
           <input id="cli-nif" value={d.nifCif} onChange={s('nifCif')} className={`${campo} font-mono`} />
           {ue && d.nifCif.trim() && !pareceNifIvaUe(d.nifCif) && (

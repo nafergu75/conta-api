@@ -8,6 +8,7 @@ import { ApiError, apiFetch, companyPath } from '@/lib/api';
 import { mensajeSinAcceso, PantallaSinAcceso } from '@/components/dashboard/SinAcceso';
 import { BloqueContabilidadTercero } from '@/components/contabilidad/BloqueContabilidadTercero';
 import { anioEspana } from '@/lib/anios';
+import { conNombreNumeroFiscal } from '@/lib/fiscal';
 import { anioOTodosDeUrl, anioParaUrl, ponerEnUrl } from '@/lib/urlEstado';
 
 import { SupplierTabs } from '@/components/suppliers/SupplierTabs';
@@ -182,7 +183,8 @@ export default function DetalleProveedorPage() {
             </button>
             <div className="min-w-0">
               <h1 className="font-semibold text-slate-900 truncate">{proveedor.nombreFiscal}</h1>
-              <p className="text-sm text-slate-500 font-mono truncate">{proveedor.nifCif}</p>
+              {/* Con el nombre de su número fiscal en su país: «EIN 123456789». */}
+              <p className="text-sm text-slate-500 font-mono truncate">{conNombreNumeroFiscal(proveedor.nifCif, proveedor.pais)}</p>
             </div>
           </div>
 

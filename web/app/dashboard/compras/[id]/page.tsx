@@ -23,6 +23,7 @@ import {
   type GastoDetalle,
 } from '@/lib/compras';
 import { leerAvisosGasto } from '@/lib/rectificativasGasto';
+import { conNombreNumeroFiscal } from '@/lib/fiscal';
 import ContabilizarButton from '@/components/ContabilizarButton';
 import CobrosFactura from '@/components/CobrosFactura';
 import AplicacionesAbono from '@/components/compras/AplicacionesAbono';
@@ -335,7 +336,7 @@ export default function GastoDetailPage() {
             <dt className="text-sm text-slate-600">Proveedor</dt>
             <dd className="break-words text-slate-900">
               {gasto.supplier.nombreFiscal}
-              <span className="block font-mono text-sm text-slate-500">{gasto.supplier.nifCif}</span>
+              <span className="block font-mono text-sm text-slate-500">{conNombreNumeroFiscal(gasto.supplier.nifCif, gasto.supplier.pais)}</span>
             </dd>
           </div>
         </dl>

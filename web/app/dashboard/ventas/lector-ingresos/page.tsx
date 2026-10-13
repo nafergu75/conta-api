@@ -12,6 +12,7 @@ import RectificativaVentaLector, { ID_ERROR_LECTOR, useRectificativaLector } fro
 import {
   ALTA_MANUAL,
   anuncioLecturaTerminada,
+  cambiarOrigenLectura,
   claveTexto,
   descartarLectura,
   ErrorLectura,
@@ -20,13 +21,15 @@ import {
   fechaLegible,
   leerFactura,
   porcentaje,
+  type EleccionOrigen,
   type IngresoExtraido,
   type InfoLectura,
 } from '@/lib/lecturas';
 import SoltarFactura from '@/components/lector/SoltarFactura';
 import AvisoTerceroNuevo, { camposDudosos, quienEs, type TerceroEnlazado } from '@/components/lector/AvisoTerceroNuevo';
+import OrigenTercero, { eleccionRecordada, ORIGEN_POR_DEFECTO, origenPorDefecto, OrigenTerceroLeido, recordarEleccion } from '@/components/lector/OrigenTercero';
 import { paisDelPrefijo } from '@/lib/compras';
-import { conDevengoFuera, nombrePais, pareceNifIvaUe } from '@/lib/fiscal';
+import { conDevengoFuera, nombreNumeroFiscal, nombrePais, pareceNifIvaUe, usePaisEmpresa } from '@/lib/fiscal';
 
 /**
  * Lector de facturas de venta: se sube el PDF o la foto de una factura
@@ -68,18 +71,28 @@ function Dato({ etiqueta, children, mono, ancho }: { etiqueta: string; children:
 /** Cuenta de ingresos de una linea sin cuenta propia: la que pone el servidor (700). */
 const POR_DEFECTO = { codigo: '700', texto: 'la de ventas' };
 
-/** Sin NIF del cliente leido (el servidor lo deja de exigir si se elige un cliente dado de alta). */
+/**
+ * Sin NIF de un cliente de España (el servidor lo deja de exigir si se elige
+ * un cliente dado de alta). Con un cliente de otro pais de la UE o de fuera,
+ * que falte su numero fiscal no es un error: el servidor lo deja en
+ * «revisar», con su explicacion en el panel. Si se dijo «De España», el texto
+ * sigue con como cambiarlo: se reconoce por el principio.
+ */
 const FALTA_NIF_CLIENTE = 'Falta el NIF del cliente: es obligatorio en una factura de ingreso.';
 
 /**
  * Errores de la lectura que dependen del NIF leido del cliente (que falte o
- * este mal). Ya no impiden registrar desde el lector: la factura se registra
- * con el cliente dado de alta o elegido (y el servidor deja de exigirlos).
+ * este mal). No impiden registrar desde el lector: la factura se registra con
+ * el cliente dado de alta o elegido (y el servidor deja de exigirlos).
  */
-function erroresDelNifCliente(info: InfoLectura | null): Set<string> {
+function erroresDelNifCliente(info: InfoLectura | null): (error: string) => boolean {
   const c = info?.campos['receptor.nif'];
-  const delCampo = c && (!c.codigos || c.codigos.includes('NIF_RECEPTOR')) ? c.motivos : [];
-  return new Set([FALTA_NIF_CLIENTE, ...delCampo].map(claveTexto));
+  const delCampo = new Set((c && (!c.codigos || c.codigos.includes('NIF_RECEPTOR')) ? c.motivos : []).map(claveTexto));
+  const falta = claveTexto(FALTA_NIF_CLIENTE);
+  return (e) => {
+    const k = claveTexto(e);
+    return delCampo.has(k) || k.startsWith(falta);
+  };
 }
 
 /**
@@ -129,6 +142,10 @@ export default function LectorIngresosPage() {
   // Cliente dado de alta o elegido en esta lectura (sin el no se registra; el aviso pasa a verde).
   const [clienteResuelto, setClienteResuelto] = useState<TerceroEnlazado | null>(null);
   const puedeAltaCliente = tieneAlgunPermiso(getUser(), ['ventas:write']);
+  // «¿De dónde es el cliente?»: antes de subir la factura (se recuerda la última) y, después, en el panel.
+  const [origen, setOrigen] = useState<EleccionOrigen>(ORIGEN_POR_DEFECTO);
+  const [cambiandoOrigen, setCambiandoOrigen] = useState(false);
+  const [errorOrigen, setErrorOrigen] = useState('');
   const lecturaIdRef = useRef<string | null>(null);
   const cortarRef = useRef<AbortController | null>(null);
   const panelRef = useRef<HTMLElement>(null);
@@ -152,6 +169,40 @@ export default function LectorIngresosPage() {
 
   useEffect(() => () => cortarRef.current?.abort(), []);
 
+  // La última elección de este lector y esta empresa (en el navegador). Sin ella, De España; en una
+  // empresa de fuera (EE. UU., Hong Kong), De fuera de la UE. Lo que ya se haya elegido aquí no se pisa.
+  const paisEmpresa = usePaisEmpresa();
+  const origenElegidoRef = useRef(false);
+  useEffect(() => {
+    if (!origenElegidoRef.current) setOrigen(eleccionRecordada('ventas', origenPorDefecto(paisEmpresa)));
+  }, [paisEmpresa]);
+
+  const elegirOrigen = (e: EleccionOrigen) => {
+    origenElegidoRef.current = true;
+    setOrigen(e);
+    recordarEleccion('ventas', e);
+  };
+
+  /** Cambiada después de leer: el servidor vuelve a comprobar lo leído (sin leer otra vez la factura). */
+  const cambiarOrigen = async (e: EleccionOrigen) => {
+    if (!info || cambiandoOrigen) return;
+    setCambiandoOrigen(true);
+    setErrorOrigen('');
+    setErrorGuardar('');
+    try {
+      const r = await cambiarOrigenLectura('ventas', info.lecturaId, e);
+      setIngreso(r.ingreso);
+      setInfo(r.lectura);
+      // Lo marcado puede ser otra cosa: hay que volver a revisarlo.
+      setRevisado(false);
+      elegirOrigen(e);
+    } catch (err) {
+      setErrorOrigen(errorMessage(err));
+    } finally {
+      setCambiandoOrigen(false);
+    }
+  };
+
   const abrirSelector = () => {
     if (!leyendo) inputRef.current?.click();
   };
@@ -173,6 +224,7 @@ export default function LectorIngresosPage() {
     setRevisado(false);
     setRegistrada(null);
     setClienteResuelto(null);
+    setErrorOrigen('');
     setCuentas([]);
     setCuentaMal(null);
     setError('');
@@ -206,6 +258,7 @@ export default function LectorIngresosPage() {
     setLeyendo(true);
     try {
       const r = await leerFactura('ventas', f, {
+        origen,
         signal: cortar.signal,
         alEmpezar: (id) => {
           lecturaIdRef.current = id;
@@ -231,7 +284,7 @@ export default function LectorIngresosPage() {
   // El cliente con que se registra: el que encontro el lector por su NIF, o el dado de alta o elegido aqui.
   const existente = ingreso?.clienteExistente ?? null;
   const clienteLeido: TerceroEnlazado | null =
-    clienteResuelto ?? (existente ? { id: existente.id, nombre: existente.nombreFiscal, nif: existente.nifCif, pais: 'ES', como: 'elegido' } : null);
+    clienteResuelto ?? (existente ? { id: existente.id, nombre: existente.nombreFiscal, nif: existente.nifCif, pais: existente.pais || 'ES', como: 'elegido' } : null);
   // Una rectificativa de una factura de la app se registra con el cliente de esa factura.
   const cliente = rv.clienteOriginal ?? clienteLeido;
   // Cliente elegido aqui o el de la original: el NIF leido ya no impide registrarla.
@@ -245,8 +298,21 @@ export default function LectorIngresosPage() {
         .map((l) => (l ?? '').trim())
         .filter(Boolean)
     : [];
-  // Pais de la ficha: el leido en la direccion; si no, el del prefijo del NIF-IVA (FR..., PT...); si no, España.
-  const paisCliente = (direccion?.pais || (pareceNifIvaUe(nifLeido) ? paisDelPrefijo(nifLeido) : null) || 'ES').toUpperCase();
+  // De dónde es el cliente según el servidor (lo elegido o, si no, lo deducido de la factura).
+  const tercero = info?.tercero;
+  // Pais de la ficha: el que dice la factura si contradice lo elegido (con «De España» por defecto, un
+  // cliente dominicano no se da de alta como español); si no, el elegido o deducido; si no, el leido en la
+  // direccion o el del prefijo del NIF-IVA (FR..., PT...); si no, España, salvo que se haya dicho que es de
+  // fuera (entonces la ficha lo pide).
+  const paisCliente = (
+    tercero?.contradiccion?.pais ||
+    tercero?.pais ||
+    direccion?.pais ||
+    (pareceNifIvaUe(nifLeido) ? paisDelPrefijo(nifLeido) : null) ||
+    (tercero?.origen && tercero.origen !== 'ES' ? '' : 'ES')
+  ).toUpperCase();
+  // Como se llama el numero fiscal del cliente: el de su ficha si ya lo tenemos; si no, el de su pais.
+  const numeroFiscal = cliente ? nombreNumeroFiscal(cliente.pais) : (tercero?.numeroFiscal ?? 'NIF');
 
   const confirmar = async () => {
     if (!ingreso) return;
@@ -309,8 +375,8 @@ export default function LectorIngresosPage() {
     info ? [...Object.values(info.campos).flatMap((c) => (c ? c.motivos.map(claveTexto) : [])), ...(info.generales ?? []).map((g) => claveTexto(g.mensaje)), claveTexto(info.qr.texto)] : [],
   );
   // Que falte o este mal el NIF leido del cliente ya no bloquea: lo resuelve el cliente dado de alta o elegido.
-  const delNif = erroresDelNifCliente(info);
-  const errores = ingreso ? ingreso.errores.filter((e) => !delNif.has(claveTexto(e)) && !rv.noBloquea(e)) : [];
+  const esDelNif = erroresDelNifCliente(info);
+  const errores = ingreso ? ingreso.errores.filter((e) => !esDelNif(e) && !rv.noBloquea(e)) : [];
   const erroresSueltos = errores.filter((e) => !yaExplicados.has(claveTexto(e)));
   const bloqueada = errores.length > 0;
   const faltaRevision = !!info?.requiereRevision && !revisado;
@@ -403,6 +469,10 @@ export default function LectorIngresosPage() {
           </div>
         ) : !ingreso || !info ? (
           <div className="mx-auto max-w-2xl">
+            {/* Antes de subirla: de dónde es el cliente (manda en las comprobaciones del NIF). */}
+            <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4">
+              <OrigenTercero tipo="cliente" valor={origen} onCambiar={elegirOrigen} disabled={leyendo} />
+            </div>
             {/* Zona de subida (el archivo se puede soltar en toda la pagina: SoltarFactura); con el teclado, el boton "Seleccionar archivo". */}
             <div
               onClick={abrirSelector}
@@ -487,6 +557,15 @@ export default function LectorIngresosPage() {
 
             {/* Lo leido y la confirmacion */}
             <section ref={panelRef} tabIndex={-1} aria-label="Datos leídos" className="flex min-w-0 flex-col gap-4 focus:outline-none">
+              {/* De dónde es el cliente: se puede cambiar y se vuelve a comprobar sin leer otra vez. */}
+              <OrigenTerceroLeido
+                tipo="cliente"
+                tercero={tercero}
+                valor={tercero?.eleccion ?? origen}
+                onCambiar={cambiarOrigen}
+                cambiando={cambiandoOrigen}
+                error={errorOrigen}
+              />
               <PanelLectura info={rv.ajustarInfo(clienteEnlazado ? conClienteElegido(info, clienteEnlazado) : info)} lector="ventas" revisado={revisado} onRevisado={setRevisado} conCasilla={!bloqueada} />
 
               {/* Rectificativa o abono: que factura rectifica, motivo, signo y forma. */}
@@ -499,8 +578,10 @@ export default function LectorIngresosPage() {
                   tipo="cliente"
                   datos={{
                     nombreFiscal: ingreso.cliente ?? '',
-                    nifCif: nifLeido,
+                    // El NIF-IVA leído sin prefijo va ya con el de su país (FR...).
+                    nifCif: tercero?.nifPropuesto ?? nifLeido,
                     pais: paisCliente,
+                    origen: tercero?.contradiccion?.origen ?? tercero?.origen ?? null,
                     direccion: direccion?.calle ?? '',
                     cp: direccion?.cp ?? '',
                     municipio: direccion?.municipio ?? '',
@@ -523,7 +604,7 @@ export default function LectorIngresosPage() {
                 <h2 className="mb-3 font-semibold text-slate-900">Datos leídos</h2>
                 <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Dato etiqueta="Cliente">{cliente?.nombre || ingreso.cliente || 'sin leer'}</Dato>
-                  <Dato etiqueta="NIF del cliente" mono>
+                  <Dato etiqueta={`${numeroFiscal} del cliente`} mono>
                     {cliente?.nif || ingreso.nifCliente || 'sin leer'}
                     {/* «Es uno que ya tengo» corrige el NIF mal leido: se ve tambien el que se leyo. */}
                     {cliente && nifLeido && nifComparable(cliente.nif) !== nifComparable(nifLeido) && (

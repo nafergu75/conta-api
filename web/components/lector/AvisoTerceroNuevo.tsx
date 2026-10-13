@@ -4,7 +4,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowLineLeft, ArrowLineRight, CheckCircle, DotsSixVertical, MagnifyingGlass, UserPlus, WarningCircle, X } from '@phosphor-icons/react';
 import { ApiError, apiFetch, campoDelError, companyPath, errorMessage } from '@/lib/api';
-import { PAISES, pareceNifIvaUe } from '@/lib/fiscal';
+import { nombreNumeroFiscal, numeroFiscalEnFrase, origenDePais, PAISES, pareceNifIvaUe, type OrigenTercero } from '@/lib/fiscal';
 import { paisDelPrefijo } from '@/lib/compras';
 import { useAvisoPlanAnterior } from '@/components/contabilidad/AvisoPlanAnterior';
 
@@ -29,6 +29,9 @@ import { useAvisoPlanAnterior } from '@/components/contabilidad/AvisoPlanAnterio
  *   PLAN_ANTERIOR_PENDIENTE y sale el mismo aviso que en Clientes y
  *   Proveedores (AvisoPlanAnterior), encima de la ficha.
  * - Una vez enlazado, el aviso pasa a verde («Dado de alta»).
+ * - El numero fiscal lleva el nombre que tiene en el pais del tercero (NIF,
+ *   NIF-IVA (VAT), RNC, EIN...) y cambia si se cambia el pais. Si se ha dicho
+ *   que es de fuera de España y no se sabe el pais, la ficha pide elegirlo.
  * - En pantallas anchas (desde 1024 px) las dos ventanas son flotantes: se
  *   mueven arrastrando su barra de titulo y no tapan la pagina con un fondo
  *   oscuro, para poder comparar con la factura y con lo leido. En el movil
@@ -62,6 +65,8 @@ export interface DatosTercero {
   telefono?: string;
   /** Campos de la direccion leidos con poca seguridad: salen en ambar en la ficha hasta que se cambian. */
   dudosos?: CampoDireccion[];
+  /** De donde se ha dicho que es (o se ha deducido). De la UE o de fuera y sin pais: la ficha pide elegirlo. */
+  origen?: OrigenTercero | null;
 }
 
 /** Direccion leida en la factura (direccionProveedor en gastos, direccionCliente en ventas). */
@@ -229,7 +234,8 @@ export default function AvisoTerceroNuevo({ tipo, datos, nifLeido, nombreLeido, 
         <div className="min-w-0 space-y-1 break-words">
           {yaExiste ? (
             <p>
-              Ya tienes dado de alta un {tipo} con este NIF: <strong>{quienEs(yaExiste.nombreFiscal, yaExiste.nifCif)}</strong>. Úsalo para registrar la factura.
+              Ya tienes dado de alta un {tipo} con este {nombreNumeroFiscal(yaExiste.pais ?? datos.pais)}: <strong>{quienEs(yaExiste.nombreFiscal, yaExiste.nifCif)}</strong>. Úsalo para
+              registrar la factura.
             </p>
           ) : quien ? (
             <p>
@@ -562,7 +568,8 @@ function DialogoAlta({
   const t = TEXTOS[tipo];
   const [f, setF] = useState(() => {
     const nif = (datos.nifCif ?? '').trim();
-    const pais = (datos.pais || (pareceNifIvaUe(nif) ? paisDelPrefijo(nif) : null) || 'ES').toUpperCase();
+    // Sin pais: el del prefijo del NIF-IVA; si se ha dicho que es de fuera de España, vacio (se pide); si no, España.
+    const pais = (datos.pais || (pareceNifIvaUe(nif) ? paisDelPrefijo(nif) : null) || (datos.origen && datos.origen !== 'ES' ? '' : 'ES')).toUpperCase();
     return {
       nombreFiscal: (datos.nombreFiscal ?? '').trim(),
       nifCif: nif,
@@ -593,7 +600,7 @@ function DialogoAlta({
     setF((x) => {
       const sig = { ...x, [c]: v };
       // NIF-IVA de otro pais de la UE (FR..., DE...): el pais sale del prefijo.
-      if (c === 'nifCif' && esEspana(x.pais) && pareceNifIvaUe(v)) {
+      if (c === 'nifCif' && (esEspana(x.pais) || !x.pais) && pareceNifIvaUe(v)) {
         const p = paisDelPrefijo(v);
         if (p && p !== 'ES') sig.pais = p;
       }
@@ -627,8 +634,20 @@ function DialogoAlta({
       document.getElementById(idDe('nombreFiscal'))?.focus();
       return;
     }
+    if (!f.pais) {
+      setError(`Elige el país del ${tipo}.`);
+      setCampoMal('pais');
+      document.getElementById(idDe('pais'))?.focus();
+      return;
+    }
     if (!f.nifCif.trim()) {
-      setError(`Escribe el NIF del ${tipo}.`);
+      setError(
+        esEspana(f.pais)
+          ? `Escribe el NIF del ${tipo}.`
+          : origenDePais(f.pais) === 'UE'
+            ? `Escribe el NIF-IVA (VAT) del ${tipo}, con el prefijo de su país. Sin él, la operación no puede ir como intracomunitaria.`
+            : `Escribe el ${numeroFiscalEnFrase(f.pais)} del ${tipo}. Si no tiene, escribe el número de un documento oficial de identificación de su país.`,
+      );
       setCampoMal('nifCif');
       document.getElementById(idDe('nifCif'))?.focus();
       return;
@@ -680,7 +699,9 @@ function DialogoAlta({
     return { 'aria-invalid': false, 'aria-describedby': undefined };
   };
   const es = esEspana(f.pais);
-  const ue = !es && pareceNifIvaUe(f.nifCif);
+  const ue = origenDePais(f.pais) === 'UE';
+  // Como se llama su numero fiscal en su pais (cambia con el pais elegido).
+  const numeroFiscal = f.pais ? nombreNumeroFiscal(f.pais) : 'Número fiscal';
 
   return (
     <Dialogo titulo={tipo === 'proveedor' ? 'Dar de alta el proveedor' : 'Dar de alta el cliente'} referencia={referencia} onCerrar={onCerrar}>
@@ -702,7 +723,7 @@ function DialogoAlta({
               País
             </label>
             <select id={idDe('pais')} value={f.pais} onChange={cambiar('pais')} {...mal('pais')} className={campo}>
-              {!PAISES.some(([c]) => c === f.pais) && <option value={f.pais}>{f.pais}</option>}
+              {f.pais === '' ? <option value="">Elige el país</option> : !PAISES.some(([c]) => c === f.pais) && <option value={f.pais}>{f.pais}</option>}
               {PAISES.map(([c, n]) => (
                 <option key={c} value={c}>
                   {n}
@@ -712,14 +733,21 @@ function DialogoAlta({
           </div>
           <div>
             <label htmlFor={idDe('nifCif')} className={etiqueta}>
-              {es ? 'NIF/CIF *' : ue ? 'NIF-IVA (con el prefijo del país) *' : 'Identificación fiscal (Tax ID) *'}
+              {numeroFiscal}
+              {ue ? ' (con el prefijo del país)' : ''} *
             </label>
             <input id={idDe('nifCif')} value={f.nifCif} onChange={cambiar('nifCif')} maxLength={30} autoComplete="off" {...mal('nifCif')} className={`${campo} font-mono`} />
+            {ue && f.nifCif.trim() && !pareceNifIvaUe(f.nifCif) && <p className="mt-1 text-xs text-amber-700">Falta el prefijo del país (p. ej. FR…, DE…; EL para Grecia).</p>}
+            {/* Sin numero fiscal: un documento oficial de su pais (no un pasaporte: Verifactu lo trata como otro tipo de documento). */}
+            {!es && !ue && f.pais && !f.nifCif.trim() && (
+              <p className="mt-1 text-xs text-slate-500">Si no tiene número fiscal, escribe el de un documento oficial de identificación de su país.</p>
+            )}
+            {ue && !f.nifCif.trim() && <p className="mt-1 text-xs text-slate-500">Sin su NIF-IVA (VAT), la operación no puede ir como intracomunitaria.</p>}
           </div>
           {yaExiste && (
             <div className="flex flex-col gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 sm:col-span-2 sm:flex-row sm:items-center sm:justify-between">
               <p className="min-w-0 break-words">
-                Ya tienes un {tipo} con este NIF: <strong>{quienEs(yaExiste.nombreFiscal, yaExiste.nifCif)}</strong>.
+                Ya tienes un {tipo} con este {numeroFiscal === 'Número fiscal' ? 'número' : numeroFiscal}: <strong>{quienEs(yaExiste.nombreFiscal, yaExiste.nifCif)}</strong>.
               </p>
               <button type="button" onClick={() => onHecho(deFicha(yaExiste, 'elegido'))} className="shrink-0 self-start rounded-lg border border-amber-300 bg-white px-3 py-1.5 font-semibold text-amber-800 hover:bg-amber-100">
                 Usar ese

@@ -9,7 +9,7 @@ import { useCuentasLinea } from '@/lib/subcuentas';
 import { CuentaLinea } from '@/components/contabilidad/CuentaLinea';
 import { useAvisoPlanAnterior } from '@/components/contabilidad/AvisoPlanAnterior';
 import { formatoImporte, parseImporte } from '@/lib/moneda';
-import { conDevengoFuera, PAISES, pareceNifIvaUe, useEmpresaEspanola } from '@/lib/fiscal';
+import { conDevengoFuera, conNombreNumeroFiscal, nombreNumeroFiscal, numeroFiscalEnFrase, origenDePais, PAISES, pareceNifIvaUe, useEmpresaEspanola } from '@/lib/fiscal';
 import {
   calcularTotales,
   conflictoGasto,
@@ -567,7 +567,7 @@ export default function FormFacturaGasto({
     };
     if (!proveedor) return falta('Elige el proveedor de la factura o da de alta uno nuevo.', 'proveedor');
     if (proveedor.tipo === 'nuevo' && !proveedor.nombreFiscal.trim()) return falta('Escribe el nombre del proveedor.', 'proveedor.nombreFiscal');
-    if (proveedor.tipo === 'nuevo' && !proveedor.nifCif.trim()) return falta('Escribe el NIF del proveedor.', 'proveedor.nifCif');
+    if (proveedor.tipo === 'nuevo' && !proveedor.nifCif.trim()) return falta(`Escribe el ${numeroFiscalEnFrase(proveedor.pais)} del proveedor.`, 'proveedor.nifCif');
     if (!numero.trim()) return falta('Escribe el número que puso el proveedor en su factura.', 'numeroFacturaProveedor');
     if (!fechaEmision) return falta('Falta la fecha de la factura.', 'fechaEmision');
     if (rect) {
@@ -1338,7 +1338,8 @@ function SelectorProveedor({
         <div className="min-w-0">
           <p className="font-medium text-slate-900 break-words">{valor.nombre}</p>
           <p className="font-mono text-sm text-slate-500">
-            {valor.nif}
+            {/* Con el nombre de su número fiscal en su país: «RNC 131123456». */}
+            {conNombreNumeroFiscal(valor.nif, valor.pais)}
             {!esEspana(valor.pais) && <span className="ml-2 font-sans">· {PAISES.find(([c]) => c === valor.pais)?.[1] ?? valor.pais}</span>}
           </p>
         </div>
@@ -1361,7 +1362,7 @@ function SelectorProveedor({
       onCambio(sig);
     };
     const es = esEspana(valor.pais);
-    const ue = !es && pareceNifIvaUe(valor.nifCif);
+    const ue = origenDePais(valor.pais) === 'UE';
     return (
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
@@ -1401,7 +1402,9 @@ function SelectorProveedor({
           </div>
           <div>
             <label htmlFor="fg-pnif" className={etiqueta}>
-              {es ? 'NIF/CIF *' : ue ? 'NIF-IVA (con el prefijo del país) *' : 'Identificación fiscal (Tax ID) *'}
+              {/* Como se llama en su país: NIF, NIF-IVA (VAT), RNC, EIN... Cambia con el país. */}
+              {nombreNumeroFiscal(valor.pais)}
+              {ue ? ' (con el prefijo del país)' : ''} *
             </label>
             <input
               id="fg-pnif"
