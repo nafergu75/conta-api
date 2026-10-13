@@ -699,6 +699,8 @@ export default function RectificativaVentaLector({ rv, ingreso, clienteLeidoId, 
             <p className="mt-0.5 text-sm text-slate-600">
               No está en la app: escribe su base de cada tipo de IVA. El IVA se calcula con la base, igual que al registrarla. Así se registra solo la diferencia con la
               factura corregida. Si la original tenía un tipo de IVA que la corregida ya no lleva, añádelo abajo.
+              {/* El servidor toma para la original el mismo porcentaje de IRPF que la factura leída. */}
+              {valor(ingreso.retencion) !== 0 && ' La original se toma con el mismo porcentaje de retención de IRPF que la factura corregida.'}
             </p>
             <div className="mt-3 space-y-3">
               {estado.importesOriginales.map((f, i) => (
