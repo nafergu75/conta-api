@@ -15,7 +15,7 @@
  *  - GET /:id/rectificar            la original con sus lineas y lo que queda
  */
 import { useCallback, useEffect, useState } from 'react';
-import { apiFetch, companyPath, errorMessage } from './api';
+import { ApiError, apiFetch, companyPath, errorMessage } from './api';
 import { lineasDoc, type LineaCalculo } from './divisas';
 import { parseImporte } from './moneda';
 
@@ -66,7 +66,7 @@ export interface OpcionesRectificativa {
 
 /** Lo que es cada tipo, en palabras (para enseñarlo junto al motivo). */
 export const TEXTO_TIPO_R: Record<TipoRectificativaVenta, string> = {
-  R1: 'devolución, descuento, cambio de precio o error al aplicar la ley',
+  R1: 'devolución, descuento o rappel, cambio de precio o error al aplicar la ley',
   R2: 'concurso de acreedores del cliente',
   R3: 'impago del cliente (crédito incobrable)',
   R4: 'error en los datos o en los importes, u otra causa',
@@ -227,10 +227,43 @@ export function paraRectificar(id: string): Promise<DatosParaRectificarVenta> {
   return apiFetch<DatosParaRectificarVenta>(companyPath(`/income-invoices/${encodeURIComponent(id)}/rectificar`));
 }
 
-/** Motivos y series, una vez por formulario (solo cuando hace falta: `activo`). */
-export function useOpcionesRectificativa(activo: boolean): { opciones: OpcionesRectificativa | null; error: string; recargar: () => void } {
+// ---------------------------------------------------------------------------
+// Compatibilidad con el servidor anterior (solo durante la publicación)
+// ---------------------------------------------------------------------------
+
+/**
+ * Las rectificativas nuevas necesitan el servidor nuevo. Si la pantalla se
+ * publica antes que el servidor (o el servidor vuelve a una versión anterior),
+ * GET /rectificativas/opciones no existe y da 404. Entonces se usa el camino de
+ * siempre: la ficha anula la factura entera (POST /:id/credit-note) y «Nueva
+ * factura» hace el abono de una factura de fuera con los campos de antes.
+ * Cuando el servidor nuevo esté publicado, todo esto se puede quitar
+ * (ver components/ventas/RectificativaServidorAnterior.tsx).
+ */
+export const esServidorAnterior = (e: unknown): boolean => e instanceof ApiError && e.status === 404;
+
+/**
+ * ¿Tiene el servidor las rectificativas nuevas? false solo si la ruta de los
+ * motivos no existe; con cualquier otro fallo, true (la pantalla nueva ya
+ * enseña su error y deja reintentar).
+ */
+export async function servidorConRectificativasNuevas(): Promise<boolean> {
+  try {
+    await opcionesRectificativa();
+    return true;
+  } catch (e) {
+    return !esServidorAnterior(e);
+  }
+}
+
+/**
+ * Motivos y series, una vez por formulario (solo cuando hace falta: `activo`).
+ * `anterior`: el servidor todavía no tiene las rectificativas nuevas (ver arriba).
+ */
+export function useOpcionesRectificativa(activo: boolean): { opciones: OpcionesRectificativa | null; error: string; anterior: boolean; recargar: () => void } {
   const [opciones, setOpciones] = useState<OpcionesRectificativa | null>(null);
   const [error, setError] = useState('');
+  const [anterior, setAnterior] = useState(false);
   const [vuelta, setVuelta] = useState(0);
   const cargadas = opciones !== null;
   useEffect(() => {
@@ -238,14 +271,22 @@ export function useOpcionesRectificativa(activo: boolean): { opciones: OpcionesR
     let vivo = true;
     setError('');
     opcionesRectificativa()
-      .then((o) => vivo && setOpciones(o))
-      .catch((e) => vivo && setError(errorMessage(e)));
+      .then((o) => {
+        if (!vivo) return;
+        setOpciones(o);
+        setAnterior(false);
+      })
+      .catch((e) => {
+        if (!vivo) return;
+        setAnterior(esServidorAnterior(e));
+        setError(errorMessage(e));
+      });
     return () => {
       vivo = false;
     };
   }, [activo, cargadas, vuelta]);
   const recargar = useCallback(() => setVuelta((n) => n + 1), []);
-  return { opciones, error, recargar };
+  return { opciones, error, anterior, recargar };
 }
 
 const sinClave = <T,>(o: Record<string, T>, k: string): Record<string, T> => Object.fromEntries(Object.entries(o).filter(([c]) => c !== k));
@@ -535,6 +576,33 @@ export function repartoDeLineas(lineas: Array<LineaCalculo & { originalId?: stri
   });
   const porOriginal = Object.fromEntries(Object.entries(acc).map(([id, v]) => [id, { base: deCent(v.base), cuota: deCent(v.cuota), retencion: deCent(v.retencion) }]));
   return { porOriginal, sinOriginal };
+}
+
+/**
+ * El reparto entre varias facturas se escribe sin signo (en Nueva factura y en
+ * el lector): si la rectificativa resta, cada parte escrita se manda en
+ * negativo; si suma, tal cual. La que sale de las lineas ya lleva su signo.
+ */
+export function repartoConSigno(e: EstadoRectificativaVenta, resta: boolean): EstadoRectificativaVenta {
+  if (!resta || e.que !== 'facturas' || e.originales.length < 2) return e;
+  const conSigno = (v: string) => (v.trim() ? `-${v.trim().replace(/^[-−+]\s*/, '')}` : v);
+  return { ...e, originales: e.originales.map((o) => ({ ...o, base: conSigno(o.base), cuota: conSigno(o.cuota), retencion: conSigno(o.retencion) })) };
+}
+
+/**
+ * Cuenta que se propone para un tipo de IVA con una o varias originales de la
+ * app: la de la original que tiene más base a ese tipo (con una sola, la suya,
+ * cuentaPorTipoIva). null si ninguna tiene ese tipo.
+ */
+export function cuentaDeOriginales(datos: DatosParaRectificarVenta[], tipoIva: number): { codigo: string; numero: string } | null {
+  let mejor: { codigo: string; numero: string; base: number } | null = null;
+  for (const d of datos) {
+    const codigo = d.cuentaPorTipoIva?.[String(tipoIva)];
+    if (!codigo) continue;
+    const base = d.lineas.filter((l) => l.tipoIva === tipoIva).reduce((a, l) => a + Math.abs(l.baseLine ?? 0), 0);
+    if (!mejor || base > mejor.base) mejor = { codigo, numero: d.original.numeroCompleto, base };
+  }
+  return mejor ? { codigo: mejor.codigo, numero: mejor.numero } : null;
 }
 
 /** Parte de una original en el reparto: la escrita o, si no, la de sus lineas. null si no hay ninguna. */
