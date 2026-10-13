@@ -334,6 +334,8 @@ function FormularioFactura() {
   // Serie de rectificativas: las de tipo RECTIFICATIVA (R1-R4) o RECTIFICATIVA_SIMPLIFICADA (R5).
   const [seriesRect, setSeriesRect] = useState<Serie[] | null>(null);
   const [serieRect, setSerieRect] = useState('');
+  // Se intentó pasar a ticket un borrador guardado sin serie de tickets: se explica por qué no.
+  const [avisoBorradorTicket, setAvisoBorradorTicket] = useState(false);
   // Hay series de ese tipo, pero ninguna activa (están desactivadas): no se crea otra al guardar.
   const [haySeriesRectInactivas, setHaySeriesRectInactivas] = useState(false);
   // No se han podido cargar (no es lo mismo que no tener ninguna).
@@ -783,6 +785,12 @@ function FormularioFactura() {
 
   /** Tipo de factura del desplegable: F1 o F2, o uno de los dos modos de rectificativa. */
   const cambiarTipo = (v: string) => {
+    setAvisoBorradorTicket(false);
+    // Borrador ya guardado sin serie de tickets: no se cambia (al guardarlo se quedaría en la R y el servidor lo rechaza).
+    if (v === 'ticket' && borradorSinSerieTickets) {
+      setAvisoBorradorTicket(true);
+      return;
+    }
     if (v === 'rectificativa' || v === 'ticket') {
       // De factura completa a ticket (o al revés) las facturas de la app elegidas ya no valen.
       if (esRect && modo !== v) setRect((r) => ({ ...r, originales: r.originales.filter((o) => o.origen !== 'app') }));
@@ -903,6 +911,9 @@ function FormularioFactura() {
   // Si las hay pero están todas desactivadas, no crea otra: hay que activarla en Configuración > Series.
   const serieTicketsSeCrea = ticket && !!seriesRect && seriesRect.length === 0 && !haySeriesRectInactivas;
   const tipoSeriesRect = ticket ? 'rectificativas de tickets' : 'rectificativas';
+  // Un borrador ya guardado se corrige con PUT, que sin serie deja la que tenía (la R): pasarlo a ticket
+  // solo funciona si ya hay una serie de rectificativas de tickets activa que mandar.
+  const borradorSinSerieTickets = esRect && !ticket && (modoFijo || !!idCreado) && opciones?.series.tickets.existe !== true;
 
   // Tras un error, el campo que lo causa se pone a la vista y recibe el foco; si no se sabe cuál es, el aviso.
   useEffect(() => {
@@ -1313,6 +1324,15 @@ function FormularioFactura() {
               {!esProforma && !(modoFijo && !esRect) && <option value="rectificativa">Rectificativa o abono</option>}
               {!esProforma && espanola && !compat && !(modoFijo && !esRect) && <option value="ticket">Rectificativa de un ticket</option>}
             </select>
+            {avisoBorradorTicket && borradorSinSerieTickets && (
+              <p role="alert" className="mt-1 rounded-lg border border-amber-200 bg-amber-50 p-2 text-sm text-amber-900">
+                Este borrador ya está guardado en la serie de rectificativas y no hay ninguna serie de rectificativas de tickets activa. Créala o actívala en{' '}
+                <Link href="/dashboard/configuracion/series" className="font-medium underline">
+                  Configuración &gt; Series
+                </Link>{' '}
+                y vuelve a abrir el borrador.
+              </p>
+            )}
             {!esRect && tipoFactura === 'F2' && (
               <p className={`mt-1 text-xs ${simplificadaExcedida ? 'text-red-700' : 'text-slate-500'}`}>
                 {simplificadaExcedida
