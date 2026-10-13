@@ -247,6 +247,10 @@ const BOTON_PRINCIPAL =
 const BOTON_SECUNDARIO =
   'rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50';
 
+/** Un borrador guardado en la R no pasa a ticket sin una serie de rectificativas de tickets activa (no se crea sola). */
+const TEXTO_BORRADOR_SIN_TICKETS =
+  'Este borrador ya está guardado en la serie de rectificativas y no hay ninguna serie de rectificativas de tickets activa. Créala o actívala en Configuración > Series y vuelve a abrir el borrador.';
+
 /** Normal (F1 o F2), rectificativa o abono (R1-R4) o rectificativa de un ticket (R5). */
 type Modo = 'normal' | 'rectificativa' | 'ticket';
 type Params = { get: (clave: string) => string | null };
@@ -334,6 +338,8 @@ function FormularioFactura() {
   // Serie de rectificativas: las de tipo RECTIFICATIVA (R1-R4) o RECTIFICATIVA_SIMPLIFICADA (R5).
   const [seriesRect, setSeriesRect] = useState<Serie[] | null>(null);
   const [serieRect, setSerieRect] = useState('');
+  // Modo con el que ya está guardado el borrador de la rectificativa (null: aún no se ha guardado).
+  const [modoGuardado, setModoGuardado] = useState<'rectificativa' | 'ticket' | null>(null);
   // Se intentó pasar a ticket un borrador guardado sin serie de tickets: se explica por qué no.
   const [avisoBorradorTicket, setAvisoBorradorTicket] = useState(false);
   // Hay series de ese tipo, pero ninguna activa (están desactivadas): no se crea otra al guardar.
@@ -477,7 +483,9 @@ function FormularioFactura() {
           setModoFijo(true);
           if (!proforma && (invoice.esRectificativa || invoice.rectificativa || invoice.rectificaFuera || invoice.facturaOriginalId)) {
             const r = invoice.rectificativa;
-            setModo(r?.ticket || invoice.tipoFactura === 'R5' ? 'ticket' : 'rectificativa');
+            const guardado = r?.ticket || invoice.tipoFactura === 'R5' ? 'ticket' : 'rectificativa';
+            setModo(guardado);
+            setModoGuardado(guardado);
             setRect(r ? estadoDesdeResp(r) : rectDeAntiguos(invoice));
             setSerieRect(invoice.serie);
             setFechaOperacion('');
@@ -909,11 +917,12 @@ function FormularioFactura() {
   const serieElegidaRect = (seriesRect ?? []).find((s) => s.codigo === serieRect);
   // Rectificativa de un ticket sin ninguna serie de ese tipo: el servidor crea la RT (o la RTK) al guardar.
   // Si las hay pero están todas desactivadas, no crea otra: hay que activarla en Configuración > Series.
-  const serieTicketsSeCrea = ticket && !!seriesRect && seriesRect.length === 0 && !haySeriesRectInactivas;
+  // Un borrador ya guardado en la R se corrige con PUT, que sin serie deja la que tenía: pasarlo a ticket
+  // solo funciona si hay una serie de rectificativas de tickets activa que mandar (no se crea sola).
+  const guardadoEnLaR = modoGuardado === 'rectificativa';
+  const serieTicketsSeCrea = ticket && !guardadoEnLaR && !!seriesRect && seriesRect.length === 0 && !haySeriesRectInactivas;
   const tipoSeriesRect = ticket ? 'rectificativas de tickets' : 'rectificativas';
-  // Un borrador ya guardado se corrige con PUT, que sin serie deja la que tenía (la R): pasarlo a ticket
-  // solo funciona si ya hay una serie de rectificativas de tickets activa que mandar.
-  const borradorSinSerieTickets = esRect && !ticket && (modoFijo || !!idCreado) && opciones?.series.tickets.existe !== true;
+  const borradorSinSerieTickets = esRect && !ticket && guardadoEnLaR && opciones?.series.tickets.existe !== true;
 
   // Tras un error, el campo que lo causa se pone a la vista y recibe el foco; si no se sabe cuál es, el aviso.
   useEffect(() => {
@@ -1053,6 +1062,7 @@ function FormularioFactura() {
     if (!serie && !esProforma && !esRect) return falla('Elige la serie.', 'serie');
     if (esRect && errorSeriesRect) return falla(`No se han podido cargar las series de rectificativas: ${errorSeriesRect}`, 'serie');
     if (esRect && !seriesRect) return falla('Espera un momento: se están cargando las series de rectificativas.', 'serie');
+    if (esRect && ticket && guardadoEnLaR && !serieRect) return falla(TEXTO_BORRADOR_SIN_TICKETS, 'serie');
     if (esRect && seriesRect && seriesRect.length === 0 && !serieTicketsSeCrea) {
       return falla(
         haySeriesRectInactivas
@@ -1191,6 +1201,7 @@ function FormularioFactura() {
         setIdCreado(invoice.id);
         if (esRect) guardarAvisosVenta(invoice.id, invoice.avisosFiscales);
       }
+      if (esRect) setModoGuardado(ticket ? 'ticket' : 'rectificativa');
       if (emitir && !esProforma) {
         // Operación de un periodo cuyo 303 presenta la gestoría: se pregunta antes de emitirla.
         const emitida = await conDevengoFuera((extra) =>
@@ -1326,11 +1337,10 @@ function FormularioFactura() {
             </select>
             {avisoBorradorTicket && borradorSinSerieTickets && (
               <p role="alert" className="mt-1 rounded-lg border border-amber-200 bg-amber-50 p-2 text-sm text-amber-900">
-                Este borrador ya está guardado en la serie de rectificativas y no hay ninguna serie de rectificativas de tickets activa. Créala o actívala en{' '}
+                {TEXTO_BORRADOR_SIN_TICKETS}{' '}
                 <Link href="/dashboard/configuracion/series" className="font-medium underline">
-                  Configuración &gt; Series
-                </Link>{' '}
-                y vuelve a abrir el borrador.
+                  Ir a Configuración &gt; Series
+                </Link>
               </p>
             )}
             {!esRect && tipoFactura === 'F2' && (
