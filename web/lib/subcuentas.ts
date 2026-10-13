@@ -28,6 +28,12 @@ export interface CuentaElegible {
   madre: string | null;
   /** Creada por la empresa o traida de su plan anterior. */
   propia: boolean;
+  /**
+   * false: se puede usar en la línea, pero quien pide la lista no puede crear
+   * subcuentas bajo ella (la 706, la 708 y la 709 de una rectificativa, para
+   * quien no lleva la contabilidad). Sin el campo, sí puede.
+   */
+  crearSubcuenta?: false;
 }
 
 /** GET /cuentas-linea?tipo= */
