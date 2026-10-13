@@ -332,14 +332,14 @@ export function useRectificativaLector(ingreso: IngresoExtraido | null): Rectifi
         new Set(
           c.motivos.map((m) => {
             if (!esTextoDeRectificativa(m)) return m;
-            if (estado.noEs) return esTextoAntiguo(m) ? m : TEXTO_NO_ES;
+            if (estado.noEs) return TEXTO_NO_ES;
             return esTextoAntiguo(m) ? TEXTO_REVISAR : m;
           }),
         ),
       );
-      // Con el bloque, V19/V20 guardados como error en una lectura antigua ya no la impiden.
+      // Con el bloque (o con «No es una rectificativa»), V19/V20 guardados como error en una lectura antigua ya no la impiden.
       const soloDeRectificativa = c.codigos ? c.codigos.every((k) => k === 'RECTIFICATIVA') : c.motivos.every(esTextoDeRectificativa);
-      const nivel = activa && c.estado === 'error' && soloDeRectificativa ? 'revisar' : c.estado;
+      const nivel = c.estado === 'error' && soloDeRectificativa ? 'revisar' : c.estado;
       if (nivel === c.estado && motivos.join('\n') === c.motivos.join('\n')) continue;
       campos[id as keyof typeof campos] = { ...c, estado: nivel, motivos };
       cambiado = true;
@@ -349,7 +349,8 @@ export function useRectificativaLector(ingreso: IngresoExtraido | null): Rectifi
     return { ...inf, campos, estado: hayError ? 'error' : 'revisar', requiereRevision: true };
   };
 
-  const noBloquea = (texto: string) => activa && esTextoAntiguo(texto);
+  // También con «No es una rectificativa»: el servidor ya no la trata como rectificativa y la deja registrar.
+  const noBloquea = (texto: string) => !!leida && esTextoAntiguo(texto);
 
   // El IVA de cada tipo es el que sale de la base (el que registra el servidor), no uno escrito aparte.
   const importesOriginales = () =>
