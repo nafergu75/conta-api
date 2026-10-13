@@ -186,7 +186,9 @@ export default function DashboardPage() {
   // Año que llevó la gestoría (traído con «Traer la contabilidad»): sus modelos los presenta ella.
   const [anioGestoria, setAnioGestoria] = useState<number | null>(null);
 
-  // Todo sale de las facturas y las nóminas (GET /movements/stats/*), por la fecha de la factura.
+  // Todo sale de las facturas y las nóminas (GET /movements/stats/*): las ventas por su devengo (la fecha de
+  // la operación si la tienen; si no, la de la factura) y la sustitución por su diferencia; los gastos, por la
+  // fecha de la factura.
   const qPeriodo = consultaPeriodo(selectedYear, selectedPeriod);
   const qAnalisis = consultaPeriodo(selectedYear, selectedAnalysisPeriod);
   const resumen = useLectura<ResumenPanel>(`/movements/stats/summary?${qPeriodo}`);
@@ -442,8 +444,9 @@ export default function DashboardPage() {
                 )}
               </div>
               <p className="mt-3 text-xs text-slate-500">
-                Las cifras salen de tus facturas de venta y de gasto y de las nóminas, según la fecha de cada factura, cobradas o no. Importes
-                sin IVA, en {nombreMonedaPlural(moneda)}.
+                Las cifras salen de tus facturas de venta y de gasto y de las nóminas, cobradas o no. Las ventas cuentan en la fecha de la
+                operación si la factura la indica y, si no, en la de la factura; los gastos, en la fecha de la factura. Importes sin IVA, en{' '}
+                {nombreMonedaPlural(moneda)}.
               </p>
             </section>
 
@@ -533,7 +536,7 @@ export default function DashboardPage() {
                     <p className={`mt-2 text-3xl md:text-4xl font-bold break-words ${r.balance >= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
                       {importe(r.balance)}
                     </p>
-                    <p className="mt-1 text-xs text-slate-500">Ingresos menos gastos, según la fecha de las facturas.</p>
+                    <p className="mt-1 text-xs text-slate-500">Ingresos menos gastos del periodo.</p>
                     <p className="mt-5 border-t border-slate-100 pt-4 text-xs text-slate-500">
                       Es una cifra orientativa: no tiene en cuenta las amortizaciones ni otros apuntes que solo están en la contabilidad.
                     </p>
@@ -562,8 +565,8 @@ export default function DashboardPage() {
                             <span className="text-xl md:text-2xl font-bold text-blue-700 whitespace-nowrap">{f ? importe(f.retencionesAIngresar) : '—'}</span>
                           </div>
                           <p className="text-xs text-slate-500">
-                            Va por la fecha de cada factura. El modelo 303 usa la fecha en que registraste cada gasto y, en las ventas, la de la
-                            operación si es otra, así que puede no coincidir.
+                            Las ventas van por la fecha de la operación, como en el modelo 303. Los gastos van por la fecha de la factura y el 303
+                            usa la fecha en que registraste cada uno, así que puede no coincidir.
                           </p>
                         </div>
                       )}
@@ -587,7 +590,7 @@ export default function DashboardPage() {
             </h2>
             <p className="mt-2 text-sm text-slate-600 max-w-xl mx-auto">
               Las gráficas se llenan solas con las facturas de venta que emitas o registres con el lector, las facturas de gasto y las nóminas
-              contabilizadas, cada una en el mes de su fecha.
+              contabilizadas, cada una en su mes.
             </p>
             {(acceso?.nuevaVenta || acceso?.nuevoGasto) && (
               <div className="mt-5 flex flex-wrap justify-center gap-2">
@@ -626,7 +629,7 @@ export default function DashboardPage() {
                     Ingresos y gastos · {periodoTexto}
                   </h2>
                   <p className="mt-1 text-xs text-slate-500">
-                    Por mes, según la fecha de las facturas, cobradas o no. Los gastos incluyen las nóminas. El periodo se cambia arriba.
+                    Por mes, cobradas o no (las ventas, en el mes de la operación). Los gastos incluyen las nóminas. El periodo se cambia arriba.
                   </p>
                 </div>
                 <div className="flex gap-2" role="group" aria-label="Qué enseña el gráfico">
@@ -721,7 +724,7 @@ export default function DashboardPage() {
                 Análisis de ingresos
               </h3>
               <p className="mt-1 mb-6 text-xs text-slate-500">
-                Ventas por cliente, sin IVA, según la fecha de las facturas, cobradas o no. Las rectificativas ya están restadas.
+                Ventas por cliente, sin IVA, por la fecha de la operación, cobradas o no. Las rectificativas ya están restadas.
               </p>
               {clientes.estado === 'error' ? (
                 <ErrorBloque texto="No se ha podido cargar el análisis de ingresos." error={clientes.error} onReintentar={clientes.reintentar} />
