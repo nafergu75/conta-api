@@ -38,18 +38,26 @@ const cent = (n: number): number => Math.round(n * 100);
 const sinCeroNegativo = (n: number): number => (n === 0 ? 0 : n);
 const sumar = (valores: number[]): number => sinCeroNegativo(valores.reduce((a, v) => a + cent(v), 0) / 100);
 
-/** Lado documento: por linea, como el servidor. */
-export function lineasDoc(lineas: LineaCalculo[]): Importes[] {
+/**
+ * Redondeo de las rectificativas: el signo por el redondeo del valor absoluto
+ * (-0,525 da -0,53, como 0,525 da 0,53), para que una rectificativa en negativo
+ * y su original sumen cero. Las facturas en positivo no cambian.
+ */
+const round2Simetrico = (n: number): number => sinCeroNegativo(Math.sign(n) * round2(Math.abs(n)));
+
+/** Lado documento: por linea, como el servidor. `simetrico`: solo en rectificativas. */
+export function lineasDoc(lineas: LineaCalculo[], { simetrico = false }: { simetrico?: boolean } = {}): Importes[] {
+  const r = simetrico ? round2Simetrico : round2;
   return lineas.map((l) => {
-    const pvp = round2(l.cantidad * l.precioUnitario);
-    const descuentoImporte = round2((pvp * l.descuentoPorcentaje) / 100);
-    const baseLine = round2(pvp - descuentoImporte);
+    const pvp = r(l.cantidad * l.precioUnitario);
+    const descuentoImporte = r((pvp * l.descuentoPorcentaje) / 100);
+    const baseLine = r(pvp - descuentoImporte);
     return {
       precioUnitario: l.precioUnitario,
       baseLine,
       descuentoImporte,
-      ivaImporte: round2((baseLine * l.tipoIva) / 100),
-      retencionImporte: round2((baseLine * l.tipoRetencion) / 100),
+      ivaImporte: r((baseLine * l.tipoIva) / 100),
+      retencionImporte: r((baseLine * l.tipoRetencion) / 100),
     };
   });
 }
@@ -126,13 +134,14 @@ export function totales(lineas: LineaCalculo[], importes: Importes[]): Totales {
 
 /**
  * Totales en la moneda de la factura y, si hay tipo y la moneda no es la de la
- * contabilidad, su contravalor (null si aun no hay tipo).
+ * contabilidad, su contravalor (null si aun no hay tipo). `simetrico`: el
+ * redondeo de las rectificativas (lineasDoc).
  */
 export function calcularFactura(
   lineas: LineaCalculo[],
-  { tipoCambio, mismaMoneda }: { tipoCambio: number | null; mismaMoneda: boolean },
+  { tipoCambio, mismaMoneda, simetrico = false }: { tipoCambio: number | null; mismaMoneda: boolean; simetrico?: boolean },
 ): { doc: Totales; cuenta: Totales | null } {
-  const doc = lineasDoc(lineas);
+  const doc = lineasDoc(lineas, { simetrico });
   const totDoc = totales(lineas, doc);
   if (mismaMoneda) return { doc: totDoc, cuenta: totDoc };
   if (!tipoCambio || !(tipoCambio > 0)) return { doc: totDoc, cuenta: null };
