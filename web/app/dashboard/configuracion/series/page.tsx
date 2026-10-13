@@ -146,7 +146,7 @@ export default function SeriesPage() {
                   {delTipo.length === 0 ? (
                     <p className="px-4 py-4 text-sm text-slate-600 md:px-5">
                       {tipo === 'RECTIFICATIVA_SIMPLIFICADA'
-                        ? 'Todavía no hay ninguna. La primera vez que rectifiques un ticket se crea sola la serie RT.'
+                        ? `Todavía no hay ninguna. La primera vez que rectifiques un ticket se crea sola la serie ${series.some((s) => s.codigo === 'RT') ? 'RTK' : 'RT'}.`
                         : 'No hay ninguna serie de este tipo.'}
                     </p>
                   ) : (
