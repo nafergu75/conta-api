@@ -5,6 +5,7 @@ import { MagnifyingGlass, Plus, Trash, WarningCircle, X } from '@phosphor-icons/
 import { errorMessage } from '@/lib/api';
 import { formatoImporte } from '@/lib/moneda';
 import {
+  anuladaEntera,
   buscarOriginales,
   type CandidataOriginalVenta,
   conDatos,
@@ -514,6 +515,9 @@ function OriginalDeApp({
           {d && <> · pendiente de cobro {fmt(d.pendienteCobro)}</>}
         </p>
       )}
+      {d && anuladaEntera(d) && (
+        <p className="text-xs text-slate-600">Está anulada por completo: ya no se puede restar más. Una rectificativa en positivo deshace la anulación.</p>
+      )}
       {d?.lineasDe && (
         <p className="text-xs text-slate-600">
           La sustituyó la {d.lineasDe.numeroCompleto}: se rectifica sobre ella, así que las líneas y las cuentas que se proponen son las suyas.
@@ -777,7 +781,7 @@ function BuscadorOriginalesVenta({
               </span>
               <span className="break-words text-xs text-slate-600">
                 {fechaCorta(c.fechaEmision)} · {c.cliente} · {fmt(c.totalFactura)}
-                {c.restante !== c.totalFactura && ` · queda ${fmt(c.restante)}`}
+                {c.restante !== c.totalFactura && (Math.round(c.restante * 100) === 0 ? ' · anulada por completo (se puede deshacer)' : ` · queda ${fmt(c.restante)}`)}
                 {c.sustituidaPor && ` · sustituida por ${c.sustituidaPor}`}
               </span>
               {!c.rectificable && c.motivoNoRectificable && (
