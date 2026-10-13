@@ -278,6 +278,11 @@ export default function FormFacturaGasto({
     if (inicial?.proveedor?.tipo === 'nuevo') {
       v['proveedor.nifCif'] = inicial.proveedor.nifCif;
       v['proveedor.nombreFiscal'] = inicial.proveedor.nombreFiscal;
+      // La direccion leida con poca seguridad (marcasDireccion) va en ambar mientras no se cambie.
+      v['proveedor.direccion'] = inicial.proveedor.direccion;
+      v['proveedor.cp'] = inicial.proveedor.cp;
+      v['proveedor.municipio'] = inicial.proveedor.municipio;
+      v['proveedor.provincia'] = inicial.proveedor.provincia;
     }
     lineas.forEach((l, i) => {
       v[`lineas.${i}`] = l.clave;
@@ -1411,25 +1416,50 @@ function SelectorProveedor({
             <label htmlFor="fg-pdir" className={etiqueta}>
               Dirección
             </label>
-            <input id="fg-pdir" value={valor.direccion} onChange={set('direccion')} {...marca('proveedor.direccion')} className={campoBase} />
+            <input
+              id="fg-pdir"
+              value={valor.direccion}
+              onChange={set('direccion')}
+              {...marcaCon(marcaLector('proveedor.direccion', valor.direccion), 'proveedor.direccion')}
+              className={campoBase}
+            />
           </div>
           <div>
             <label htmlFor="fg-pcp" className={etiqueta}>
               Código postal
             </label>
-            <input id="fg-pcp" inputMode={es ? 'numeric' : 'text'} value={valor.cp} onChange={set('cp')} {...marca('proveedor.cp')} className={campoBase} />
+            <input
+              id="fg-pcp"
+              inputMode={es ? 'numeric' : 'text'}
+              value={valor.cp}
+              onChange={set('cp')}
+              {...marcaCon(marcaLector('proveedor.cp', valor.cp), 'proveedor.cp')}
+              className={campoBase}
+            />
           </div>
           <div>
             <label htmlFor="fg-pmun" className={etiqueta}>
               Municipio
             </label>
-            <input id="fg-pmun" value={valor.municipio} onChange={set('municipio')} {...marca('proveedor.municipio')} className={campoBase} />
+            <input
+              id="fg-pmun"
+              value={valor.municipio}
+              onChange={set('municipio')}
+              {...marcaCon(marcaLector('proveedor.municipio', valor.municipio), 'proveedor.municipio')}
+              className={campoBase}
+            />
           </div>
           <div>
             <label htmlFor="fg-pprov" className={etiqueta}>
               {es ? 'Provincia' : 'Región o estado'}
             </label>
-            <input id="fg-pprov" value={valor.provincia} onChange={set('provincia')} {...marca('proveedor.provincia')} className={campoBase} />
+            <input
+              id="fg-pprov"
+              value={valor.provincia}
+              onChange={set('provincia')}
+              {...marcaCon(marcaLector('proveedor.provincia', valor.provincia), 'proveedor.provincia')}
+              className={campoBase}
+            />
           </div>
         </div>
       </div>
