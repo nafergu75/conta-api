@@ -1,8 +1,10 @@
 /**
  * Datos del Resumen (app/dashboard/page.tsx). Salen de las FACTURAS y de las
- * NÓMINAS, por la fecha de cada factura (estén cobradas o no), no de los
- * movimientos anotados a mano: GET /companies/:id/movements/stats/* del
- * backend (panel.service). Importes sin IVA y en la moneda de cuenta.
+ * NÓMINAS (estén cobradas o no), no de los movimientos anotados a mano:
+ * GET /companies/:id/movements/stats/* del backend (panel.service). Las ventas
+ * van por su devengo (la fecha de la operación si la tienen; si no, la de la
+ * factura) y una sustitución cuenta su diferencia; los gastos, por la fecha de
+ * la factura. Importes sin IVA y en la moneda de cuenta.
  */
 import { nombreTrimestre } from './anios';
 import { PATRON_TRIMESTRE } from './quarters';
@@ -26,7 +28,7 @@ export interface ResumenPanel {
   totalIncome: number;
   /** gastoFacturas + gastoPersonal. */
   totalExpense: number;
-  /** Ingresos − gastos, por la fecha de las facturas. */
+  /** Ingresos − gastos del periodo. */
   balance: number;
   /** Facturas de venta más de gasto. */
   totalMovements: number;
