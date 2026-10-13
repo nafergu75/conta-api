@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { PencilSimple, Trash } from '@phosphor-icons/react';
 import { ApiError, apiFetch, campoDelError, errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
-import { nombrePais, PAISES, PAISES_UE, pareceNifIvaUe } from '@/lib/fiscal';
+import { nombreNumeroFiscal, nombrePais, PAISES, PAISES_UE, pareceNifIvaUe } from '@/lib/fiscal';
 import { paisDelPrefijo } from '@/lib/compras';
 
 interface Proveedor {
@@ -227,7 +227,9 @@ export function SupplierDatosTab({ proveedor, companyId, onUpdate }: SupplierDat
             </div>
             <div>
               <label htmlFor="sd-nif" className={label}>
-                {es ? 'NIF/CIF' : ue ? 'NIF-IVA (con el prefijo del país)' : 'Identificación fiscal (Tax ID)'}
+                {/* Como se llama en su país (NIF, NIF-IVA (VAT), RNC, EIN...): cambia con el país. */}
+                {nombreNumeroFiscal(d.pais)}
+                {ue ? ' (con el prefijo del país)' : ''}
               </label>
               <input id="sd-nif" type="text" value={d.nifCif} onChange={set('nifCif')} disabled={!editing} aria-invalid={campo === 'nifCif'} className={`${inputClass} font-mono`} />
             </div>
