@@ -8,6 +8,7 @@ import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import PanelLectura from '@/components/lector/PanelLectura';
 import { CuentaLinea } from '@/components/contabilidad/CuentaLinea';
 import { useCuentasLinea } from '@/lib/subcuentas';
+import RectificativaVentaLector, { ID_ERROR_LECTOR, useRectificativaLector } from '@/components/lector/RectificativaVentaLector';
 import {
   ALTA_MANUAL,
   anuncioLecturaTerminada,
@@ -32,6 +33,9 @@ import { pareceNifIvaUe } from '@/lib/fiscal';
  * emitida, el servidor la lee (Azure y, si hace falta, Claude) y valida cada
  * dato. El usuario lo revisa y, al confirmar, el servidor registra la factura
  * con los datos que leyo (no con lo que reenvia el navegador).
+ *
+ * Una rectificativa o un abono (o importes en negativo) se registra como
+ * rectificativa: ver RectificativaVentaLector.
  */
 
 const MAX_BYTES = 4 * 1024 * 1024;
@@ -46,6 +50,10 @@ interface Registrada {
   asientoId?: string;
   asientoEnBorrador?: boolean;
   motivoSinAsiento?: string | null;
+  /** Rectificativa o abono: se registró como rectificativa. */
+  esRectificativa?: boolean;
+  /** Avisos que no impiden registrarla (plazos, modelo 952, serie...). */
+  avisos?: string[];
 }
 
 function Dato({ etiqueta, children, mono }: { etiqueta: string; children: React.ReactNode; mono?: boolean }) {
@@ -114,7 +122,9 @@ export default function LectorIngresosPage() {
   // «Cambiar cuenta»: la cuenta elegida para cada linea (null = la de por defecto) y la que rechazo el servidor.
   const [cuentas, setCuentas] = useState<Array<string | null>>([]);
   const [cuentaMal, setCuentaMal] = useState<number | null>(null);
-  const catalogo = useCuentasLinea('venta', !!ingreso);
+  // Rectificativa o abono leido: factura que rectifica, motivo, signo y forma (se reinicia con cada lectura).
+  const rv = useRectificativaLector(ingreso);
+  const catalogo = useCuentasLinea('venta', !!ingreso, { rectificativa: rv.activa });
   const puedeCrearCuenta = tieneAlgunPermiso(getUser(), ['ventas:write', 'contabilidad:write']);
   // Cliente dado de alta o elegido en esta lectura (sin el no se registra; el aviso pasa a verde).
   const [clienteResuelto, setClienteResuelto] = useState<TerceroEnlazado | null>(null);
@@ -220,13 +230,24 @@ export default function LectorIngresosPage() {
 
   // El cliente con que se registra: el que encontro el lector por su NIF, o el dado de alta o elegido aqui.
   const existente = ingreso?.clienteExistente ?? null;
-  const cliente: TerceroEnlazado | null =
+  const clienteLeido: TerceroEnlazado | null =
     clienteResuelto ?? (existente ? { id: existente.id, nombre: existente.nombreFiscal, nif: existente.nifCif, pais: 'ES', como: 'elegido' } : null);
+  // Una rectificativa de una factura de la app se registra con el cliente de esa factura.
+  const cliente = rv.clienteOriginal ?? clienteLeido;
+  // Cliente elegido aqui o el de la original: el NIF leido ya no impide registrarla.
+  const clienteEnlazado = rv.clienteOriginal ?? clienteResuelto;
   const faltaCliente = !!ingreso && !cliente;
   const nifLeido = (ingreso?.nifCliente ?? '').trim();
 
   const confirmar = async () => {
     if (!ingreso) return;
+    // Rectificativa: lo que falta se dice junto a su campo, antes de enviarla.
+    const falta = rv.comprobar();
+    if (falta) {
+      setErrorGuardar(falta.mensaje);
+      rv.mostrarError(falta);
+      return;
+    }
     setGuardando(true);
     setErrorGuardar('');
     setCuentaMal(null);
@@ -234,11 +255,19 @@ export default function LectorIngresosPage() {
       // El id y la cuenta de cada linea: el servidor registra la factura con los datos que leyo.
       const r = await apiFetch<Registrada>(companyPath('/ingresos-extractor/confirmar'), {
         method: 'POST',
-        body: JSON.stringify({ documentId: ingreso.documentId, ...(cliente ? { clienteId: cliente.id } : {}), revisado, lineas: cuentas.map((cuenta) => ({ cuenta })) }),
+        body: JSON.stringify({
+          documentId: ingreso.documentId,
+          ...(cliente ? { clienteId: cliente.id } : {}),
+          revisado,
+          lineas: cuentas.map((cuenta) => ({ cuenta })),
+          ...rv.cuerpo(),
+        }),
       });
       setRegistrada(r);
     } catch (err) {
       setErrorGuardar(errorMessage(err));
+      const campoRect = campoDelError(err);
+      if (campoRect && rv.esCampoSuyo(campoRect)) rv.mostrarError({ campo: campoRect, mensaje: errorMessage(err) });
       // Una cuenta que el servidor no admite: se marca su linea y el foco va a su «Cambiar cuenta».
       const m = /^lineas\.(\d+)\.cuenta$/.exec(campoDelError(err) ?? '');
       if (m) {
@@ -263,7 +292,7 @@ export default function LectorIngresosPage() {
   );
   // Que falte o este mal el NIF leido del cliente ya no bloquea: lo resuelve el cliente dado de alta o elegido.
   const delNif = erroresDelNifCliente(info);
-  const errores = ingreso ? ingreso.errores.filter((e) => !delNif.has(claveTexto(e))) : [];
+  const errores = ingreso ? ingreso.errores.filter((e) => !delNif.has(claveTexto(e)) && !rv.noBloquea(e)) : [];
   const erroresSueltos = errores.filter((e) => !yaExplicados.has(claveTexto(e)));
   const bloqueada = errores.length > 0;
   const faltaRevision = !!info?.requiereRevision && !revisado;
@@ -315,7 +344,7 @@ export default function LectorIngresosPage() {
             <p className="flex items-start gap-2 font-medium">
               <CheckCircle size={22} weight="fill" className="mt-0.5 shrink-0" />
               <span>
-                Factura {registrada.numeroCompleto} registrada por {euros(registrada.total)}.
+                {registrada.esRectificativa ? 'Rectificativa' : 'Factura'} {registrada.numeroCompleto} registrada por {euros(registrada.total)}.
                 {registrada.contabilizada === true &&
                   (registrada.asientoEnBorrador
                     ? ' Su asiento está en borrador: revísalo y apruébalo en el Motor contable. Hasta entonces no cuenta en el saldo del cliente ni en los informes.'
@@ -329,6 +358,16 @@ export default function LectorIngresosPage() {
                   No se ha podido crear su asiento{registrada.motivoSinAsiento ? `: ${registrada.motivoSinAsiento}` : '.'} Puedes contabilizarla desde la ficha de la factura.
                 </span>
               </p>
+            )}
+            {(registrada.avisos?.length ?? 0) > 0 && (
+              <ul className="space-y-1 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                {registrada.avisos!.map((a, i) => (
+                  <li key={i} className="flex items-start gap-2">
+                    <WarningCircle size={18} className="mt-0.5 shrink-0" />
+                    <span>{a}</span>
+                  </li>
+                ))}
+              </ul>
             )}
             <div className="flex flex-wrap gap-3 text-sm">
               <Link href={`/dashboard/facturas/${registrada.facturaId}`} className="rounded-lg border border-emerald-200 bg-white px-4 py-2 font-semibold text-emerald-700 hover:bg-emerald-50">
@@ -430,10 +469,13 @@ export default function LectorIngresosPage() {
 
             {/* Lo leido y la confirmacion */}
             <section ref={panelRef} tabIndex={-1} aria-label="Datos leídos" className="flex min-w-0 flex-col gap-4 focus:outline-none">
-              <PanelLectura info={clienteResuelto ? conClienteElegido(info, clienteResuelto) : info} lector="ventas" revisado={revisado} onRevisado={setRevisado} conCasilla={!bloqueada} />
+              <PanelLectura info={rv.ajustarInfo(clienteEnlazado ? conClienteElegido(info, clienteEnlazado) : info)} lector="ventas" revisado={revisado} onRevisado={setRevisado} conCasilla={!bloqueada} />
+
+              {/* Rectificativa o abono: que factura rectifica, motivo, signo y forma. */}
+              <RectificativaVentaLector rv={rv} ingreso={ingreso} clienteLeidoId={clienteLeido?.id ?? null} disabled={guardando} />
 
               {/* Cliente sin dar de alta: «Dar de alta este cliente» o «Es uno que ya tengo». */}
-              {(!existente || clienteResuelto) && (
+              {(!existente || clienteResuelto) && !rv.clienteOriginal && (
                 <AvisoTerceroNuevo
                   id="lv-aviso-cliente"
                   tipo="cliente"
@@ -475,7 +517,9 @@ export default function LectorIngresosPage() {
                 <div className="rounded-lg border border-slate-200 bg-white p-4">
                   <h2 className="font-semibold text-slate-900">{ingreso.lineas!.length === 1 ? 'Línea de la factura' : 'Líneas de la factura'}</h2>
                   <p className="mt-0.5 text-sm text-slate-600">
-                    {ingreso.lineas!.length === 1 ? 'Se registra' : 'Se registran'} con la cuenta de ventas. Si va a otra (por ejemplo, la 705 de servicios), cámbiala aquí.
+                    {rv.activa
+                      ? rv.textoLineas(ingreso.lineas!.length)
+                      : `${ingreso.lineas!.length === 1 ? 'Se registra' : 'Se registran'} con la cuenta de ventas. Si va a otra (por ejemplo, la 705 de servicios), cámbiala aquí.`}
                   </p>
                   <ul className="mt-3 flex flex-col divide-y divide-slate-100">
                     {ingreso.lineas!.map((l, i) => (
@@ -483,7 +527,7 @@ export default function LectorIngresosPage() {
                         <p className="flex flex-wrap items-baseline justify-between gap-x-3 text-sm">
                           <span className="min-w-0 break-words text-slate-800">{l.descripcion}</span>
                           <span className="font-mono text-slate-900">
-                            {euros(l.base)} <span className="font-sans text-slate-500">· {l.tipoIva === 0 ? 'exenta' : `IVA ${porcentaje(l.tipoIva)}`}</span>
+                            {euros(l.base * rv.signo)} <span className="font-sans text-slate-500">· {l.tipoIva === 0 ? 'exenta' : `IVA ${porcentaje(l.tipoIva)}`}</span>
                           </span>
                         </p>
                         <CuentaLinea
@@ -494,7 +538,7 @@ export default function LectorIngresosPage() {
                             setCuentas((cs) => cs.map((c, j) => (j === i ? codigo : c)));
                             if (cuentaMal === i) setCuentaMal(null);
                           }}
-                          porDefecto={POR_DEFECTO}
+                          porDefecto={rv.cuentaDeLinea(l.tipoIva) ?? POR_DEFECTO}
                           linea={i + 1}
                           id={`li-cuenta-${i}`}
                           puedeCrear={puedeCrearCuenta}
@@ -542,7 +586,7 @@ export default function LectorIngresosPage() {
               )}
 
               {errorGuardar && (
-                <p role="alert" className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+                <p id={ID_ERROR_LECTOR} role="alert" className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
                   <WarningCircle size={18} className="mt-0.5 shrink-0" />
                   {errorGuardar}
                 </p>
@@ -565,7 +609,7 @@ export default function LectorIngresosPage() {
                   aria-describedby={faltaCliente && !bloqueada ? 'lv-motivo-cliente' : undefined}
                   className="rounded-lg bg-accent-600 px-5 py-2.5 font-semibold text-white transition-all hover:bg-accent-700 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-60"
                 >
-                  {guardando ? 'Registrando…' : 'Registrar la factura de venta'}
+                  {guardando ? 'Registrando…' : rv.activa ? 'Registrar la rectificativa' : 'Registrar la factura de venta'}
                 </button>
               </div>
             </section>
