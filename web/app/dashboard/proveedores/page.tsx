@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { EnvelopeSimple, MagnifyingGlass, MapPin, Phone, Plus, Trash, X } from '@phosphor-icons/react';
 import { ApiError, apiFetch, campoDelError, companyPath, errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
-import { nombrePais, PAISES, PAISES_UE, pareceNifIvaUe } from '@/lib/fiscal';
+import { nombreNumeroFiscal, nombrePais, PAISES, PAISES_UE, pareceNifIvaUe } from '@/lib/fiscal';
 import { paisDelPrefijo } from '@/lib/compras';
 import { mensajeSinAcceso, PantallaSinAcceso } from '@/components/dashboard/SinAcceso';
 import { useAvisoPlanAnterior } from '@/components/contabilidad/AvisoPlanAnterior';
@@ -374,7 +374,9 @@ function NuevoProveedorModal({ onClose, onCreated }: { onClose: () => void; onCr
           </div>
           <div className="flex flex-col gap-1.5">
             <label htmlFor="np-nif" className={label}>
-              {es ? 'NIF/CIF *' : ue ? 'NIF-IVA (con el prefijo del país) *' : 'Identificación fiscal (Tax ID) *'}
+              {/* Como se llama en su país (NIF, NIF-IVA (VAT), RNC, EIN...): cambia con el país. */}
+              {nombreNumeroFiscal(d.pais)}
+              {ue ? ' (con el prefijo del país)' : ''} *
             </label>
             <input id="np-nif" required value={d.nifCif} onChange={set('nifCif')} aria-invalid={campo === 'nifCif'} className={`${inputClass} font-mono`} autoComplete="off" />
           </div>
