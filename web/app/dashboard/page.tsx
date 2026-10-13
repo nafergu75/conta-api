@@ -503,7 +503,7 @@ export default function DashboardPage() {
                       {r.nominasIncluidas && (conIva || r.nominas > 0) && (
                         <Fila
                           etiqueta="Nóminas"
-                          ayuda="Coste para la empresa: bruto, dietas, indemnizaciones, Seguridad Social de la empresa y el ingreso a cuenta de la retribución en especie que asume la empresa"
+                          ayuda="Coste para la empresa: bruto, dietas, indemnizaciones, Seguridad Social a su cargo y el ingreso a cuenta de la retribución en especie que no se descuenta al trabajador"
                           valor={importe(r.gastoPersonal)}
                         />
                       )}
