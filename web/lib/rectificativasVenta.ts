@@ -193,6 +193,18 @@ export interface DatosParaRectificarVenta {
   motivoNoRectificable: string | null;
   /** false si ya tiene alguna rectificativa. */
   admiteSustitucion: boolean;
+  /**
+   * Solo en la pantalla (no lo manda el servidor): la factura sustituida se
+   * rectifica sobre su sustituta, así que `lineas` y `cuentaPorTipoIva` son los
+   * de esa rectificativa por sustitución (ver useDatosOriginales).
+   */
+  lineasDe?: { id: string; numeroCompleto: string } | null;
+}
+
+/** La rectificativa por sustitución vigente de una factura (la última), o null. */
+export function sustitutaDe(d: DatosParaRectificarVenta): { id: string; numeroCompleto: string } | null {
+  const s = d.rectificativas.filter((r) => r.forma === 'S').pop();
+  return s ? { id: s.id, numeroCompleto: s.numeroCompleto } : null;
 }
 
 export interface FiltrosOriginales {
@@ -292,8 +304,27 @@ export function useOpcionesRectificativa(activo: boolean): { opciones: OpcionesR
 const sinClave = <T,>(o: Record<string, T>, k: string): Record<string, T> => Object.fromEntries(Object.entries(o).filter(([c]) => c !== k));
 
 /**
+ * Datos para rectificar una original. Si ya se sustituyó, lo que queda por
+ * rectificar es su sustituta: las líneas y las cuentas que se proponen son las
+ * de esa rectificativa por sustitución (las de la original ya no valen). Se
+ * piden a GET /:idSustituta/rectificar.
+ */
+async function datosParaRectificar(id: string): Promise<DatosParaRectificarVenta> {
+  const d = await paraRectificar(id);
+  const s = sustitutaDe(d);
+  if (!s) return d;
+  try {
+    const ds = await paraRectificar(s.id);
+    return { ...d, lineas: ds.lineas, cuentaPorTipoIva: ds.cuentaPorTipoIva, lineasDe: s };
+  } catch (e) {
+    throw new Error(`faltan las líneas de la ${s.numeroCompleto}, que la sustituyó. ${errorMessage(e)}`);
+  }
+}
+
+/**
  * Datos para rectificar de cada original de la app elegida (GET /:id/rectificar),
  * guardados por id: si se quita una y se vuelve a poner, no se pide otra vez.
+ * Una original sustituida trae las líneas de su sustituta (datosParaRectificar).
  */
 export function useDatosOriginales(ids: string[]): {
   datos: Record<string, DatosParaRectificarVenta>;
@@ -309,7 +340,7 @@ export function useDatosOriginales(ids: string[]): {
     if (faltan.length === 0) return;
     setPedidos((p) => ({ ...p, ...Object.fromEntries(faltan.map((id) => [id, true as const])) }));
     for (const id of faltan) {
-      paraRectificar(id)
+      datosParaRectificar(id)
         .then((d) => {
           setDatos((x) => ({ ...x, [id]: d }));
           setErrores((x) => sinClave(x, id));
@@ -485,7 +516,8 @@ export interface LineaPropuesta {
  *  - por diferencias (I): las mismas con la cantidad en negativo (se dejan las
  *    que cambian; un rappel puede ser «1 × -500»);
  *  - por sustitucion (S): la original en positivo, para corregirla.
- * Cada linea lleva la cuenta de la linea original.
+ * Cada linea lleva la cuenta de la linea original. Una original sustituida
+ * propone las de su sustituta (`lineasDe`).
  */
 export function lineasPropuestas(datos: DatosParaRectificarVenta[], forma: FormaRectificacion): LineaPropuesta[] {
   return datos.flatMap((d) =>
