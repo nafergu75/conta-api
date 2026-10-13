@@ -379,6 +379,9 @@ export default function FacturaDetallePage() {
     accion(async () => {
       if (await servidorConRectificativasNuevas()) {
         router.push(`/dashboard/facturas/nueva?rectifica=${encodeURIComponent(id)}${factura.tipoFactura === 'F2' ? '&ticket=1' : ''}`);
+      } else if (anulada) {
+        // El modal de siempre anula la factura entera: no sirve para deshacer una anulación.
+        throw new Error('Deshacer una anulación necesita la versión nueva del servidor, que se está publicando. Vuelve a intentarlo en unos minutos.');
       } else {
         setRectificandoAnterior(true);
       }
@@ -510,11 +513,12 @@ export default function FacturaDetallePage() {
                 <Copy size={16} /> Duplicar
               </button>
             )}
-            {/* Una rectificativa no se rectifica, y una factura ya anulada entera tampoco (el servidor da 400 o 409).
-                Abre Nueva factura con esta elegida y sus líneas en negativo; un ticket (F2) se rectifica con R5. */}
-            {!factura.esRectificativa && !anulada && (
+            {/* Una rectificativa no se rectifica (el servidor da 400). Abre Nueva factura con esta elegida y sus
+                líneas en negativo; un ticket (F2) se rectifica con R5. Una factura anulada entera ya no admite
+                restar: el botón prepara la rectificativa en positivo que deshace la anulación. */}
+            {!factura.esRectificativa && (
               <button type="button" disabled={ocupado} onClick={hacerRectificativa} className={boton}>
-                Hacer rectificativa
+                {anulada ? 'Deshacer la anulación' : 'Hacer rectificativa'}
               </button>
             )}
           </>
@@ -702,6 +706,7 @@ export default function FacturaDetallePage() {
             </span>
           ))}
           .{anulada ? ' No hay nada que cobrar.' : ''}
+          {anulada && puedeEditar && ' Si la anulaste por error, «Deshacer la anulación» prepara otra rectificativa, esta vez en positivo.'}
         </p>
       )}
 
