@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ApiError, apiFetch, companyPath, errorMessage } from '@/lib/api';
+import { formatoImporte } from '@/lib/moneda';
 
 /** Respuesta de GET /income-invoices/stats/cobros?anio= */
 interface Cifra {
@@ -35,9 +36,11 @@ interface ResumenCobros {
   cobradoEnElAnio: number;
   proximas: FacturaPorCobrar[];
   criterio: Record<string, string>;
+  /** Moneda de todos los importes: la de cuenta de la empresa (EUR, o USD en una de EE. UU.). */
+  monedaCuenta?: string;
 }
 
-const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
+type Formato = (n: number) => string;
 
 /** 'AAAA-MM-DD' -> 'DD/MM/AAAA' (sin pasar por Date: no se desplaza por la zona horaria). */
 const fecha = (iso: string) => (/^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : iso);
@@ -50,7 +53,7 @@ function diasHasta(hoy: string, venc: string): number {
 }
 
 /** " · cobrado X y abonado Y de TOTAL": así cuadra con lo pendiente que sale a la derecha. */
-function detalleCobro(f: FacturaPorCobrar): string {
+function detalleCobro(f: FacturaPorCobrar, eur: Formato): string {
   const partes = [f.cobrado > 0 ? `cobrado ${eur(f.cobrado)}` : '', f.abonado > 0 ? `abonado ${eur(f.abonado)}` : ''].filter(Boolean);
   return partes.length ? ` · ${partes.join(' y ')} de ${eur(f.total)}` : '';
 }
@@ -116,6 +119,9 @@ export function CobrosClientes({ anio }: { anio: number }) {
   }, [cargando]);
 
   if (sinAcceso) return null;
+
+  // Importes en la moneda de cuenta de la empresa (antes, siempre en euros).
+  const eur: Formato = (n) => formatoImporte(n, datos?.monedaCuenta ?? 'EUR');
 
   return (
     <section
@@ -217,7 +223,7 @@ export function CobrosClientes({ anio }: { anio: number }) {
                         <p className="truncate text-sm font-medium text-slate-900">{f.cliente}</p>
                         <p className="text-xs text-slate-500">
                           <span className="font-mono">{f.numeroCompleto ?? 'Sin número'}</span> · Vence el {fecha(f.fechaVencimiento)}
-                          {detalleCobro(f)}
+                          {detalleCobro(f, eur)}
                         </p>
                       </div>
                       <div className="flex items-center gap-3">

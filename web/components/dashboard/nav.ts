@@ -33,7 +33,7 @@ export const NAV_GROUPS: NavGroup[] = [
       {
         label: 'Resumen',
         slug: '',
-        description: 'KPIs, evolución mensual y últimos movimientos.',
+        description: 'Ingresos, gastos y resultado sacados de las facturas, y las últimas facturas.',
         implemented: true,
         endpoints: [],
       },
@@ -163,15 +163,9 @@ export const NAV_GROUPS: NavGroup[] = [
       {
         label: 'Movimientos',
         slug: 'movimientos',
-        description: 'Ingresos y gastos con estados y estadísticas.',
+        description: 'Movimientos anotados a mano. No cuentan en el Resumen, que sale de las facturas.',
         implemented: true,
-        endpoints: [
-          'GET /companies/:id/movements',
-          'POST /companies/:id/movements',
-          'GET /companies/:id/movements/stats/summary',
-          'GET /companies/:id/movements/stats/by-month',
-          'GET /companies/:id/movements/stats/by-category',
-        ],
+        endpoints: ['GET /companies/:id/movements', 'POST /companies/:id/movements'],
         requiredRoles: ['contabilidad:read', 'tesoreria:read'],
       },
       {

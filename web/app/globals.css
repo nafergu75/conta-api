@@ -143,3 +143,9 @@ body {
 /* Un campo desactivado (modo lectura) se distingue tambien de noche: la regla general de campos pisaria disabled:bg-slate-50. */
 .dark .zona-app input:disabled:not([type=checkbox]):not([type=radio]), .dark .zona-app select:disabled, .dark .zona-app textarea:disabled { background-color: #1a1a1a; color: #8f8f8f; border-color: #2a2a2a; cursor: not-allowed; }
 .dark .zona-app .shadow-sm, .dark .zona-app .shadow, .dark .zona-app .shadow-lg, .dark .zona-app .shadow-xl { --tw-shadow-color: rgba(0,0,0,.6); }
+/* Graficos (recharts) del panel: de noche, rejilla, ejes y sombra del cursor oscuros (los colores de dia van en el propio SVG). */
+.dark .zona-app .recharts-cartesian-grid line { stroke: #2a2a2a; }
+.dark .zona-app .recharts-cartesian-axis-line, .dark .zona-app .recharts-cartesian-axis-tick-line { stroke: #3a3a3a; }
+.dark .zona-app .recharts-cartesian-axis-tick-value { fill: #a3a3a3; }
+.dark .zona-app .recharts-reference-line line { stroke: #525252; }
+.dark .zona-app .recharts-tooltip-cursor { fill: rgba(255,255,255,.06); }
