@@ -6,7 +6,7 @@
 import type { FormInicial, LineaInicial, MarcasLector, NivelMarca } from '@/components/compras/FormFacturaGasto';
 import { pareceNifIvaUe } from './fiscal';
 import { calcularLinea, hoyIso, paisDelPrefijo, TIPO_GASTO_INFO, tipoGastoDeCuenta, tipoGastoParaRetencion, TIPOS_GASTO, tipoIvaMasCercano, type TipoGasto } from './compras';
-import { descripcionNeutraTramo, type EstadoCampo, type GastoLeido, type InfoLectura, type RectificativaLeida, type TramoGasto } from './lecturas';
+import { descripcionNeutraTramo, type EstadoCampo, type GastoLeido, type InfoLectura, type InfoTercero, type RectificativaLeida, type TramoGasto } from './lecturas';
 import { estadoDesdeLectura } from './rectificativasGasto';
 
 /** Tramos con base y tipo numericos. */
@@ -107,7 +107,7 @@ export function retencionSinTipo(g: GastoLeido): number | null {
  * total no cuadraria. Si ninguno la admite (1 o 2 %), se conserva la leida y la
  * pagina avisa (retencionSinTipo).
  */
-export function inicialDe(g: GastoLeido, paisExistente: string | null): FormInicial {
+export function inicialDe(g: GastoLeido, paisExistente: string | null, tercero?: InfoTercero | null): FormInicial {
   const habitual = cuentaDeGasto(g.cuentaHabitual?.codigo);
   const sugerida = cuentaDeGasto(g.cuentaContableBase);
   const ret = retencionLeida(g);
@@ -122,10 +122,14 @@ export function inicialDe(g: GastoLeido, paisExistente: string | null): FormInic
   if (g.proveedorExistente) {
     proveedor = { tipo: 'existente', id: g.proveedorExistente.id, nombre: g.proveedorExistente.nombreFiscal, nif: g.proveedorExistente.nifCif, pais: paisExistente || 'ES' };
   } else if (g.proveedor || nif) {
-    const pais = pareceNifIvaUe(nif) ? (paisDelPrefijo(nif) ?? 'ES') : 'ES';
     // La dirección leída en la factura (si la hay) ya va en la ficha: no hay que copiarla a mano.
     const d = g.direccionProveedor;
-    proveedor = { tipo: 'nuevo', nombreFiscal: g.proveedor ?? '', nifCif: nif, pais, direccion: d?.calle ?? '', cp: d?.cp ?? '', municipio: d?.municipio ?? '', provincia: d?.provincia ?? '' };
+    // País: el elegido antes de subirla o el que se deduce de la factura (tercero); si no, el del
+    // prefijo del NIF-IVA o el de la dirección leída; si no, España.
+    const pais = tercero?.pais || (pareceNifIvaUe(nif) ? paisDelPrefijo(nif) : null) || d?.pais || 'ES';
+    // El NIF-IVA leído sin prefijo va ya con el de su país (FR...).
+    const nifFicha = tercero?.nifPropuesto ?? nif;
+    proveedor = { tipo: 'nuevo', nombreFiscal: g.proveedor ?? '', nifCif: nifFicha, pais, direccion: d?.calle ?? '', cp: d?.cp ?? '', municipio: d?.municipio ?? '', provincia: d?.provincia ?? '' };
   }
   const fecha = g.fecha && /^\d{4}-\d{2}-\d{2}$/.test(g.fecha) ? g.fecha : hoyIso();
   const concepto = g.conceptoGasto?.trim() || 'Gasto';
