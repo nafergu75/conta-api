@@ -87,6 +87,8 @@ interface Factura {
   anuladaPorCompleto?: boolean;
   /** Asiento de la factura (no el de sus cobros); null si aún no tiene. */
   asiento?: { id: string; numero: string | null; estado: string } | null;
+  /** Emitida: cuenta bancaria activa que se propone al cobrarla (la del IBAN que salió en ella); null si no hay ninguna. */
+  cuentaBancariaCobroId?: string | null;
   lineas: Linea[];
   /** Fecha de la operacion si es distinta de la de emision. */
   fechaOperacion?: string;
@@ -748,6 +750,8 @@ export default function FacturaDetallePage() {
           facturaId={id}
           puedeEditar={puedeCobrar}
           fechaFactura={factura.fechaEmision}
+          formaPago={factura.formaPago}
+          cuentaPropuestaId={factura.cuentaBancariaCobroId ?? null}
           moneda={moneda}
           monedaCuenta={monedaCuenta}
           sustituidaPor={sustituta ? { id: sustituta.id, numero: sustituta.numeroCompleto } : null}

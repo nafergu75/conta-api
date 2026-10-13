@@ -1,9 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent as TeclaReact } from 'react';
 import Link from 'next/link';
-import { Money, X } from '@phosphor-icons/react';
-import { apiFetch, companyPath, errorMessage } from '@/lib/api';
+import { Bank, Money, X } from '@phosphor-icons/react';
+import { ApiError, apiFetch, campoDelError, companyPath, errorMessage } from '@/lib/api';
+import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { formatoImporte, formatoTipo, parseImporte, parseTipo, redondear2, textoTipo } from '@/lib/moneda';
 import { hoyIso } from '@/lib/anios';
 
@@ -25,6 +26,12 @@ import { hoyIso } from '@/lib/anios';
  * que rectifica queda a favor del cliente (`aFavor`, de la ficha) y aqui se
  * registra su devolucion al cliente (en positivo; el servidor la guarda en
  * negativo, con el asiento de la cuenta del cliente contra el banco o la caja).
+ *
+ * Donde se cobra: una venta al contado propone la caja (570); por transferencia
+ * o recibo domiciliado, la cuenta del banco que sale en la factura. Los pagos y
+ * las devoluciones, el banco. Si toca banco y la empresa no tiene ninguno, no
+ * se elige la caja sin decir nada: se avisa y se deja dar de alta la cuenta ahi
+ * mismo (con permiso de Tesoreria).
  */
 
 type Tipo = 'INGRESO' | 'GASTO';
@@ -85,6 +92,36 @@ interface TipoCambioApi {
   fechaTipoCambio: string | null;
   aviso?: string;
 }
+/** Respuesta del alta de una cuenta en Tesoreria (POST /treasury/bank-accounts). */
+interface CuentaCreada {
+  id: string;
+  iban: string;
+  bancoNombre?: string;
+  subcuentaCodigo: string;
+  estado: string;
+  moneda?: string;
+  /** El IBAN era de una cuenta desactivada: se ha vuelto a activar tal como estaba. */
+  reactivada?: boolean;
+}
+
+/** Ventas: como se cobra la factura (su forma de pago), en la frase del aviso. */
+const COBRO_POR: Record<string, string> = {
+  TRANSFERENCIA: 'por transferencia',
+  GIRO: 'por recibo domiciliado',
+};
+
+/** Codigo del 409 del alta rapida cuando el plan ya tiene subcuentas de bancos sin cuenta. */
+const SUBCUENTA_POR_ELEGIR = 'SUBCUENTA_BANCO_POR_ELEGIR';
+
+const RUTA_CUENTAS_BANCARIAS = '/dashboard/tesoreria/cuentas';
+
+/**
+ * La subcuenta es de bancos (una 572 por debajo de las de agrupación). Las
+ * cuentas dadas de alta antes de comprobarlo pueden tener otra cosa (por
+ * ejemplo «0001») y el servidor no deja apuntar ahí el cobro ni el pago.
+ */
+const esSubcuentaDeBanco = (codigo: string) => /^572\d{2,}$/.test(codigo);
+
 const fecha = (iso: string) => (iso ? new Date(`${iso.slice(0, 10)}T00:00:00`).toLocaleDateString('es-ES') : '');
 /** Hoy en España (toISOString da la fecha en UTC: de 00:00 a 02:00 en España saldría ayer). */
 const hoy = () => hoyIso();
@@ -140,11 +177,17 @@ export default function CobrosFactura({
   aFavor,
   sustituidaPor = null,
   sustituyeA = null,
+  formaPago,
+  cuentaPropuestaId = null,
   onCambio,
 }: {
   tipo: Tipo;
   facturaId: string;
   puedeEditar: boolean;
+  /** Ventas: forma de pago de la factura (TRANSFERENCIA, GIRO o CONTADO). Al contado se propone la caja; si no, el banco. */
+  formaPago?: string;
+  /** Ventas: cuenta bancaria que se propone (la del IBAN que salió en la factura). */
+  cuentaPropuestaId?: string | null;
   /** No se puede cobrar con fecha anterior a la de la factura. */
   fechaFactura?: string;
   /** Moneda de la factura y de la contabilidad (por defecto EUR: las compras van siempre en la de cuenta). */
@@ -387,6 +430,8 @@ export default function CobrosFactura({
           pendiente={pendiente}
           pendienteCuenta={pendienteCuenta}
           cuentaTercero={resumen.cuentaTercero ?? null}
+          formaPago={tipo === 'INGRESO' ? formaPago : undefined}
+          cuentaPropuestaId={tipo === 'INGRESO' ? cuentaPropuestaId : null}
           moneda={moneda}
           monedaCuenta={monedaCuenta}
           fechaMinima={fechaFactura}
@@ -411,6 +456,8 @@ function ModalCobro({
   pendiente,
   pendienteCuenta,
   cuentaTercero,
+  formaPago,
+  cuentaPropuestaId,
   moneda,
   monedaCuenta,
   fechaMinima,
@@ -423,6 +470,10 @@ function ModalCobro({
   base: string;
   /** Subcuenta del tercero (null si aun no tiene: la recibe al registrar). */
   cuentaTercero: string | null;
+  /** Ventas: forma de pago de la factura. CONTADO propone la caja; el resto (o sin saber), el banco. */
+  formaPago?: string;
+  /** Ventas: cuenta bancaria que se propone si está entre las activas. */
+  cuentaPropuestaId: string | null;
   /** En la moneda de la factura. */
   pendiente: number;
   /** En la moneda de cuenta (430), al tipo de la factura. */
@@ -437,6 +488,8 @@ function ModalCobro({
   const abonoVenta = abono && tipo === 'INGRESO';
   // El dinero sale del banco: un pago de una compra o la devolución al cliente de un abono de venta.
   const saleDinero = salidaDeDinero(tipo, abono);
+  const etiquetaMedio = abonoVenta ? 'Desde dónde se devuelve' : tipo === 'INGRESO' ? 'Dónde se cobra' : abono ? 'Dónde lo recibes' : 'Desde dónde se paga';
+  const textoMedio = etiquetaMedio[0].toLowerCase() + etiquetaMedio.slice(1);
   const enDivisa = moneda !== monedaCuenta;
   const fmt = (n: number) => formatoImporte(n, moneda);
   const fmtCuenta = (n: number) => formatoImporte(n, monedaCuenta);
@@ -467,24 +520,95 @@ function ModalCobro({
     };
   }, [enDivisa, moneda, fechaCobro]);
 
+  // Venta al contado: caja. Por transferencia, recibo domiciliado, sin saber o en
+  // pagos: el banco, y si no hay ninguno no se elige nada (no la caja a escondidas).
+  const alContado = formaPago === 'CONTADO';
+  const [errorCuentas, setErrorCuentas] = useState(false);
+  // Dar de alta una cuenta bancaria pide permiso de Tesorería (el administrador siempre lo tiene).
+  const [puedeCrearBanco] = useState(() => tieneAlgunPermiso(getUser(), ['tesoreria:write']));
+  const [avisoCuenta, setAvisoCuenta] = useState('');
+  const cajaRef = useRef<HTMLDivElement>(null);
+  const fechaRef = useRef<HTMLInputElement>(null);
+  const selectRef = useRef<HTMLSelectElement>(null);
+  // Tras dar de alta la cuenta, el foco va al desplegable (ya con ella elegida) en cuanto se pinta.
+  const enfocarLista = useRef(false);
   useEffect(() => {
+    if (!enfocarLista.current) return;
+    enfocarLista.current = false;
+    selectRef.current?.focus();
+  }, [medio]);
+
+  useEffect(() => {
+    let vivo = true;
     apiFetch<CuentaBancaria[]>(companyPath('/bancos/cuentas'))
       .then((l) => {
+        if (!vivo) return;
         const activas = (Array.isArray(l) ? l : []).filter((c) => c.activa);
         setCuentas(activas);
-        setMedio(activas[0]?.id ?? 'CAJA');
+        if (alContado) setMedio('CAJA');
+        else setMedio(activas.find((c) => c.id === cuentaPropuestaId)?.id ?? activas[0]?.id ?? '');
       })
       .catch(() => {
+        if (!vivo) return;
+        setErrorCuentas(true);
         setCuentas([]);
-        setMedio('CAJA');
+        setMedio(alContado ? 'CAJA' : '');
       });
-  }, []);
+    return () => {
+      vivo = false;
+    };
+  }, [alContado, cuentaPropuestaId]);
 
   useEffect(() => {
     const esc = (e: KeyboardEvent) => e.key === 'Escape' && onCerrar();
     window.addEventListener('keydown', esc);
     return () => window.removeEventListener('keydown', esc);
   }, [onCerrar]);
+
+  // Foco: al abrir, en el primer campo; al cerrar, vuelve al botón que la abrió.
+  useEffect(() => {
+    const volverA = document.activeElement as HTMLElement | null;
+    fechaRef.current?.focus();
+    return () => {
+      if (volverA && document.contains(volverA)) volverA.focus();
+    };
+  }, []);
+
+  // El tabulador no sale de la ventana.
+  const alTeclear = (e: TeclaReact<HTMLDivElement>) => {
+    if (e.key !== 'Tab' || !cajaRef.current) return;
+    const enfocables = Array.from(
+      cajaRef.current.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])'),
+    );
+    if (!enfocables.length) return;
+    const primero = enfocables[0];
+    const ultimo = enfocables[enfocables.length - 1];
+    if (e.shiftKey && document.activeElement === primero) {
+      e.preventDefault();
+      ultimo.focus();
+    } else if (!e.shiftKey && document.activeElement === ultimo) {
+      e.preventDefault();
+      primero.focus();
+    }
+  };
+
+  // La cuenta recién dada de alta (o reactivada) queda elegida.
+  const alCrearCuenta = (c: CuentaCreada) => {
+    const nueva = { id: c.id, iban: c.iban, bancoNombre: c.bancoNombre, subcuentaCodigo: c.subcuentaCodigo, activa: true, moneda: c.moneda };
+    setCuentas((l) => [...(l ?? []).filter((x) => x.id !== c.id), nueva]);
+    setMedio(c.id);
+    setError('');
+    setAvisoCuenta(
+      c.reactivada
+        ? `Esa cuenta ya estaba dada de alta pero desactivada: se ha vuelto a activar con su subcuenta ${c.subcuentaCodigo}. Ya está elegida.`
+        : `Cuenta dada de alta con la subcuenta ${c.subcuentaCodigo}. Ya está elegida.`,
+    );
+    enfocarLista.current = true;
+  };
+
+  // Cuenta elegida con una subcuenta que no es de bancos: hay que cambiarla en Tesorería antes.
+  const cuentaElegida = cuentas?.find((c) => c.id === medio);
+  const subcuentaMala = cuentaElegida && !esSubcuentaDeBanco(cuentaElegida.subcuentaCodigo) ? cuentaElegida.subcuentaCodigo : null;
 
   // Vista previa del cobro en divisa (el servidor hace el calculo definitivo).
   const valor = parseImporte(importe);
@@ -528,6 +652,14 @@ function ModalCobro({
       );
     }
     if (!fechaCobro) return setError('Indica la fecha.');
+    if (!medio) {
+      selectRef.current?.focus();
+      return setError(`Falta elegir ${textoMedio}: da de alta la cuenta del banco o elige «Caja / efectivo».`);
+    }
+    if (subcuentaMala) {
+      selectRef.current?.focus();
+      return setError(`La cuenta elegida tiene la subcuenta «${subcuentaMala}», que no es de bancos. Cámbiala en Tesorería > Cuentas bancarias o elige otra.`);
+    }
     const divisa: Record<string, number> = {};
     if (enDivisa) {
       if (modoTipo === 'TIPO') {
@@ -566,9 +698,27 @@ function ModalCobro({
 
   const campo = 'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm';
 
+  const cobroPor = formaPago ? COBRO_POR[formaPago] : undefined;
+  const pistaMedio =
+    tipo !== 'INGRESO' || !cuentas || errorCuentas
+      ? ''
+      : alContado
+        ? 'La factura es al contado: se propone la caja.'
+        : cobroPor && cuentas.length > 0
+          ? `La factura se cobra ${cobroPor}: se propone su cuenta del banco.`
+          : '';
+  const avisoSinBanco =
+    tipo === 'INGRESO'
+      ? cobroPor
+        ? `Esta factura se cobra ${cobroPor} y aún no tienes dada de alta la cuenta del banco.`
+        : 'Aún no tienes dada de alta la cuenta del banco.'
+      : abono
+        ? 'Aún no tienes dada de alta la cuenta del banco donde recibes la devolución.'
+        : 'Aún no tienes dada de alta la cuenta del banco desde la que pagas.';
+
   return (
     <div className="fixed inset-0 z-50 !mt-0 flex items-center justify-center bg-slate-900/40 p-4" role="dialog" aria-modal="true" aria-labelledby="titulo-cobro">
-      <div className="max-h-[90dvh] w-full max-w-md space-y-4 overflow-y-auto rounded-xl bg-white p-6 shadow-xl">
+      <div ref={cajaRef} onKeyDown={alTeclear} className="max-h-[90dvh] w-full max-w-md space-y-4 overflow-y-auto rounded-xl bg-white p-4 shadow-xl sm:p-6">
         <div className="flex items-start justify-between">
           <h2 id="titulo-cobro" className="text-lg font-semibold text-slate-900">{t.registrar}</h2>
           <button type="button" onClick={onCerrar} className="rounded p-1 text-slate-500 hover:bg-slate-100" aria-label="Cerrar">
@@ -590,7 +740,7 @@ function ModalCobro({
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label htmlFor="cobro-fecha" className="mb-1 block text-sm font-medium text-slate-700">Fecha</label>
-            <input id="cobro-fecha" type="date" min={fechaMinima?.slice(0, 10)} value={fechaCobro} onChange={(e) => setFechaCobro(e.target.value)} className={campo} />
+            <input ref={fechaRef} id="cobro-fecha" type="date" min={fechaMinima?.slice(0, 10)} value={fechaCobro} onChange={(e) => setFechaCobro(e.target.value)} className={campo} />
           </div>
           <div>
             <label htmlFor="cobro-importe" className="mb-1 block text-sm font-medium text-slate-700">
@@ -600,11 +750,27 @@ function ModalCobro({
           </div>
         </div>
         <div>
-          <label htmlFor="cobro-cuenta" className="mb-1 block text-sm font-medium text-slate-700">{abonoVenta ? 'Desde dónde se devuelve' : tipo === 'INGRESO' ? 'Dónde se cobra' : abono ? 'Dónde lo recibes' : 'Desde dónde se paga'}</label>
+          <label htmlFor="cobro-cuenta" className="mb-1 block text-sm font-medium text-slate-700">{etiquetaMedio}</label>
           {cuentas === null ? (
             <p className="text-sm text-slate-500">Cargando cuentas…</p>
           ) : (
-            <select id="cobro-cuenta" value={medio} onChange={(e) => setMedio(e.target.value)} className={campo}>
+            <select
+              ref={selectRef}
+              id="cobro-cuenta"
+              value={medio}
+              onChange={(e) => {
+                setMedio(e.target.value);
+                setAvisoCuenta('');
+              }}
+              aria-describedby={[pistaMedio ? 'cobro-cuenta-pista' : '', subcuentaMala ? 'cobro-cuenta-mala' : ''].filter(Boolean).join(' ') || undefined}
+              aria-invalid={subcuentaMala ? true : undefined}
+              className={campo}
+            >
+              {!medio && (
+                <option value="" disabled>
+                  Elige {textoMedio}…
+                </option>
+              )}
               {cuentas.map((c) => (
                 <option key={c.id} value={c.id}>
                   {(c.bancoNombre || 'Banco')} · {c.iban.slice(-4).padStart(8, '•')} ({c.subcuentaCodigo}) · {c.moneda ?? 'EUR'}
@@ -613,9 +779,35 @@ function ModalCobro({
               <option value="CAJA">Caja / efectivo (570)</option>
             </select>
           )}
-          {cuentas && cuentas.length === 0 && (
-            <p className="mt-1 text-xs text-slate-500">{t.sinBancos}</p>
+          {pistaMedio && (
+            <p id="cobro-cuenta-pista" className="mt-1 text-xs text-slate-500">
+              {pistaMedio}
+            </p>
           )}
+          {avisoCuenta && (
+            <p role="status" className="mt-1 text-xs font-medium text-green-700">
+              {avisoCuenta}
+            </p>
+          )}
+          {subcuentaMala && (
+            <p id="cobro-cuenta-mala" role="alert" className="mt-1 text-xs text-red-700">
+              Esta cuenta tiene la subcuenta «{subcuentaMala}», que no es de bancos, y no se puede apuntar ahí. Cámbiala por una 572 en{' '}
+              <Link href={RUTA_CUENTAS_BANCARIAS} className="font-medium underline">
+                Tesorería &gt; Cuentas bancarias
+              </Link>{' '}
+              o elige otra.
+            </p>
+          )}
+          {errorCuentas && (
+            <p role="alert" className="mt-1 text-xs text-red-700">
+              No se han podido cargar las cuentas bancarias. Cierra esta ventana y vuelve a abrirla.
+            </p>
+          )}
+          {cuentas && cuentas.length === 0 && !errorCuentas && (alContado ? (
+            <p className="mt-1 text-xs text-slate-500">{t.sinBancos}</p>
+          ) : (
+            <AltaCuentaBanco aviso={avisoSinBanco} puedeCrear={puedeCrearBanco} onCreada={alCrearCuenta} />
+          ))}
         </div>
         {enDivisa && (
           <fieldset className="space-y-3 rounded-lg border border-slate-200 p-3">
@@ -692,6 +884,127 @@ function ModalCobro({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Toca cobrar o pagar por banco y la empresa no tiene ninguna cuenta bancaria:
+ * lo dice y, con permiso de Tesorería, deja darla de alta aquí mismo (IBAN y
+ * banco; el servidor le pone su subcuenta 572). Sin permiso, enlaza a Tesorería.
+ */
+function AltaCuentaBanco({ aviso, puedeCrear, onCreada }: { aviso: string; puedeCrear: boolean; onCreada: (c: CuentaCreada) => void }) {
+  const [iban, setIban] = useState('');
+  const [banco, setBanco] = useState('');
+  const [errorIban, setErrorIban] = useState('');
+  const [error, setError] = useState('');
+  const [irATesoreria, setIrATesoreria] = useState(false);
+  const [enviando, setEnviando] = useState(false);
+  const ibanRef = useRef<HTMLInputElement>(null);
+
+  const crear = async (e: FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setErrorIban('');
+    setIrATesoreria(false);
+    if (!iban.trim()) {
+      setErrorIban('Escribe el IBAN de la cuenta.');
+      ibanRef.current?.focus();
+      return;
+    }
+    setEnviando(true);
+    try {
+      const c = await apiFetch<CuentaCreada>(companyPath('/treasury/bank-accounts'), {
+        method: 'POST',
+        body: JSON.stringify({ iban: iban.trim(), bancoNombre: banco.trim() || undefined }),
+      });
+      onCreada(c);
+    } catch (err) {
+      if (campoDelError(err) === 'iban') {
+        setErrorIban(errorMessage(err));
+        ibanRef.current?.focus();
+      } else {
+        setError(errorMessage(err));
+        const d = err instanceof ApiError ? (err.detalles as { codigo?: unknown } | undefined) : undefined;
+        setIrATesoreria(d?.codigo === SUBCUENTA_POR_ELEGIR);
+      }
+      setEnviando(false);
+    }
+  };
+
+  const enlace = (
+    <Link href={RUTA_CUENTAS_BANCARIAS} className="font-medium text-amber-900 underline">
+      Tesorería &gt; Cuentas bancarias
+    </Link>
+  );
+
+  return (
+    <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+      <p className="flex items-start gap-2 font-medium">
+        <Bank size={18} className="mt-0.5 shrink-0" aria-hidden="true" />
+        <span>{aviso}</span>
+      </p>
+      {puedeCrear ? (
+        <form onSubmit={crear} noValidate className="mt-3 space-y-3" aria-label="Alta de la cuenta del banco">
+          <p className="text-xs text-amber-800">Dala de alta aquí y quedará elegida. Si fue en efectivo, elige «Caja / efectivo» en la lista.</p>
+          <div>
+            <label htmlFor="alta-banco-iban" className="mb-1 block text-xs font-medium text-slate-700">
+              IBAN
+            </label>
+            <input
+              ref={ibanRef}
+              id="alta-banco-iban"
+              value={iban}
+              onChange={(e) => setIban(e.target.value)}
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="ES91 2100 0418 4502 0005 1332"
+              aria-invalid={errorIban ? true : undefined}
+              aria-describedby={errorIban ? 'alta-banco-iban-error' : undefined}
+              className={`w-full rounded-lg border bg-white px-3 py-2 font-mono text-sm text-slate-900 ${errorIban ? 'border-red-400' : 'border-slate-300'}`}
+            />
+            {errorIban && (
+              <p id="alta-banco-iban-error" className="mt-1 text-xs text-red-700">
+                {errorIban}
+              </p>
+            )}
+          </div>
+          <div>
+            <label htmlFor="alta-banco-nombre" className="mb-1 block text-xs font-medium text-slate-700">
+              Banco <span className="font-normal text-slate-500">(opcional)</span>
+            </label>
+            <input
+              id="alta-banco-nombre"
+              value={banco}
+              maxLength={100}
+              onChange={(e) => setBanco(e.target.value)}
+              placeholder="Ej.: BBVA"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+            />
+          </div>
+          {error && (
+            <p role="alert" className="text-xs text-red-700">
+              {error}
+              {irATesoreria && <> Ve a {enlace}.</>}
+            </p>
+          )}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <button
+              type="submit"
+              disabled={enviando}
+              className="rounded-lg bg-amber-700 px-3 py-2 text-sm font-semibold text-white hover:bg-amber-800 disabled:opacity-50"
+            >
+              {enviando ? 'Dando de alta…' : 'Dar de alta la cuenta'}
+            </button>
+            <span className="text-xs text-amber-800">Se le asigna sola su subcuenta 572 en el plan contable.</span>
+          </div>
+        </form>
+      ) : (
+        <p className="mt-2 text-xs text-amber-800">
+          Darla de alta pide permiso de Tesorería, y no lo tienes: pídeselo al administrador de la empresa o que la dé de alta quien lo tenga, en {enlace}. Si
+          fue en efectivo, elige «Caja / efectivo» en la lista.
+        </p>
+      )}
     </div>
   );
 }
