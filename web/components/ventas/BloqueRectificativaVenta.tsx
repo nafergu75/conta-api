@@ -38,6 +38,8 @@ import {
  * en details.campo («rectificativa.originales.0.numero»...), con `marca`.
  *
  * `compacto`: para el lector, sin la introducción ni el filtro por fechas.
+ * El lector además pregunta la forma a su manera (`sinForma`) y busca la
+ * original en toda la empresa (`buscarEnTodas`).
  */
 
 type Marca = (...campos: string[]) => { 'aria-invalid': boolean; 'aria-describedby'?: string };
@@ -70,6 +72,16 @@ interface Props {
   sustitucionDeFuera?: boolean;
   /** Último error con el campo que lo causa: el texto se repite junto a ese campo. */
   error?: { campo?: string; mensaje: string } | null;
+  /** Sin «¿Cómo la rectificas?»: quien lo usa pregunta la forma (el lector, junto al signo de los importes). */
+  sinForma?: boolean;
+  /**
+   * Lector: busca en todas las facturas emitidas de la empresa, sin filtrar por
+   * el cliente leído ni por ticket (la original decide el cliente). `clienteId`
+   * sigue sirviendo para sus facturas de 2026 pendientes («No está en la app»).
+   */
+  buscarEnTodas?: boolean;
+  /** Ayuda del reparto entre varias facturas, si no sale de las líneas. */
+  textoReparto?: string;
 }
 
 const campo =
@@ -102,6 +114,9 @@ export default function BloqueRectificativaVenta({
   numeroLeido,
   sustitucionDeFuera = false,
   error,
+  sinForma = false,
+  buscarEnTodas = false,
+  textoReparto,
 }: Props) {
   const fmt = (n: number) => formatoImporte(n, monedaCuenta);
   /** El mensaje del error, junto al campo que lo causa (el campo ya lo lee el lector de pantalla con aria-describedby). */
@@ -119,6 +134,8 @@ export default function BloqueRectificativaVenta({
   // Todas las de la app son del mismo cliente: el de la primera.
   const clienteFijo = deApp.find((o) => o.customerId)?.customerId ?? null;
   const clienteBusqueda = clienteFijo ?? clienteId ?? null;
+  // En el lector se busca en toda la empresa hasta que se elige una de la app.
+  const clienteDelBuscador = buscarEnTodas ? clienteFijo : clienteBusqueda;
   const varias = e.que === 'facturas' && e.originales.length > 1;
 
   const sust = sustitucionPosible(e, datos, info);
@@ -248,14 +265,15 @@ export default function BloqueRectificativaVenta({
             )}
             {varias && (
               <p className="text-xs text-slate-500">
-                Reparto: sale de las líneas de cada factura. Cámbialo solo si quieres repartirlo de otra forma; la suma tiene que dar lo mismo que la rectificativa.
+                {textoReparto ??
+                  'Reparto: sale de las líneas de cada factura. Cámbialo solo si quieres repartirlo de otra forma; la suma tiene que dar lo mismo que la rectificativa.'}
               </p>
             )}
 
             {caben && (
               <BuscadorOriginalesVenta
-                ticket={ticket}
-                customerId={clienteBusqueda}
+                ticket={buscarEnTodas ? null : ticket}
+                customerId={clienteDelBuscador}
                 yaElegidas={deApp.map((o) => o.id ?? '')}
                 numeroInicial={e.originales.length === 0 ? numeroLeido ?? '' : ''}
                 compacto={compacto}
@@ -299,7 +317,7 @@ export default function BloqueRectificativaVenta({
       </fieldset>
 
       {/* Motivo y forma */}
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+      <div className={`grid grid-cols-1 gap-5 ${sinForma ? '' : 'lg:grid-cols-2'}`}>
         <div>
           <label htmlFor="rv-motivo" className={etiqueta}>
             Motivo *
@@ -371,39 +389,41 @@ export default function BloqueRectificativaVenta({
           )}
         </div>
 
-        <fieldset id="rv-forma" tabIndex={-1} className="focus:outline-none" {...marca('rectificativa.forma')}>
-          <legend className={etiqueta}>¿Cómo la rectificas? *</legend>
-          <div className="grid grid-cols-1 gap-2">
-            <label className={opcion(e.forma === 'I')}>
-              <input id="rv-forma-I" type="radio" name="rv-forma" checked={e.forma === 'I'} onChange={() => cambiar({ forma: 'I' })} className="mt-0.5" />
-              <span>
-                <span className="font-medium">Por diferencias</span>
-                <span className="block text-xs text-slate-500">Solo lo que cambia: lo devuelto o descontado, en negativo.</span>
-              </span>
-            </label>
-            <label className={opcion(e.forma === 'S', !sustituible)}>
-              <input
-                type="radio"
-                name="rv-forma"
-                checked={e.forma === 'S'}
-                disabled={!sustituible}
-                onChange={() => cambiar({ forma: 'S' })}
-                aria-describedby={!sustituible && porqueNoSustituir ? 'rv-forma-porque' : undefined}
-                className="mt-0.5"
-              />
-              <span>
-                <span className="font-medium">Por sustitución</span>
-                <span className="block text-xs text-slate-500">La factura corregida entera, en positivo. Se registra la diferencia con la original.</span>
-              </span>
-            </label>
-          </div>
-          {!sustituible && porqueNoSustituir && (
-            <p id="rv-forma-porque" className={ayuda}>
-              {porqueNoSustituir}
-            </p>
-          )}
-          {mensaje('rectificativa.forma')}
-        </fieldset>
+        {!sinForma && (
+          <fieldset id="rv-forma" tabIndex={-1} className="focus:outline-none" {...marca('rectificativa.forma')}>
+            <legend className={etiqueta}>¿Cómo la rectificas? *</legend>
+            <div className="grid grid-cols-1 gap-2">
+              <label className={opcion(e.forma === 'I')}>
+                <input id="rv-forma-I" type="radio" name="rv-forma" checked={e.forma === 'I'} onChange={() => cambiar({ forma: 'I' })} className="mt-0.5" />
+                <span>
+                  <span className="font-medium">Por diferencias</span>
+                  <span className="block text-xs text-slate-500">Solo lo que cambia: lo devuelto o descontado, en negativo.</span>
+                </span>
+              </label>
+              <label className={opcion(e.forma === 'S', !sustituible)}>
+                <input
+                  type="radio"
+                  name="rv-forma"
+                  checked={e.forma === 'S'}
+                  disabled={!sustituible}
+                  onChange={() => cambiar({ forma: 'S' })}
+                  aria-describedby={!sustituible && porqueNoSustituir ? 'rv-forma-porque' : undefined}
+                  className="mt-0.5"
+                />
+                <span>
+                  <span className="font-medium">Por sustitución</span>
+                  <span className="block text-xs text-slate-500">La factura corregida entera, en positivo. Se registra la diferencia con la original.</span>
+                </span>
+              </label>
+            </div>
+            {!sustituible && porqueNoSustituir && (
+              <p id="rv-forma-porque" className={ayuda}>
+                {porqueNoSustituir}
+              </p>
+            )}
+            {mensaje('rectificativa.forma')}
+          </fieldset>
+        )}
       </div>
 
       <div>
@@ -421,7 +441,9 @@ export default function BloqueRectificativaVenta({
           {...marca('rectificativa.explicacion')}
         />
         {mensaje('rectificativa.explicacion')}
-        <p className={ayuda}>Sale en la factura junto al número de la que rectificas. Hace falta para pasarla a factura.</p>
+        <p className={ayuda}>
+          {compacto ? 'Queda guardada con la rectificativa. Si la factura trae el motivo, ya lo hemos puesto.' : 'Sale en la factura junto al número de la que rectificas. Hace falta para pasarla a factura.'}
+        </p>
       </div>
     </section>
   );
@@ -593,7 +615,8 @@ function BuscadorOriginalesVenta({
   monedaCuenta,
   onElegir,
 }: {
-  ticket: boolean;
+  /** null: tickets y facturas (el lector no sabe todavía si rectifica un ticket). */
+  ticket: boolean | null;
   customerId: string | null;
   yaElegidas: string[];
   numeroInicial: string;
@@ -617,7 +640,7 @@ function BuscadorOriginalesVenta({
       try {
         // El número leído por el lector se busca como número (coincidencia exacta primero).
         const porNumero = !!numeroInicial && q.trim() === numeroInicial.trim();
-        const res = await buscarOriginales({ ...(porNumero ? { numero: q } : { q }), customerId, desde, hasta, ticket, take: 10 });
+        const res = await buscarOriginales({ ...(porNumero ? { numero: q } : { q }), customerId, desde, hasta, ...(ticket === null ? {} : { ticket }), take: 10 });
         if (n === peticion.current) {
           setR(res);
           setError('');
