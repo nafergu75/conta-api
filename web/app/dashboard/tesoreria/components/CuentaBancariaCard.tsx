@@ -128,6 +128,13 @@ function SubcuentaDeLaCuenta({
   const [enviando, setEnviando] = useState(false);
   const campoRef = useRef<HTMLInputElement>(null);
   const botonRef = useRef<HTMLButtonElement>(null);
+  // Al cerrar (guardado o cancelado), el foco vuelve al botón en cuanto está pintado otra vez.
+  const volverAlBoton = useRef(false);
+  useEffect(() => {
+    if (cambiando || !volverAlBoton.current) return;
+    volverAlBoton.current = false;
+    botonRef.current?.focus();
+  }, [cambiando]);
   const campoId = `cuenta-${id}-subcuenta`;
   const errorId = `${campoId}-error`;
 
@@ -153,9 +160,9 @@ function SubcuentaDeLaCuenta({
   };
 
   const cerrar = () => {
+    volverAlBoton.current = true;
     setCambiando(false);
     setError('');
-    setTimeout(() => botonRef.current?.focus(), 0);
   };
 
   const guardar = async (e: FormEvent) => {
