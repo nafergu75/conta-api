@@ -1,5 +1,6 @@
 import { ApiError, apiFetch, companyPath } from './api';
 import type { CandidataOriginal, CausaRectificacion, GastoExtraido, TipoRectificativa } from './compras';
+import type { OrigenTercero } from './fiscal';
 
 /**
  * Lecturas de facturas con Azure (y Claude de respaldo) para los dos lectores.
@@ -7,6 +8,10 @@ import type { CandidataOriginal, CausaRectificacion, GastoExtraido, TipoRectific
  *  POST /<lector>/lecturas               sube el archivo: 202 (Azure leyendo) o 200 (leida ya)
  *  GET  /<lector>/lecturas/:id           estado; la pantalla consulta cada pocos segundos
  *  POST /<lector>/lecturas/:id/descartar la deja descartada y borra el archivo
+ *  POST /<lector>/lecturas/:id/origen-tercero   de donde es el cliente o el proveedor: vuelve a validar sin leer otra vez
+ *
+ * Al subir la factura va tambien de donde ha dicho la persona que es el
+ * cliente (ventas) o el proveedor (gastos): esa eleccion manda en las validaciones.
  *
  * El servidor valida lo leido campo a campo (cuadre, NIF, tipos de IVA,
  * fechas, duplicadas, QR VERI*FACTU) y la pantalla lo ensena en PanelLectura.
@@ -82,6 +87,33 @@ export interface InfoLectura {
   generales: Array<{ nivel: NivelValidacion; mensaje: string }>;
   avisos: string[];
   paginas: { archivo: number | null; leidas: number | null };
+  /** El cliente (ventas) o el proveedor (gastos): de donde es y como se llama su numero fiscal. Un servidor anterior no lo manda. */
+  tercero?: InfoTercero;
+}
+
+/** Lo que ha dicho la persona de donde es el tercero. pais: ISO-2, o null si no lo ha elegido (en ES, 'ES'). */
+export interface EleccionOrigen {
+  origen: OrigenTercero;
+  pais: string | null;
+}
+
+/** De donde es el tercero de la lectura, segun el servidor (services/lectura/origen-tercero.ts). */
+export interface InfoTercero {
+  tipo: 'cliente' | 'proveedor';
+  /** Lo elegido (null: no se dijo y se deduce de la factura). */
+  eleccion: EleccionOrigen | null;
+  /** Con lo que se ha validado: la eleccion o lo que se deduce. null: no se sabe. */
+  origen: OrigenTercero | null;
+  pais: string | null;
+  por: 'eleccion' | 'ficha' | 'prefijo' | 'direccion' | 'forma' | null;
+  /** Lo que se deduce de la factura sin la eleccion. */
+  detectado: { origen: OrigenTercero | null; pais: string | null; por: InfoTercero['por'] };
+  /** Lo leido contradice la eleccion: lo que se propone elegir y por que. */
+  contradiccion: { origen: OrigenTercero; pais: string | null; mensaje: string } | null;
+  /** «NIF», «NIF-IVA (VAT)», «RNC»... */
+  numeroFiscal: string;
+  /** El NIF-IVA leido sin prefijo, ya con el de su pais (para la ficha del alta). */
+  nifPropuesto: string | null;
 }
 
 /** Lo leido de una factura de venta (el servidor la registra con lo que guardo, no con esto). */
@@ -103,7 +135,7 @@ export interface IngresoExtraido {
   /** Las lineas con que se registrara (una por tipo de IVA): la cuenta de cada una se puede cambiar. */
   lineas?: Array<{ descripcion: string; base: number; tipoIva: number }>;
   /** El cliente dado de alta con el NIF leido, o null: hay que darlo de alta o elegir uno antes de registrar. */
-  clienteExistente?: { id: string; nombreFiscal: string; nifCif: string } | null;
+  clienteExistente?: { id: string; nombreFiscal: string; nifCif: string; pais?: string | null } | null;
   /**
    * Direccion del cliente leida en la factura, para rellenar la ficha del alta; null si no se ha
    * leido nada. Un servidor anterior no la manda (undefined).
@@ -277,10 +309,15 @@ function conPlazo(signal: AbortSignal | undefined, ms: number): { signal: AbortS
 export async function leerFactura<T extends LectorPantalla>(
   lector: T,
   archivo: File,
-  opciones: { signal?: AbortSignal; alEmpezar?: (lecturaId: string) => void } = {},
+  opciones: { signal?: AbortSignal; alEmpezar?: (lecturaId: string) => void; origen?: EleccionOrigen | null } = {},
 ): Promise<ListaDe<T>> {
-  const { signal, alEmpezar } = opciones;
+  const { signal, alEmpezar, origen } = opciones;
   const datos = new FormData();
+  // De donde es el tercero, antes del archivo (el servidor lo lee con el resto del formulario).
+  if (origen) {
+    datos.append('origenTercero', origen.origen);
+    if (origen.pais) datos.append('paisTercero', origen.pais);
+  }
   datos.append('archivo', archivo, archivo.name);
   const inicio = Date.now();
   const tarda = () => new ErrorLectura(MENSAJE_TARDA, 'TARDA', ALTA_MANUAL[lector]);
@@ -365,6 +402,20 @@ export function conDatosDelQr(info: InfoLectura): InfoLectura {
   return { ...info, campos, estado: info.estado === 'ok' ? 'revisar' : info.estado, requiereRevision: true };
 }
 
+/**
+ * Cambia de donde es el tercero de una lectura ya leida (null: que lo deduzca
+ * de la factura). El servidor vuelve a validar sin leer otra vez y devuelve la
+ * lectura como al terminar.
+ */
+export async function cambiarOrigenLectura<T extends LectorPantalla>(lector: T, lecturaId: string, origen: EleccionOrigen | null): Promise<ListaDe<T>> {
+  const r = await apiFetch<ListaDe<T>>(companyPath(`${RUTA[lector]}/${encodeURIComponent(lecturaId)}/origen-tercero`), {
+    method: 'POST',
+    body: JSON.stringify({ origen: origen?.origen ?? null, pais: origen?.pais ?? null }),
+  });
+  if (!r || r.estado !== 'LISTA') throw new ErrorLectura(MENSAJE_CERRADA, 'CERRADA');
+  return { ...r, lectura: conDatosDelQr(r.lectura) } as ListaDe<T>;
+}
+
 /** Descarta una lectura sin registrar (borra el archivo). Sin errores: si falla, el servidor la purga a los 7 dias. */
 export async function descartarLectura(lector: LectorPantalla, lecturaId: string): Promise<void> {
   await apiFetch(companyPath(`${RUTA[lector]}/${encodeURIComponent(lecturaId)}/descartar`), { method: 'POST' }).catch(() => undefined);
@@ -403,8 +454,12 @@ export function porcentaje(n: number): string {
 /**
  * "Base del 21 %", "IVA del 10 %", "Base exenta" (si se sabe el tipo del tramo), "Base imponible
  * (tramo 2)" si no se sabe y hay varios, o "Base imponible" si solo hay uno.
+ *
+ * `numeroFiscal`: como se llama el numero del tercero en su pais («RNC», «NIF-IVA (VAT)»...): la
+ * tarjeta del NIF del cliente (ventas) o del proveedor (gastos) dice «RNC del cliente».
  */
-export function etiquetaCampo(id: string, lector: LectorPantalla, variosTramos: boolean, tipoIva?: number): string {
+export function etiquetaCampo(id: string, lector: LectorPantalla, variosTramos: boolean, tipoIva?: number, numeroFiscal?: string): string {
+  if (numeroFiscal && id === (lector === 'ventas' ? 'receptor.nif' : 'emisor.nif')) return `${numeroFiscal} del ${lector === 'ventas' ? 'cliente' : 'proveedor'}`;
   const fija = ETIQUETA_CAMPO[id];
   if (fija) return fija[lector];
   const m = /^desglose\.(\d+)\.(base|cuota|recargo)$/.exec(id);
