@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, CheckCircle, FileArrowUp, WarningCircle } from '@phosphor-icons/react';
+import { ArrowLeft, CheckCircle, FileArrowUp, Warning, WarningCircle } from '@phosphor-icons/react';
 import { apiFetch, campoDelError, companyPath, errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import PanelLectura from '@/components/lector/PanelLectura';
@@ -23,9 +23,9 @@ import {
   type InfoLectura,
 } from '@/lib/lecturas';
 import SoltarFactura from '@/components/lector/SoltarFactura';
-import AvisoTerceroNuevo, { quienEs, type TerceroEnlazado } from '@/components/lector/AvisoTerceroNuevo';
+import AvisoTerceroNuevo, { camposDudosos, quienEs, type TerceroEnlazado } from '@/components/lector/AvisoTerceroNuevo';
 import { paisDelPrefijo } from '@/lib/compras';
-import { pareceNifIvaUe } from '@/lib/fiscal';
+import { nombrePais, pareceNifIvaUe } from '@/lib/fiscal';
 
 /**
  * Lector de facturas de venta: se sube el PDF o la foto de una factura
@@ -48,9 +48,9 @@ interface Registrada {
   motivoSinAsiento?: string | null;
 }
 
-function Dato({ etiqueta, children, mono }: { etiqueta: string; children: React.ReactNode; mono?: boolean }) {
+function Dato({ etiqueta, children, mono, ancho }: { etiqueta: string; children: React.ReactNode; mono?: boolean; ancho?: boolean }) {
   return (
-    <div className="min-w-0">
+    <div className={`min-w-0 ${ancho ? 'sm:col-span-2' : ''}`}>
       <dt className="text-xs font-medium text-slate-500">{etiqueta}</dt>
       <dd className={`mt-0.5 break-words font-semibold text-slate-900 ${mono ? 'font-mono text-sm' : ''}`}>{children}</dd>
     </div>
@@ -224,6 +224,15 @@ export default function LectorIngresosPage() {
     clienteResuelto ?? (existente ? { id: existente.id, nombre: existente.nombreFiscal, nif: existente.nifCif, pais: 'ES', como: 'elegido' } : null);
   const faltaCliente = !!ingreso && !cliente;
   const nifLeido = (ingreso?.nifCliente ?? '').trim();
+  // Direccion del cliente leida en la factura: va en «Datos leidos» y rellena la ficha del alta.
+  const direccion = ingreso?.direccionCliente ?? null;
+  const lineasDireccion = direccion
+    ? [direccion.calle, [direccion.cp, direccion.municipio].filter(Boolean).join(' '), direccion.provincia, direccion.pais ? nombrePais(direccion.pais) : null]
+        .map((l) => (l ?? '').trim())
+        .filter(Boolean)
+    : [];
+  // Pais de la ficha: el leido en la direccion; si no, el del prefijo del NIF-IVA (FR..., PT...); si no, España.
+  const paisCliente = (direccion?.pais || (pareceNifIvaUe(nifLeido) ? paisDelPrefijo(nifLeido) : null) || 'ES').toUpperCase();
 
   const confirmar = async () => {
     if (!ingreso) return;
@@ -437,8 +446,18 @@ export default function LectorIngresosPage() {
                 <AvisoTerceroNuevo
                   id="lv-aviso-cliente"
                   tipo="cliente"
-                  datos={{ nombreFiscal: ingreso.cliente ?? '', nifCif: nifLeido, pais: pareceNifIvaUe(nifLeido) ? (paisDelPrefijo(nifLeido) ?? 'ES') : 'ES' }}
+                  datos={{
+                    nombreFiscal: ingreso.cliente ?? '',
+                    nifCif: nifLeido,
+                    pais: paisCliente,
+                    direccion: direccion?.calle ?? '',
+                    cp: direccion?.cp ?? '',
+                    municipio: direccion?.municipio ?? '',
+                    provincia: direccion?.provincia ?? '',
+                    dudosos: camposDudosos(direccion),
+                  }}
                   nifLeido={nifLeido}
+                  nombreLeido={ingreso.cliente ?? ''}
                   enlazado={clienteResuelto}
                   puedeDarDeAlta={puedeAltaCliente}
                   onEnlazar={(t) => {
@@ -460,6 +479,24 @@ export default function LectorIngresosPage() {
                       <span className="mt-0.5 block font-sans text-xs font-normal text-slate-500">En la factura se leyó {nifLeido}.</span>
                     )}
                   </Dato>
+                  {/* Un servidor anterior no la manda: entonces no se enseña. */}
+                  {ingreso.direccionCliente !== undefined && (
+                    <Dato etiqueta="Dirección del cliente" ancho>
+                      {lineasDireccion.length > 0
+                        ? lineasDireccion.map((l, i) => (
+                            <span key={i} className="block">
+                              {l}
+                            </span>
+                          ))
+                        : 'sin leer'}
+                      {direccion?.revisar && lineasDireccion.length > 0 && (
+                        <span className="mt-1.5 inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800">
+                          <Warning size={14} weight="fill" aria-hidden="true" />
+                          Leída con poca seguridad: compruébala con la factura
+                        </span>
+                      )}
+                    </Dato>
+                  )}
                   <Dato etiqueta="Número de factura">{ingreso.numeroFactura || 'sin leer'}</Dato>
                   <Dato etiqueta="Fecha">{ingreso.fecha ? fechaLegible(ingreso.fecha) : 'sin leer'}</Dato>
                   <Dato etiqueta="Concepto">{ingreso.concepto || 'sin leer'}</Dato>
