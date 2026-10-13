@@ -104,7 +104,10 @@ export interface UltimaFacturaPanel {
   amount: string;
   rectificativa: boolean;
   status: 'approved';
-  /** Texto para la persona: Cobrada, Pendiente de cobro, Vencida, Rectificativa, Pagada, Pagada en parte, Pendiente de pago o Abono. */
+  /**
+   * Texto para la persona. Ventas: Cobrada, Cobrada en parte, Vencida, Pendiente de cobro, Rectificativa o Sustituida.
+   * Gastos: Pagada, Pagada en parte, Vencida, Pendiente de pago, Abono o Rectificativa.
+   */
   estado: string;
   /** /dashboard/facturas/:id o /dashboard/compras/:id */
   enlace: string;
