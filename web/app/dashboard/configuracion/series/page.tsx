@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ListNumbers, PencilSimple, Plus, Star } from '@phosphor-icons/react';
 import { apiFetch, campoDelError, companyPath, errorMessage } from '@/lib/api';
+import { servidorConRectificativasNuevas } from '@/lib/rectificativasVenta';
 import { claseBoton, claseBotonSecundario, claseCampo, puedeEditar, puedeVer, QUIEN_EDITA, type SerieConfig } from '@/lib/configuracion';
 import { AvisoSoloLectura, CabeceraBloque, Etiqueta, Mensaje, SinAcceso, type MensajeConfig } from '../componentes';
 import { useConfiguracion } from '../contexto';
@@ -21,7 +22,7 @@ const TIPOS: Array<{ tipo: string; titulo: string; ayuda: string }> = [
   {
     tipo: 'RECTIFICATIVA_SIMPLIFICADA',
     titulo: 'Rectificativas de tickets',
-    ayuda: 'Para corregir tickets y facturas simplificadas: la ley pide una serie distinta de la R.',
+    ayuda: 'Para corregir tickets y facturas simplificadas: la ley pide una serie distinta de la de rectificativas.',
   },
   { tipo: 'PROFORMA', titulo: 'Proformas', ayuda: 'Presupuestos con forma de factura: no cuentan para nada fiscal.' },
 ];
@@ -63,6 +64,20 @@ export default function SeriesPage() {
     });
   }, [listo, ver, cargar]);
 
+  // Rectificativas de tickets: el servidor anterior a las rectificativas nuevas no conoce ese tipo
+  // (daría error al crear la serie). Sin ninguna serie de ese tipo, la sección solo sale si el servidor lo admite.
+  const hayDeTickets = !!series?.some((s) => s.tipoDocumento === 'RECTIFICATIVA_SIMPLIFICADA');
+  const [ticketsAdmitidos, setTicketsAdmitidos] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!listo || !ver || hayDeTickets || ticketsAdmitidos !== null) return;
+    let vivo = true;
+    servidorConRectificativasNuevas().then((si) => vivo && setTicketsAdmitidos(si));
+    return () => {
+      vivo = false;
+    };
+  }, [listo, ver, hayDeTickets, ticketsAdmitidos]);
+  const tipos = TIPOS.filter((t) => t.tipo !== 'RECTIFICATIVA_SIMPLIFICADA' || hayDeTickets || ticketsAdmitidos === true);
+
   /** Cambio rapido (activar, desactivar, predeterminada): 409 con la regla que lo impide. */
   const cambioRapido = async (s: SerieConfig, cambio: { activa?: boolean; porDefecto?: boolean }, ok: string) => {
     setOcupado(s.id);
@@ -98,7 +113,7 @@ export default function SeriesPage() {
           {!series ? (
             <p className="text-sm text-slate-500">Cargando series…</p>
           ) : (
-            TIPOS.map(({ tipo, titulo, ayuda }) => {
+            tipos.map(({ tipo, titulo, ayuda }) => {
               const delTipo = series.filter((s) => s.tipoDocumento === tipo);
               return (
                 <section key={tipo} aria-labelledby={`tipo-${tipo}`} className="rounded-xl border border-slate-200 bg-white">
