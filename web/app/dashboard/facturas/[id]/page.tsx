@@ -769,6 +769,8 @@ export default function FacturaDetallePage() {
           facturaId={id}
           puedeEditar={puedeCobrar}
           fechaFactura={factura.fechaEmision}
+          // La cuenta desde la que se devuelve: la del banco que salía en el abono. Sin forma de pago: es la del cobro.
+          cuentaPropuestaId={factura.cuentaBancariaCobroId ?? null}
           moneda={moneda}
           monedaCuenta={monedaCuenta}
           onCambio={cargar}
