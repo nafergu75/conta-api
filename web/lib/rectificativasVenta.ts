@@ -201,6 +201,14 @@ export interface DatosParaRectificarVenta {
   lineasDe?: { id: string; numeroCompleto: string } | null;
 }
 
+/**
+ * Anulada por completo: sus rectificativas la dejan a cero (como
+ * `anuladaPorCompleto` de la ficha). Ya no se puede restar más; para deshacer
+ * la anulación se hace otra rectificativa en positivo.
+ */
+export const anuladaEntera = (d: DatosParaRectificarVenta): boolean =>
+  Math.round(d.restante.total * 100) === 0 && Math.round(d.original.totalFactura * 100) !== 0;
+
 /** La rectificativa por sustitución vigente de una factura (la última), o null. */
 export function sustitutaDe(d: DatosParaRectificarVenta): { id: string; numeroCompleto: string } | null {
   const s = d.rectificativas.filter((r) => r.forma === 'S').pop();
@@ -517,13 +525,15 @@ export interface LineaPropuesta {
  *    que cambian; un rappel puede ser «1 × -500»);
  *  - por sustitucion (S): la original en positivo, para corregirla.
  * Cada linea lleva la cuenta de la linea original. Una original sustituida
- * propone las de su sustituta (`lineasDe`).
+ * propone las de su sustituta (`lineasDe`). Una anulada por completo, en
+ * positivo: lo único que admite es deshacer la anulación (otra rectificativa en
+ * positivo).
  */
 export function lineasPropuestas(datos: DatosParaRectificarVenta[], forma: FormaRectificacion): LineaPropuesta[] {
   return datos.flatMap((d) =>
     d.lineas.map((l) => ({
       descripcion: l.descripcion,
-      cantidad: forma === 'I' ? -l.cantidad : l.cantidad,
+      cantidad: forma === 'I' && !anuladaEntera(d) ? -l.cantidad : l.cantidad,
       precioUnitario: l.precioUnitario,
       descuentoPorcentaje: l.descuentoPorcentaje ?? 0,
       tipoIva: l.tipoIva,
