@@ -39,7 +39,7 @@ interface Cobro {
   importeTesoreria?: number;
   tipoCambio?: number;
   fuenteTipoCambio?: string;
-  /** > 0 ganancia (768), < 0 perdida (668). */
+  /** En lo que entra en el banco, > 0 ganancia (768) y < 0 perdida (668); en lo que sale, al reves. */
   diferenciaCambio?: number;
   comisionBancaria?: number;
   cuentaTesoreria: string;
@@ -120,6 +120,13 @@ const TEXTOS_DEVOLUCION_CLIENTE = {
 
 /** Textos según el tipo y si es un abono (devoluciones en vez de cobros o pagos). */
 const textosDe = (tipo: Tipo, abono: boolean) => (!abono ? TEXTOS[tipo] : tipo === 'GASTO' ? TEXTOS_ABONO : TEXTOS_DEVOLUCION_CLIENTE);
+
+/**
+ * El dinero sale del banco o la caja: el pago de una compra y la devolución al
+ * cliente de un abono de venta. El servidor los calcula como un pago: la
+ * comisión sale aparte y la diferencia de cambio positiva es pérdida (668).
+ */
+const salidaDeDinero = (tipo: Tipo, abono: boolean) => (tipo === 'GASTO' ? !abono : abono);
 
 export default function CobrosFactura({
   tipo,
@@ -209,6 +216,8 @@ export default function CobrosFactura({
     return resumen.importePendienteCuenta ?? pendiente;
   })();
   const devuelto = (resumen?.cobros ?? []).filter((c) => c.estado === 'ACTIVO').reduce((a, c) => a + Math.abs(c.importeDoc ?? c.importe), 0);
+  // Diferencia de cambio guardada: en lo que entra en el banco, > 0 es ganancia; en lo que sale (pagos y devoluciones al cliente), pérdida.
+  const gananciaDe = (dif: number) => (salidaDeDinero(tipo, esAbono) ? dif < 0 : dif > 0);
   const compensado = Math.abs(resumen?.importeCompensado ?? 0);
 
   return (
@@ -276,7 +285,7 @@ export default function CobrosFactura({
                   {c.medio === 'CAJA' ? 'caja' : 'banco'} {fmtCuenta(Math.abs(c.importeTesoreria ?? c.importe))}
                   {c.comisionBancaria ? ` · comisión ${fmtCuenta(c.comisionBancaria)}` : ''}
                   {c.diferenciaCambio
-                    ? ` · ${c.diferenciaCambio > 0 ? 'ganancia' : 'pérdida'} de cambio ${fmtCuenta(Math.abs(c.diferenciaCambio))} (${c.diferenciaCambio > 0 ? '768' : '668'})`
+                    ? ` · ${gananciaDe(c.diferenciaCambio) ? 'ganancia' : 'pérdida'} de cambio ${fmtCuenta(Math.abs(c.diferenciaCambio))} (${gananciaDe(c.diferenciaCambio) ? '768' : '668'})`
                     : ''}
                 </span>
               )}
@@ -354,6 +363,8 @@ function ModalCobro({
 }) {
   const t = textosDe(tipo, abono);
   const abonoVenta = abono && tipo === 'INGRESO';
+  // El dinero sale del banco: un pago de una compra o la devolución al cliente de un abono de venta.
+  const saleDinero = salidaDeDinero(tipo, abono);
   const enDivisa = moneda !== monedaCuenta;
   const fmt = (n: number) => formatoImporte(n, moneda);
   const fmtCuenta = (n: number) => formatoImporte(n, monedaCuenta);
@@ -408,20 +419,29 @@ function ModalCobro({
   // El tipo se lee con parseTipo: '1.085' es 1,085 (no 1085, como lo leeria un importe).
   const tcDia = modoTipo === 'TIPO' ? parseTipo(tipoDia) : bce?.tipoCambio ?? NaN;
   const com = comision.trim() ? parseImporte(comision) : 0;
+  const comVal = Number.isFinite(com) ? com : 0;
   const previa = (() => {
     if (!enDivisa || !(valor > 0)) return null;
     const esUltimo = Math.round(valor * 100) === Math.round(pendiente * 100);
     const a430 = esUltimo ? pendienteCuenta : redondear2((valor * pendienteCuenta) / pendiente);
-    let banco: number;
+    // Lo de la factura en el banco: lo recibido o lo cargado (sin la comisión) o, si no, lo de la factura al tipo del día.
+    let porFactura: number;
     if (modoTipo === 'RECIBIDO') {
-      banco = parseImporte(recibido);
+      porFactura = parseImporte(recibido);
     } else {
       if (!(tcDia > 0)) return null;
-      banco = redondear2(redondear2(valor / tcDia) - (Number.isFinite(com) ? com : 0));
+      porFactura = redondear2(valor / tcDia);
     }
-    if (!Number.isFinite(banco)) return null;
-    const dif = redondear2(banco + (Number.isFinite(com) ? com : 0) - a430);
-    return { a430, banco, dif };
+    if (!Number.isFinite(porFactura)) return null;
+    if (saleDinero) {
+      // Sale del banco lo de la factura más la comisión. Pagar más que lo que se debía en la cuenta es pérdida (668).
+      const dif = redondear2(porFactura - a430);
+      return { a430, banco: redondear2(porFactura + comVal), dif, ganancia: dif < 0 };
+    }
+    // Entra en el banco lo cobrado menos la comisión. Cobrar más que lo que se debía es ganancia (768).
+    const banco = modoTipo === 'RECIBIDO' ? porFactura : redondear2(porFactura - comVal);
+    const dif = redondear2(banco + comVal - a430);
+    return { a430, banco, dif, ganancia: dif > 0 };
   })();
 
   const guardar = async () => {
@@ -444,7 +464,7 @@ function ModalCobro({
       }
       if (modoTipo === 'RECIBIDO') {
         const r = parseImporte(recibido);
-        if (!(r > 0)) return setError(`Indica lo que ha llegado al banco, en ${monedaCuenta}.`);
+        if (!(r > 0)) return setError(saleDinero ? `Indica lo que ha salido del banco por la factura, sin la comisión, en ${monedaCuenta}.` : `Indica lo que ha llegado al banco, en ${monedaCuenta}.`);
         divisa.importeRecibido = r;
       }
       if (comision.trim()) {
@@ -527,7 +547,9 @@ function ModalCobro({
         </div>
         {enDivisa && (
           <fieldset className="space-y-3 rounded-lg border border-slate-200 p-3">
-            <legend className="px-1 text-sm font-medium text-slate-700">Lo que llega al banco ({monedaCuenta})</legend>
+            <legend className="px-1 text-sm font-medium text-slate-700">
+              {saleDinero ? 'Lo que sale del banco' : 'Lo que llega al banco'} ({monedaCuenta})
+            </legend>
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-700">
               <label className="inline-flex items-center gap-1.5">
                 <input type="radio" name="modo-tipo" checked={modoTipo === 'BCE'} onChange={() => setModoTipo('BCE')} />
@@ -539,7 +561,7 @@ function ModalCobro({
               </label>
               <label className="inline-flex items-center gap-1.5">
                 <input type="radio" name="modo-tipo" checked={modoTipo === 'RECIBIDO'} onChange={() => setModoTipo('RECIBIDO')} />
-                Importe recibido
+                {saleDinero ? 'Importe cargado' : 'Importe recibido'}
               </label>
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -554,7 +576,7 @@ function ModalCobro({
               {modoTipo === 'RECIBIDO' && (
                 <div>
                   <label htmlFor="cobro-recibido" className="mb-1 block text-xs font-medium text-slate-600">
-                    Recibido en el banco ({monedaCuenta})
+                    {saleDinero ? `Cargado en el banco, sin la comisión (${monedaCuenta})` : `Recibido en el banco (${monedaCuenta})`}
                   </label>
                   <input id="cobro-recibido" inputMode="decimal" value={recibido} onChange={(e) => setRecibido(e.target.value)} className={`${campo} text-right font-mono`} />
                 </div>
@@ -567,15 +589,16 @@ function ModalCobro({
               </div>
             </div>
             {modoTipo === 'BCE' && bce && !bce.tipoCambio && (
-              <p className="text-xs text-amber-700">{bce.aviso || 'Sin tipo del BCE para esa fecha: indica el tipo del día o lo recibido.'}</p>
+              <p className="text-xs text-amber-700">{bce.aviso || `Sin tipo del BCE para esa fecha: indica el tipo del día o ${saleDinero ? 'lo cargado' : 'lo recibido'}.`}</p>
             )}
             {previa && (
               <p className="rounded-md bg-slate-50 p-2 text-xs text-slate-700">
-                {tipo === 'INGRESO' ? 'Cliente' : 'Proveedor'} ({cuentaTercero ?? (tipo === 'INGRESO' ? 'su subcuenta 430' : 'su subcuenta 400 o 410')}): {fmtCuenta(previa.a430)} · Banco:{' '}
+                {tipo === 'INGRESO' ? 'Cliente' : 'Proveedor'} ({cuentaTercero ?? (tipo === 'INGRESO' ? 'su subcuenta 430' : 'su subcuenta 400 o 410')}): {fmtCuenta(previa.a430)} · {saleDinero ? 'Sale del banco' : 'Banco'}:{' '}
                 {fmtCuenta(previa.banco)}
+                {saleDinero && com > 0 ? ' (con la comisión)' : ''}
                 {com > 0 ? ` · Comisión (626): ${fmtCuenta(com)}` : ''}
                 {previa.dif !== 0 &&
-                  ` · Diferencia de cambio (${previa.dif > 0 ? '768' : '668'}): ${fmtCuenta(Math.abs(previa.dif))} ${previa.dif > 0 ? 'de ganancia' : 'de pérdida'}`}
+                  ` · Diferencia de cambio (${previa.ganancia ? '768' : '668'}): ${fmtCuenta(Math.abs(previa.dif))} ${previa.ganancia ? 'de ganancia' : 'de pérdida'}`}
               </p>
             )}
           </fieldset>
