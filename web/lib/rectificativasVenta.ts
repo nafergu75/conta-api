@@ -201,9 +201,15 @@ export interface DatosParaRectificarVenta {
   /** false si ya tiene alguna rectificativa. */
   admiteSustitucion: boolean;
   /**
-   * Solo en la pantalla (no lo manda el servidor): la factura sustituida se
-   * rectifica sobre su sustituta, así que `lineas` y `cuentaPorTipoIva` son los
-   * de esa rectificativa por sustitución (ver useDatosOriginales).
+   * Del servidor: la rectificativa por sustitución que reemplazó a la factura
+   * (null si no la hay). Con ella, `lineas` y `cuentaPorTipoIva` ya son los
+   * suyos. Un servidor anterior no lo manda (undefined).
+   */
+  sustituta?: { id: string; numeroCompleto: string; fechaEmision: string } | null;
+  /**
+   * Solo en la pantalla: la factura sustituida se rectifica sobre su
+   * sustituta, así que `lineas` y `cuentaPorTipoIva` son los de esa
+   * rectificativa por sustitución (ver useDatosOriginales).
    */
   lineasDe?: { id: string; numeroCompleto: string } | null;
 }
@@ -321,11 +327,13 @@ const sinClave = <T,>(o: Record<string, T>, k: string): Record<string, T> => Obj
 /**
  * Datos para rectificar una original. Si ya se sustituyó, lo que queda por
  * rectificar es su sustituta: las líneas y las cuentas que se proponen son las
- * de esa rectificativa por sustitución (las de la original ya no valen). Se
- * piden a GET /:idSustituta/rectificar.
+ * de esa rectificativa por sustitución (las de la original ya no valen). El
+ * servidor de ahora ya las manda, con `sustituta`; a uno anterior se le piden
+ * a GET /:idSustituta/rectificar.
  */
 async function datosParaRectificar(id: string): Promise<DatosParaRectificarVenta> {
   const d = await paraRectificar(id);
+  if (d.sustituta !== undefined) return { ...d, lineasDe: d.sustituta ? { id: d.sustituta.id, numeroCompleto: d.sustituta.numeroCompleto } : null };
   const s = sustitutaDe(d);
   if (!s) return d;
   try {
