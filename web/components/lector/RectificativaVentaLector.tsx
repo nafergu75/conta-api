@@ -5,6 +5,7 @@ import { WarningCircle } from '@phosphor-icons/react';
 import BloqueRectificativaVenta from '@/components/ventas/BloqueRectificativaVenta';
 import { quienEs, type TerceroEnlazado } from '@/components/lector/AvisoTerceroNuevo';
 import { euros, fechaLegible, porcentaje, type EstadoCampo, type IngresoExtraido, type InfoLectura } from '@/lib/lecturas';
+import { lineasDoc } from '@/lib/divisas';
 import { parseImporte } from '@/lib/moneda';
 import {
   bloqueParaEnviar,
@@ -54,16 +55,24 @@ import {
 
 export type SignoLeido = 'resta' | 'suma';
 
+/** Base de la original para un tipo de IVA. Su IVA no se escribe: sale de la base (ver cuotaDe). */
 export interface ImporteOriginalForm {
   tipoIva: number;
   base: string;
-  cuota: string;
   /** Tipo que no trae la factura corregida y se añade a mano (por ejemplo, la original iba al 10 %): se puede quitar. */
   anadido?: boolean;
 }
 
 /** Tipos de IVA que se pueden añadir a los importes de la original. */
 const TIPOS_IVA = [21, 10, 5, 4, 0];
+
+/**
+ * IVA de la original para una base: el servidor registra la original como una
+ * línea en negativo con esa base y calcula su IVA con el tipo, así que es el
+ * IVA que se descuenta de verdad (NaN si la base no es un número).
+ */
+const cuotaDe = (base: number, tipoIva: number): number =>
+  Number.isFinite(base) ? lineasDoc([{ cantidad: 1, precioUnitario: base, descuentoPorcentaje: 0, tipoIva, tipoRetencion: 0 }], { simetrico: true })[0].ivaImporte : NaN;
 
 export interface EstadoLectorRect {
   /** «No es una rectificativa»: se registra como una factura normal. */
@@ -126,7 +135,7 @@ function estadoInicial(leida: RectificativaVentaLeida | null, lineas: IngresoExt
     if (original?.rectificable) rect.originales = [originalDeCandidata(original)];
     else if (exactas.length === 1) rect.originales = [originalDePartida(exactas[0])];
   }
-  return { noEs: false, signo: null, rect, importesOriginales: tiposDe(lineas).map((tipoIva) => ({ tipoIva, base: '', cuota: '' })) };
+  return { noEs: false, signo: null, rect, importesOriginales: tiposDe(lineas).map((tipoIva) => ({ tipoIva, base: '' })) };
 }
 
 /** Por qué no se puede rectificar por sustitución en el lector ('' si se puede). */
@@ -342,8 +351,12 @@ export function useRectificativaLector(ingreso: IngresoExtraido | null): Rectifi
 
   const noBloquea = (texto: string) => activa && esTextoAntiguo(texto);
 
+  // El IVA de cada tipo es el que sale de la base (el que registra el servidor), no uno escrito aparte.
   const importesOriginales = () =>
-    estado.importesOriginales.map((f) => ({ tipoIva: f.tipoIva, base: parseImporte(f.base), cuota: f.tipoIva === 0 ? 0 : parseImporte(f.cuota) }));
+    estado.importesOriginales.map((f) => {
+      const b = parseImporte(f.base);
+      return { tipoIva: f.tipoIva, base: b, cuota: cuotaDe(b, f.tipoIva) };
+    });
 
   const comprobar = (): ErrorCampoLector | null => {
     if (!activa || !leida || !ingreso) return null;
@@ -368,8 +381,8 @@ export function useRectificativaLector(ingreso: IngresoExtraido | null): Rectifi
     if (r.forma === 'S') {
       if (!hayApp) {
         const imp = importesOriginales();
-        if (!imp.length || imp.some((f) => !Number.isFinite(f.base) || !Number.isFinite(f.cuota))) {
-          return { campo: CAMPO_IMPORTES, mensaje: 'Escribe la base y el IVA de la factura original: hacen falta para registrar solo la diferencia.' };
+        if (!imp.length || imp.some((f) => !Number.isFinite(f.base))) {
+          return { campo: CAMPO_IMPORTES, mensaje: 'Escribe la base de cada tipo de IVA de la factura original: hace falta para registrar solo la diferencia.' };
         }
         const baseOriginal = imp.reduce((a, f) => a + cent(f.base), 0);
         if (info?.soloResta && cent(valor(ingreso.base)) >= baseOriginal) {
@@ -528,9 +541,12 @@ export default function RectificativaVentaLector({ rv, ingreso, clienteLeidoId, 
   const sinSigno = Math.abs(totalLeido);
   const deFueraSustituida = r.forma === 'S' && !rv.originalSustituida && r.originales.length === 1 && r.originales[0].origen === 'fuera';
 
-  // Por sustitución sin original en la app: la diferencia con lo escrito.
-  const imp = estado.importesOriginales.map((f) => ({ base: parseImporte(f.base), cuota: f.tipoIva === 0 ? 0 : parseImporte(f.cuota) }));
-  const importesCompletos = imp.length > 0 && imp.every((f) => Number.isFinite(f.base) && Number.isFinite(f.cuota));
+  // Por sustitución sin original en la app: la diferencia con lo escrito (el IVA de cada tipo sale de su base).
+  const imp = estado.importesOriginales.map((f) => {
+    const b = parseImporte(f.base);
+    return { base: b, cuota: cuotaDe(b, f.tipoIva) };
+  });
+  const importesCompletos = imp.length > 0 && imp.every((f) => Number.isFinite(f.base));
   const difBase = importesCompletos ? (cent(valor(ingreso.base)) - imp.reduce((a, f) => a + cent(f.base), 0)) / 100 : 0;
   const difIva = importesCompletos ? (cent(valor(ingreso.iva)) - imp.reduce((a, f) => a + cent(f.cuota), 0)) / 100 : 0;
 
@@ -541,7 +557,7 @@ export default function RectificativaVentaLector({ rv, ingreso, clienteLeidoId, 
   // Con algún tipo añadido, todas las filas dejan sitio a «Quitar» (así los campos quedan alineados).
   const conQuitar = estado.importesOriginales.some((f) => f.anadido);
   const anadirTipo = (t: number) =>
-    cambiar({ importesOriginales: [...estado.importesOriginales, { tipoIva: t, base: '', cuota: '', anadido: true }].sort((a, b) => b.tipoIva - a.tipoIva) });
+    cambiar({ importesOriginales: [...estado.importesOriginales, { tipoIva: t, base: '', anadido: true }].sort((a, b) => b.tipoIva - a.tipoIva) });
 
   const t = rv.totales;
   const textoReparto = `Escribe cuánto le toca a cada factura${rv.resta ? ' (sin signo: se restan, como el abono)' : ''}. Entre todas tienen que sumar lo mismo que la rectificativa: base ${euros(
@@ -680,8 +696,8 @@ export default function RectificativaVentaLector({ rv, ingreso, clienteLeidoId, 
           <fieldset {...rv.marca(CAMPO_IMPORTES)}>
             <legend className="font-semibold text-slate-900">Importes de la factura original</legend>
             <p className="mt-0.5 text-sm text-slate-600">
-              No está en la app: escribe su base y su IVA de cada tipo. Así se registra solo la diferencia con la factura corregida. Si la original tenía un tipo de IVA
-              que la corregida ya no lleva, añádelo abajo.
+              No está en la app: escribe su base de cada tipo de IVA. El IVA se calcula con la base, igual que al registrarla. Así se registra solo la diferencia con la
+              factura corregida. Si la original tenía un tipo de IVA que la corregida ya no lleva, añádelo abajo.
             </p>
             <div className="mt-3 space-y-3">
               {estado.importesOriginales.map((f, i) => (
@@ -703,19 +719,8 @@ export default function RectificativaVentaLector({ rv, ingreso, clienteLeidoId, 
                   </div>
                   {f.tipoIva !== 0 ? (
                     <div>
-                      <label htmlFor={`rvl-importe-${i}-cuota`} className="mb-1 block text-xs font-medium text-slate-600">
-                        IVA del {porcentaje(f.tipoIva)}
-                      </label>
-                      <input
-                        id={`rvl-importe-${i}-cuota`}
-                        inputMode="decimal"
-                        autoComplete="off"
-                        className={`${campo} text-right font-mono`}
-                        value={f.cuota}
-                        disabled={disabled}
-                        {...mal(f.cuota)}
-                        onChange={(e) => cambiar({ importesOriginales: estado.importesOriginales.map((x, j) => (j === i ? { ...x, cuota: e.target.value } : x)) })}
-                      />
+                      <p className="mb-1 block text-xs font-medium text-slate-600">IVA del {porcentaje(f.tipoIva)}</p>
+                      <p className={`${campo} bg-slate-50 text-right font-mono text-slate-700`}>{Number.isFinite(imp[i]?.cuota) ? euros(imp[i].cuota) : '—'}</p>
                     </div>
                   ) : (
                     <div />
