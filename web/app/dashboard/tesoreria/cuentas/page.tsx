@@ -22,6 +22,14 @@ interface SubcuentaPropuesta {
 /** Campos del formulario que pueden llevar un error al lado. */
 type CampoCuenta = 'iban' | 'subcuentaCodigo' | 'saldoInicial';
 
+/** En el orden en que salen en pantalla: el foco va al primero que tenga aviso. */
+const CAMPOS_EN_ORDEN: CampoCuenta[] = ['iban', 'subcuentaCodigo', 'saldoInicial'];
+
+/** Lleva el foco al campo (su id es cuenta-<campo>) en cuanto se pinta su aviso. */
+const enfocar = (campo: CampoCuenta) => {
+  setTimeout(() => document.getElementById(`cuenta-${campo}`)?.focus(), 0);
+};
+
 const FORMULARIO_VACIO = {
   iban: '',
   bic: '',
@@ -108,11 +116,16 @@ export default function CuentasPage() {
     // Comprobaciones aquí, con el aviso junto al campo (el navegador no bloquea el envío sin decir por qué).
     const errores: Partial<Record<CampoCuenta, string>> = {};
     if (!formData.iban.trim()) errores.iban = 'Escribe el IBAN de la cuenta.';
-    if (!formData.subcuentaCodigo.trim()) errores.subcuentaCodigo = 'Indica la subcuenta 572 de la cuenta.';
+    const subcuenta = formData.subcuentaCodigo.replace(/[\s.]/g, '');
+    if (!subcuenta) errores.subcuentaCodigo = 'Indica la subcuenta 572 de la cuenta.';
+    else if (!/^572\d{1,9}$/.test(subcuenta)) {
+      errores.subcuentaCodigo = `La subcuenta de un banco empieza por 572 y lleva solo cifras, por ejemplo ${propuesta?.subcuentaCodigo ?? '57200001'}.`;
+    }
     const saldo = formData.saldoInicial.trim() ? parseImporte(formData.saldoInicial) : 0;
     if (!Number.isFinite(saldo)) errores.saldoInicial = 'Escribe el saldo como un importe, por ejemplo 1.250,50.';
     setErroresCampo(errores);
-    if (Object.keys(errores).length) return;
+    const primero = CAMPOS_EN_ORDEN.find((c) => errores[c]);
+    if (primero) return enfocar(primero);
 
     setEnviando(true);
     try {
@@ -121,7 +134,7 @@ export default function CuentasPage() {
         bic: formData.bic || undefined,
         bancoNombre: formData.bancoNombre || undefined,
         entidad: formData.entidad || undefined,
-        subcuentaCodigo: formData.subcuentaCodigo.trim(),
+        subcuentaCodigo: subcuenta,
         saldoInicial: saldo,
         observaciones: formData.observaciones || undefined,
       };
@@ -138,8 +151,10 @@ export default function CuentasPage() {
       fetchCuentas();
     } catch (err) {
       const campo = campoDelError(err);
-      if (campo === 'iban' || campo === 'subcuentaCodigo' || campo === 'saldoInicial') setErroresCampo({ [campo]: errorMessage(err) });
-      else setErrorFormulario(errorMessage(err));
+      if (campo === 'iban' || campo === 'subcuentaCodigo' || campo === 'saldoInicial') {
+        setErroresCampo({ [campo]: errorMessage(err) });
+        enfocar(campo);
+      } else setErrorFormulario(errorMessage(err));
     } finally {
       setEnviando(false);
     }
