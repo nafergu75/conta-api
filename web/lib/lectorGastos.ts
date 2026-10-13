@@ -124,9 +124,10 @@ export function inicialDe(g: GastoLeido, paisExistente: string | null, tercero?:
   } else if (g.proveedor || nif) {
     // La dirección leída en la factura (si la hay) ya va en la ficha: no hay que copiarla a mano.
     const d = g.direccionProveedor;
-    // País: el elegido antes de subirla o el que se deduce de la factura (tercero); si no, el del
-    // prefijo del NIF-IVA o el de la dirección leída; si no, España.
-    const pais = tercero?.pais || (pareceNifIvaUe(nif) ? paisDelPrefijo(nif) : null) || d?.pais || 'ES';
+    // País: el que dice la factura si contradice lo elegido antes de subirla (con «De España» por defecto,
+    // un proveedor de EE. UU. no queda como español); si no, el elegido o el que se deduce (tercero); si no,
+    // el del prefijo del NIF-IVA o el de la dirección leída; si no, España.
+    const pais = tercero?.contradiccion?.pais || tercero?.pais || (pareceNifIvaUe(nif) ? paisDelPrefijo(nif) : null) || d?.pais || 'ES';
     // El NIF-IVA leído sin prefijo va ya con el de su país (FR...).
     const nifFicha = tercero?.nifPropuesto ?? nif;
     proveedor = { tipo: 'nuevo', nombreFiscal: g.proveedor ?? '', nifCif: nifFicha, pais, direccion: d?.calle ?? '', cp: d?.cp ?? '', municipio: d?.municipio ?? '', provincia: d?.provincia ?? '' };
