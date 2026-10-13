@@ -7,6 +7,7 @@ import { quienEs, type TerceroEnlazado } from '@/components/lector/AvisoTerceroN
 import { euros, fechaLegible, porcentaje, type EstadoCampo, type IngresoExtraido, type InfoLectura } from '@/lib/lecturas';
 import { lineasDoc } from '@/lib/divisas';
 import { parseImporte } from '@/lib/moneda';
+import { numeroFiscalEnFrase } from '@/lib/fiscal';
 import {
   bloqueParaEnviar,
   cuentaDeOriginales,
@@ -591,7 +592,7 @@ export default function RectificativaVentaLector({ rv, ingreso, clienteLeidoId, 
               <p className="flex gap-1.5 rounded-lg border border-amber-200 bg-amber-50 p-2 text-amber-900">
                 <WarningCircle size={16} className="mt-0.5 shrink-0" aria-hidden="true" />
                 <span>
-                  En la factura se leyó el NIF {nifLeido || 'de otro cliente'}, que no es el de este cliente. Comprueba que la factura que rectifica es la buena.
+                  En la factura se leyó el {numeroFiscalEnFrase(rv.clienteOriginal?.pais)} {nifLeido || 'de otro cliente'}, que no es el de este cliente. Comprueba que la factura que rectifica es la buena.
                 </span>
               </p>
             )}
