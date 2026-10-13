@@ -8,7 +8,8 @@ import { AvisoSoloLectura, CabeceraBloque, Etiqueta, Mensaje, SinAcceso, type Me
 import { useConfiguracion } from '../contexto';
 
 /**
- * Series de numeracion de facturas, rectificativas y proformas: crear, cambiar
+ * Series de numeracion de facturas, rectificativas, rectificativas de tickets
+ * (RECTIFICATIVA_SIMPLIFICADA, R5) y proformas: crear, cambiar
  * la descripcion, activar o desactivar, marcar la predeterminada y fijar el
  * numero inicial (solo sin documentos). Sin borrar: una serie se desactiva.
  * Ver: ventas:read o contabilidad:read; cambiar: ventas:write.
@@ -17,6 +18,11 @@ import { useConfiguracion } from '../contexto';
 const TIPOS: Array<{ tipo: string; titulo: string; ayuda: string }> = [
   { tipo: 'FACTURA', titulo: 'Facturas', ayuda: 'Las facturas nuevas usan la predeterminada.' },
   { tipo: 'RECTIFICATIVA', titulo: 'Rectificativas', ayuda: 'Para corregir o anular facturas ya emitidas.' },
+  {
+    tipo: 'RECTIFICATIVA_SIMPLIFICADA',
+    titulo: 'Rectificativas de tickets',
+    ayuda: 'Para corregir tickets y facturas simplificadas: la ley pide una serie distinta de la R.',
+  },
   { tipo: 'PROFORMA', titulo: 'Proformas', ayuda: 'Presupuestos con forma de factura: no cuentan para nada fiscal.' },
 ];
 
@@ -123,7 +129,11 @@ export default function SeriesPage() {
                   )}
 
                   {delTipo.length === 0 ? (
-                    <p className="px-4 py-4 text-sm text-slate-600 md:px-5">No hay ninguna serie de este tipo.</p>
+                    <p className="px-4 py-4 text-sm text-slate-600 md:px-5">
+                      {tipo === 'RECTIFICATIVA_SIMPLIFICADA'
+                        ? 'Todavía no hay ninguna. La primera vez que rectifiques un ticket se crea sola la serie RT.'
+                        : 'No hay ninguna serie de este tipo.'}
+                    </p>
                   ) : (
                     <ul className="divide-y divide-slate-100">
                       {delTipo.map((s) =>
