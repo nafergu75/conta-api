@@ -284,6 +284,18 @@ export default function FacturaDetallePage() {
   const anulada = esFinal && factura.anuladaPorCompleto === true;
   // Una rectificativa en negativo no se cobra: resta de la factura que rectifica.
   const abono = esFinal && factura.esRectificativa && factura.totalFactura < 0;
+  // Sustituida por una rectificativa por sustitución (la última): lo que quede por cobrar se cobra en esa.
+  const sustituta = esFinal && !factura.esRectificativa ? [...rectificadaPor].reverse().find((r) => r.tipoRectificativa === 'S') ?? null : null;
+  // Rectificativa por sustitución de una venta de la app: lo cobrado a esa venta también cuenta.
+  const esSustitucion = esFinal && factura.esRectificativa && (factura.rectificativa?.forma ?? factura.tipoRectificativa) === 'S';
+  const enlaceSustituida = factura.rectificativa?.originales.find((o) => o.enApp && o.id) ?? null;
+  const sustituyeA = !esSustitucion
+    ? null
+    : enlaceSustituida?.id
+      ? { id: enlaceSustituida.id, numero: enlaceSustituida.numeroCompleto || null }
+      : factura.facturaOriginalId
+        ? { id: factura.facturaOriginalId, numero: original?.numeroCompleto ?? null }
+        : null;
   const cobro = anulada
     ? {
         texto: `Anulada con ${rectificadaPor.map((r) => r.numeroCompleto).filter(Boolean).join(', ') || 'su rectificativa'}`,
@@ -291,7 +303,9 @@ export default function FacturaDetallePage() {
       }
     : abono
       ? { texto: (factura.aFavor ?? 0) > 0 ? 'Abono · a favor del cliente' : 'Abono', clase: 'bg-slate-100 text-slate-700 border-slate-300' }
-      : ESTADO_COBRO[factura.estado];
+      : sustituta
+        ? { texto: `Sustituida por la ${sustituta.numeroCompleto ?? 'rectificativa'}`, clase: 'bg-slate-100 text-slate-700 border-slate-300' }
+        : ESTADO_COBRO[factura.estado];
   const estadoProforma = ESTADO_PROFORMA[factura.estado];
   const listado = esProforma ? '/dashboard/proformas' : '/dashboard/facturas';
   const titulo = esProforma
@@ -718,6 +732,8 @@ export default function FacturaDetallePage() {
           fechaFactura={factura.fechaEmision}
           moneda={moneda}
           monedaCuenta={monedaCuenta}
+          sustituidaPor={sustituta ? { id: sustituta.id, numero: sustituta.numeroCompleto } : null}
+          sustituyeA={sustituyeA}
           onCambio={cargar}
         />
       )}
