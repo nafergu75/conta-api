@@ -58,9 +58,15 @@ export interface MotivoInfoVenta {
 export interface OpcionesRectificativa {
   motivos: MotivoInfoVenta[];
   series: {
+    /** existe: hay una serie de rectificativas activa. */
     rectificativas: { codigo: string; existe: boolean };
-    /** La de las rectificativas de tickets (RT). Si no existe, se crea al guardar la primera. */
-    tickets: { codigo: string; existe: boolean };
+    /**
+     * La de las rectificativas de tickets (RT). Si no existe, se crea al guardar la primera.
+     * desactivada: la empresa la tiene pero desactivada (no se crea otra); las series
+     * históricas del lector, con la numeración de otro programa, no cuentan. Un servidor
+     * anterior no lo manda.
+     */
+    tickets: { codigo: string; existe: boolean; desactivada?: boolean };
   };
 }
 
