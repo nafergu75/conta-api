@@ -512,7 +512,8 @@ function OriginalDeApp({
           Total {fmt(o.total)}
           {o.restante !== undefined && o.restante !== o.total && <> · queda por rectificar {fmt(o.restante)}</>}
           {d && d.rectificativas.length > 0 && <> · ya rectificada con {d.rectificativas.map((r) => r.numeroCompleto).join(', ')}</>}
-          {d && <> · pendiente de cobro {fmt(d.pendienteCobro)}</>}
+          {/* Lo pendiente de cobro va en la moneda de la factura (el total y lo que queda, en la de la contabilidad). */}
+          {d && <> · pendiente de cobro {formatoImporte(d.pendienteCobro, d.original.moneda)}</>}
         </p>
       )}
       {d && anuladaEntera(d) && (
