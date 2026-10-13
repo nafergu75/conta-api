@@ -88,7 +88,8 @@ export interface SerieConfig {
   id: string;
   codigo: string;
   descripcion: string;
-  tipoDocumento: 'FACTURA' | 'RECTIFICATIVA' | 'PROFORMA' | string;
+  /** RECTIFICATIVA_SIMPLIFICADA: rectificativas de tickets (R5), en una serie distinta de la R. */
+  tipoDocumento: 'FACTURA' | 'RECTIFICATIVA' | 'RECTIFICATIVA_SIMPLIFICADA' | 'PROFORMA' | string;
   activa: boolean;
   porDefecto: boolean;
   ultimoNumero: number;
