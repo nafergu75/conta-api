@@ -644,7 +644,9 @@ function DialogoAlta({
       setError(
         esEspana(f.pais)
           ? `Escribe el NIF del ${tipo}.`
-          : `Escribe el ${numeroFiscalEnFrase(f.pais)} del ${tipo}. Si no tiene, escribe otro documento que lo identifique (por ejemplo, su pasaporte o su número de registro mercantil).`,
+          : origenDePais(f.pais) === 'UE'
+            ? `Escribe el NIF-IVA (VAT) del ${tipo}, con el prefijo de su país. Sin él, la operación no puede ir como intracomunitaria.`
+            : `Escribe el ${numeroFiscalEnFrase(f.pais)} del ${tipo}. Si no tiene, escribe el número de un documento oficial de identificación de su país.`,
       );
       setCampoMal('nifCif');
       document.getElementById(idDe('nifCif'))?.focus();
@@ -736,9 +738,11 @@ function DialogoAlta({
             </label>
             <input id={idDe('nifCif')} value={f.nifCif} onChange={cambiar('nifCif')} maxLength={30} autoComplete="off" {...mal('nifCif')} className={`${campo} font-mono`} />
             {ue && f.nifCif.trim() && !pareceNifIvaUe(f.nifCif) && <p className="mt-1 text-xs text-amber-700">Falta el prefijo del país (p. ej. FR…, DE…; EL para Grecia).</p>}
-            {!es && f.pais && !f.nifCif.trim() && (
-              <p className="mt-1 text-xs text-slate-500">Si no tiene número fiscal, escribe otro documento que lo identifique (pasaporte, registro mercantil…).</p>
+            {/* Sin numero fiscal: un documento oficial de su pais (no un pasaporte: Verifactu lo trata como otro tipo de documento). */}
+            {!es && !ue && f.pais && !f.nifCif.trim() && (
+              <p className="mt-1 text-xs text-slate-500">Si no tiene número fiscal, escribe el de un documento oficial de identificación de su país.</p>
             )}
+            {ue && !f.nifCif.trim() && <p className="mt-1 text-xs text-slate-500">Sin su NIF-IVA (VAT), la operación no puede ir como intracomunitaria.</p>}
           </div>
           {yaExiste && (
             <div className="flex flex-col gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 sm:col-span-2 sm:flex-row sm:items-center sm:justify-between">
