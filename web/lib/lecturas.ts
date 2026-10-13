@@ -1,5 +1,6 @@
 import { ApiError, apiFetch, companyPath } from './api';
 import type { CandidataOriginal, CausaRectificacion, GastoExtraido, TipoRectificativa } from './compras';
+import type { RectificativaVentaLeida } from './rectificativasVenta';
 
 /**
  * Lecturas de facturas con Azure (y Claude de respaldo) para los dos lectores.
@@ -100,6 +101,8 @@ export interface IngresoExtraido {
   confianza: number;
   /** Problemas que impiden registrarla. */
   errores: string[];
+  /** Rectificativa o abono (V19/V20 en «revisar»): la factura que rectifica propuesta por el servidor. null si no lo es. */
+  rectificativa?: RectificativaVentaLeida | null;
   /** Las lineas con que se registrara (una por tipo de IVA): la cuenta de cada una se puede cambiar. */
   lineas?: Array<{ descripcion: string; base: number; tipoIva: number }>;
   /** El cliente dado de alta con el NIF leido, o null: hay que darlo de alta o elegir uno antes de registrar. */
