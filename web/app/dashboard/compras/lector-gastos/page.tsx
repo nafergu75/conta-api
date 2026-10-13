@@ -5,13 +5,26 @@ import Link from 'next/link';
 import { ArrowLeft, CheckCircle, FileArrowUp, WarningCircle } from '@phosphor-icons/react';
 import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import PanelLectura from '@/components/lector/PanelLectura';
-import { anuncioLecturaTerminada, descartarLectura, ErrorLectura, esCancelada, euros, leerFactura, porcentaje, type GastoLeido, type InfoLectura } from '@/lib/lecturas';
+import {
+  anuncioLecturaTerminada,
+  cambiarOrigenLectura,
+  descartarLectura,
+  ErrorLectura,
+  esCancelada,
+  euros,
+  leerFactura,
+  porcentaje,
+  type EleccionOrigen,
+  type GastoLeido,
+  type InfoLectura,
+} from '@/lib/lecturas';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import FormFacturaGasto, { type FormInicial } from '@/components/compras/FormFacturaGasto';
 import { fechaCorta, type GastoRegistrado } from '@/lib/compras';
 import { centimos, cuotasDescuadradas, inicialComoAbono, inicialDe, marcasDelFormulario, marcasDireccion, retencionSinTipo } from '@/lib/lectorGastos';
 import SoltarFactura from '@/components/lector/SoltarFactura';
 import AvisoTerceroNuevo, { camposDudosos, type TerceroEnlazado } from '@/components/lector/AvisoTerceroNuevo';
+import OrigenTercero, { eleccionRecordada, ORIGEN_POR_DEFECTO, OrigenTerceroLeido, recordarEleccion } from '@/components/lector/OrigenTercero';
 
 /**
  * Lector de gastos: se sube el PDF o la foto de una factura de proveedor, el
@@ -44,6 +57,9 @@ function conFechaDeHoy(info: InfoLectura, g: GastoLeido): InfoLectura {
 }
 
 const RANGO: Record<InfoLectura['estado'], number> = { ok: 0, revisar: 1, error: 2 };
+
+/** Pais de España (o sin pais, que en el formulario cuenta como España). */
+const esEspana = (pais: string | null | undefined) => ['', 'ES', 'ESP'].includes((pais ?? '').trim().toUpperCase());
 
 /**
  * Sin la tarjeta del tipo de documento: la nomina o los seguros sociales los
@@ -86,6 +102,10 @@ export default function LectorGastosPage() {
   // Sin permiso de alta en la sesion, o el servidor lo ha negado (403) en esta pagina.
   const [altaDenegada, setAltaDenegada] = useState(false);
   const puedeAltaProveedor = tieneAlgunPermiso(getUser(), ['compras:write']) && !altaDenegada;
+  // «¿De dónde es el proveedor?»: antes de subir la factura (se recuerda la última) y, después, en el panel.
+  const [origen, setOrigen] = useState<EleccionOrigen>(ORIGEN_POR_DEFECTO);
+  const [cambiandoOrigen, setCambiandoOrigen] = useState(false);
+  const [errorOrigen, setErrorOrigen] = useState('');
   // Lectura en curso o sin registrar: "Leer otra" corta la espera y la descarta.
   const lecturaIdRef = useRef<string | null>(null);
   const cortarRef = useRef<AbortController | null>(null);
@@ -113,6 +133,35 @@ export default function LectorGastosPage() {
   // Al salir de la pantalla se corta la espera (la lectura sin registrar se purga sola).
   useEffect(() => () => cortarRef.current?.abort(), []);
 
+  // La última elección de este lector (en el navegador; si no se puede leer, De España).
+  useEffect(() => setOrigen(eleccionRecordada('gastos')), []);
+
+  const elegirOrigen = (e: EleccionOrigen) => {
+    setOrigen(e);
+    recordarEleccion('gastos', e);
+  };
+
+  /**
+   * Cambiada después de leer: el servidor vuelve a comprobar lo leído (sin leer
+   * otra vez la factura). El formulario no se toca: lo que ya se haya corregido sigue.
+   */
+  const cambiarOrigen = async (e: EleccionOrigen) => {
+    if (!info || !leido || cambiandoOrigen) return;
+    setCambiandoOrigen(true);
+    setErrorOrigen('');
+    try {
+      const r = await cambiarOrigenLectura('gastos', info.lecturaId, e);
+      setInfo(conFechaDeHoy(r.lectura, leido));
+      // Lo marcado puede ser otra cosa: hay que volver a revisarlo.
+      setRevisado(false);
+      elegirOrigen(e);
+    } catch (err) {
+      setErrorOrigen(errorMessage(err));
+    } finally {
+      setCambiandoOrigen(false);
+    }
+  };
+
   const abrirSelector = () => {
     if (!leyendo) inputRef.current?.click();
   };
@@ -136,6 +185,7 @@ export default function LectorGastosPage() {
     setRevisado(false);
     setRegistrado(null);
     setProveedorResuelto(null);
+    setErrorOrigen('');
     setError('');
     setAlternativa(null);
     setLeyendo(false);
@@ -167,6 +217,7 @@ export default function LectorGastosPage() {
     setLeyendo(true);
     try {
       const r = await leerFactura('gastos', f, {
+        origen,
         signal: cortar.signal,
         alEmpezar: (id) => {
           lecturaIdRef.current = id;
@@ -174,8 +225,8 @@ export default function LectorGastosPage() {
       });
       const g = r.gasto;
       // El pais del proveedor ya dado de alta (un proveedor extranjero no lleva IVA español).
-      let pais: string | null = null;
-      if (g.proveedorExistente) {
+      let pais: string | null = g.proveedorExistente?.pais ?? null;
+      if (g.proveedorExistente && !pais) {
         pais = await apiFetch<{ pais?: string }>(companyPath(`/proveedores/${encodeURIComponent(g.proveedorExistente.id)}`))
           .then((p) => p.pais ?? null)
           .catch(() => null);
@@ -184,7 +235,7 @@ export default function LectorGastosPage() {
       setLeido(g);
       setInfo(conFechaDeHoy(r.lectura, g));
       setTipoDocumento(g.tipoDocumento ?? 'factura');
-      setInicial(inicialDe(g, pais));
+      setInicial(inicialDe(g, pais, r.lectura.tercero));
       setLectura((n) => n + 1);
     } catch (err) {
       if (esCancelada(err) || cortar.signal.aborted) return;
@@ -304,6 +355,10 @@ export default function LectorGastosPage() {
           </div>
         ) : !leido || !inicial || !inicialForm || !info || !infoPanel ? (
           <div className="mx-auto max-w-2xl">
+            {/* Antes de subirla: de dónde es el proveedor (manda en las comprobaciones del NIF). */}
+            <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4">
+              <OrigenTercero tipo="proveedor" valor={origen} onCambiar={elegirOrigen} disabled={leyendo} />
+            </div>
             {/* Zona de subida (el archivo se puede soltar en toda la pagina: SoltarFactura); con el teclado, el boton "Seleccionar archivo". */}
             <div
               onClick={abrirSelector}
@@ -388,6 +443,15 @@ export default function LectorGastosPage() {
 
             {/* Datos leidos, editables */}
             <section ref={panelRef} tabIndex={-1} aria-label="Datos leídos" className="flex min-w-0 flex-col gap-4 focus:outline-none">
+              {/* De dónde es el proveedor: se puede cambiar y se vuelve a comprobar sin leer otra vez. */}
+              <OrigenTerceroLeido
+                tipo="proveedor"
+                tercero={info.tercero}
+                valor={info.tercero?.eleccion ?? origen}
+                onCambiar={cambiarOrigen}
+                cambiando={cambiandoOrigen}
+                error={errorOrigen}
+              />
               <PanelLectura
                 info={infoPanel}
                 lector="gastos"
@@ -551,7 +615,9 @@ export default function LectorGastosPage() {
                           datos={{
                             nombreFiscal: p.nombreFiscal,
                             nifCif: p.nifCif,
-                            pais: p.pais,
+                            // Si se ha dicho (después de leer) que es de fuera de España y el bloque sigue en España, el de la lectura (o se pide).
+                            pais: esEspana(p.pais) && info.tercero?.origen && info.tercero.origen !== 'ES' ? (info.tercero.pais ?? '') : p.pais,
+                            origen: info.tercero?.origen ?? null,
                             direccion: p.direccion,
                             cp: p.cp,
                             municipio: p.municipio,
