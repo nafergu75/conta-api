@@ -1,7 +1,7 @@
 'use client';
 
 import { useId } from 'react';
-import { nombrePais, origenDePais, PAISES, PAISES_UE, type OrigenTercero as Origen } from '@/lib/fiscal';
+import { nombrePais, NUMERO_FISCAL_GENERICO, origenDePais, PAISES, PAISES_UE, type OrigenTercero as Origen } from '@/lib/fiscal';
 import type { EleccionOrigen, InfoTercero, LectorPantalla } from '@/lib/lecturas';
 
 /**
@@ -103,10 +103,11 @@ export function OrigenTerceroLeido({
       {paisDeducido && (
         <p className="text-sm text-slate-600">
           País: <span className="font-medium text-slate-900">{paisDeducido}</span>
-          {tercero?.numeroFiscal ? ` · su número fiscal es el ${tercero.numeroFiscal}` : ''}
+          {tercero?.numeroFiscal && tercero.numeroFiscal !== NUMERO_FISCAL_GENERICO ? ` · su número fiscal es el ${tercero.numeroFiscal}` : ''}
         </p>
       )}
-      <p role="status" className="text-sm text-slate-600 empty:hidden">
+      {/* Siempre en la página (sr-only si no hay nada): así el lector de pantalla anuncia la comprobación. */}
+      <p role="status" className={cambiando ? 'text-sm text-slate-600' : 'sr-only'}>
         {cambiando ? 'Comprobando otra vez los datos leídos…' : ''}
       </p>
       {propuesta && !cambiando && (
