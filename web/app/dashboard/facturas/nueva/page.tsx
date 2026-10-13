@@ -1327,6 +1327,15 @@ function FormularioFactura() {
     );
   }
 
+  // Una original ya sustituida se rectifica sobre su sustituta: las líneas propuestas son las de esa.
+  const sustitutas = idsApp.map((id) => datos[id]?.lineasDe?.numeroCompleto).filter((n): n is string => !!n);
+  const deDondeSalen =
+    sustitutas.length === 0
+      ? 'las de la factura que rectificas'
+      : idsApp.length === 1
+        ? `las de la ${sustitutas[0]}, que sustituyó a la factura que rectificas`
+        : `las de cada factura que rectificas (de su sustituta si se sustituyó: ${sustitutas.join(', ')})`;
+
   // Reparto entre varias facturas: sin signo, y lo que tienen que sumar.
   const textoReparto =
     `Reparto: sale de las líneas de cada factura. Cámbialo solo si quieres repartirlo de otra forma${restaRect ? '; escribe los importes sin signo (se restan, como el abono)' : ''}. ` +
@@ -1758,7 +1767,7 @@ function FormularioFactura() {
             {sustitucion
               ? 'Escribe la factura corregida entera, en positivo. Se registra solo la diferencia con la original.'
               : conOriginalApp
-                ? 'Salen las de la factura que rectificas, en negativo. Deja solo lo que se devuelve o se descuenta y ajusta las cantidades. Un rappel puede ir en una línea: 1 × -500.'
+                ? `Salen ${deDondeSalen}, en negativo. Deja solo lo que se devuelve o se descuenta y ajusta las cantidades. Un rappel puede ir en una línea: 1 × -500.`
                 : 'Escribe lo que cambia: en negativo lo que baja, como una devolución o un descuento.'}
             {propuestaPendiente &&
               (lineasDeBorrador
