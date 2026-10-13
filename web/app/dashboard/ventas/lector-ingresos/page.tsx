@@ -27,7 +27,14 @@ import {
 } from '@/lib/lecturas';
 import SoltarFactura from '@/components/lector/SoltarFactura';
 import AvisoTerceroNuevo, { camposDudosos, quienEs, type TerceroEnlazado } from '@/components/lector/AvisoTerceroNuevo';
-import OrigenTercero, { eleccionRecordada, ORIGEN_POR_DEFECTO, origenPorDefecto, OrigenTerceroLeido, recordarEleccion } from '@/components/lector/OrigenTercero';
+import OrigenTercero, {
+  eleccionRecordada,
+  ORIGEN_POR_DEFECTO,
+  origenPorDefecto,
+  OrigenTerceroDeLaFicha,
+  OrigenTerceroLeido,
+  recordarEleccion,
+} from '@/components/lector/OrigenTercero';
 import { paisDelPrefijo } from '@/lib/compras';
 import { conDevengoFuera, nombreNumeroFiscal, nombrePais, pareceNifIvaUe, usePaisEmpresa } from '@/lib/fiscal';
 
@@ -106,6 +113,23 @@ function conClienteElegido(info: InfoLectura, c: TerceroEnlazado): InfoLectura {
   const campos = {
     ...info.campos,
     'receptor.nif': { ...campo, estado: 'revisar' as const, motivos: [...campo.motivos, `Se registra con el cliente elegido: ${quienEs(c.nombre, c.nif)}.`] },
+  };
+  const otroError = Object.values(campos).some((x) => x?.estado === 'error') || (info.generales ?? []).some((g) => g.nivel === 'error');
+  return { ...info, campos, estado: otroError ? 'error' : 'revisar' };
+}
+
+/**
+ * La rectificativa va al cliente de la factura que rectifica: el NIF leído ya
+ * no decide nada y de dónde es el cliente lo dice su ficha. Los textos que
+ * mandan a «¿De dónde es el cliente?» se quitan, porque aquí no se pregunta.
+ */
+function conClienteDeLaOriginal(info: InfoLectura, c: TerceroEnlazado): InfoLectura {
+  const campo = info.campos['receptor.nif'];
+  if (!campo || campo.estado === 'ok') return info;
+  const motivos = campo.motivos.filter((m) => !m.includes('«¿De dónde es el cliente?»'));
+  const campos = {
+    ...info.campos,
+    'receptor.nif': { ...campo, estado: 'revisar' as const, motivos: [...motivos, `Se registra con el cliente de la factura que rectifica: ${quienEs(c.nombre, c.nif)}.`] },
   };
   const otroError = Object.values(campos).some((x) => x?.estado === 'error') || (info.generales ?? []).some((g) => g.nivel === 'error');
   return { ...info, campos, estado: otroError ? 'error' : 'revisar' };
@@ -287,8 +311,6 @@ export default function LectorIngresosPage() {
     clienteResuelto ?? (existente ? { id: existente.id, nombre: existente.nombreFiscal, nif: existente.nifCif, pais: existente.pais || 'ES', como: 'elegido' } : null);
   // Una rectificativa de una factura de la app se registra con el cliente de esa factura.
   const cliente = rv.clienteOriginal ?? clienteLeido;
-  // Cliente elegido aqui o el de la original: el NIF leido ya no impide registrarla.
-  const clienteEnlazado = rv.clienteOriginal ?? clienteResuelto;
   const faltaCliente = !!ingreso && !cliente;
   const nifLeido = (ingreso?.nifCliente ?? '').trim();
   // Direccion del cliente leida en la factura: va en «Datos leidos» y rellena la ficha del alta.
@@ -557,16 +579,29 @@ export default function LectorIngresosPage() {
 
             {/* Lo leido y la confirmacion */}
             <section ref={panelRef} tabIndex={-1} aria-label="Datos leídos" className="flex min-w-0 flex-col gap-4 focus:outline-none">
-              {/* De dónde es el cliente: se puede cambiar y se vuelve a comprobar sin leer otra vez. */}
-              <OrigenTerceroLeido
-                tipo="cliente"
-                tercero={tercero}
-                valor={tercero?.eleccion ?? origen}
-                onCambiar={cambiarOrigen}
-                cambiando={cambiandoOrigen}
-                error={errorOrigen}
+              {/* De dónde es el cliente: se puede cambiar y se vuelve a comprobar sin leer otra vez. Con el
+                  cliente de la factura que rectifica, lo dice su ficha y no se pregunta. */}
+              {rv.clienteOriginal ? (
+                <OrigenTerceroDeLaFicha tipo="cliente" pais={rv.clienteOriginal.pais} nombre={rv.clienteOriginal.nombre} />
+              ) : (
+                <OrigenTerceroLeido
+                  tipo="cliente"
+                  tercero={tercero}
+                  valor={tercero?.eleccion ?? origen}
+                  onCambiar={cambiarOrigen}
+                  cambiando={cambiandoOrigen}
+                  error={errorOrigen}
+                />
+              )}
+              <PanelLectura
+                info={rv.ajustarInfo(
+                  rv.clienteOriginal ? conClienteDeLaOriginal(info, rv.clienteOriginal) : clienteResuelto ? conClienteElegido(info, clienteResuelto) : info,
+                )}
+                lector="ventas"
+                revisado={revisado}
+                onRevisado={setRevisado}
+                conCasilla={!bloqueada}
               />
-              <PanelLectura info={rv.ajustarInfo(clienteEnlazado ? conClienteElegido(info, clienteEnlazado) : info)} lector="ventas" revisado={revisado} onRevisado={setRevisado} conCasilla={!bloqueada} />
 
               {/* Rectificativa o abono: que factura rectifica, motivo, signo y forma. */}
               <RectificativaVentaLector rv={rv} ingreso={ingreso} clienteLeidoId={clienteLeido?.id ?? null} disabled={guardando} />
@@ -611,8 +646,9 @@ export default function LectorIngresosPage() {
                       <span className="mt-0.5 block font-sans text-xs font-normal text-slate-500">En la factura se leyó {nifLeido}.</span>
                     )}
                   </Dato>
-                  {/* Un servidor anterior no la manda: entonces no se enseña. */}
-                  {ingreso.direccionCliente !== undefined && (
+                  {/* Un servidor anterior no la manda: entonces no se enseña. Tampoco si la rectificativa va al
+                      cliente de la factura que rectifica: se registra con su ficha, no con lo leído. */}
+                  {ingreso.direccionCliente !== undefined && !rv.clienteOriginal && (
                     <Dato etiqueta="Dirección del cliente" ancho>
                       {lineasDireccion.length > 0
                         ? lineasDireccion.map((l, i) => (
