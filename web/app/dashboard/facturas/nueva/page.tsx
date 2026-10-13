@@ -334,6 +334,8 @@ function FormularioFactura() {
   // Serie de rectificativas: las de tipo RECTIFICATIVA (R1-R4) o RECTIFICATIVA_SIMPLIFICADA (R5).
   const [seriesRect, setSeriesRect] = useState<Serie[] | null>(null);
   const [serieRect, setSerieRect] = useState('');
+  // Hay series de ese tipo, pero ninguna activa (están desactivadas): no se crea otra al guardar.
+  const [haySeriesRectInactivas, setHaySeriesRectInactivas] = useState(false);
   // No se han podido cargar (no es lo mismo que no tener ninguna).
   const [errorSeriesRect, setErrorSeriesRect] = useState('');
   const [vueltaSeriesRect, setVueltaSeriesRect] = useState(0);
@@ -757,11 +759,14 @@ function FormularioFactura() {
     let vivo = true;
     setSeriesRect(null);
     setErrorSeriesRect('');
+    setHaySeriesRectInactivas(false);
     apiFetch<Serie[]>(companyPath(`/series?tipoDocumento=${tipoSerieRect}`))
       .then((l) => {
         if (!vivo) return;
-        const activas = (Array.isArray(l) ? l : []).filter((s) => s.activa);
+        const todas = Array.isArray(l) ? l : [];
+        const activas = todas.filter((s) => s.activa);
         setSeriesRect(activas);
+        setHaySeriesRectInactivas(todas.length > activas.length);
         setSerieRect((prev) => (activas.some((s) => s.codigo === prev) ? prev : (activas.find((s) => s.porDefecto) ?? activas[0])?.codigo ?? ''));
       })
       .catch((e) => {
@@ -894,6 +899,10 @@ function FormularioFactura() {
   const totalSimplificada = calculo.cuenta ? r2(calculo.cuenta.base + calculo.cuenta.iva) : null;
   const simplificadaExcedida = !esRect && espanola && tipoFactura === 'F2' && totalSimplificada !== null && totalSimplificada > LIMITE_SIMPLIFICADA;
   const serieElegidaRect = (seriesRect ?? []).find((s) => s.codigo === serieRect);
+  // Rectificativa de un ticket sin ninguna serie de ese tipo: el servidor crea la RT (o la RTK) al guardar.
+  // Si las hay pero están todas desactivadas, no crea otra: hay que activarla en Configuración > Series.
+  const serieTicketsSeCrea = ticket && !!seriesRect && seriesRect.length === 0 && !haySeriesRectInactivas;
+  const tipoSeriesRect = ticket ? 'rectificativas de tickets' : 'rectificativas';
 
   // Tras un error, el campo que lo causa se pone a la vista y recibe el foco; si no se sabe cuál es, el aviso.
   useEffect(() => {
@@ -1032,8 +1041,14 @@ function FormularioFactura() {
     if (!clienteId) return falla('Elige el cliente.', 'customer');
     if (!serie && !esProforma && !esRect) return falla('Elige la serie.', 'serie');
     if (esRect && errorSeriesRect) return falla(`No se han podido cargar las series de rectificativas: ${errorSeriesRect}`, 'serie');
-    if (esRect && seriesRect && seriesRect.length === 0 && !(ticket && opciones?.series.tickets.existe === false)) {
-      return falla(`No hay ninguna serie de ${ticket ? 'rectificativas de tickets' : 'rectificativas'} activa. Actívala o crea una en Configuración > Series.`, 'serie');
+    if (esRect && !seriesRect) return falla('Espera un momento: se están cargando las series de rectificativas.', 'serie');
+    if (esRect && seriesRect && seriesRect.length === 0 && !serieTicketsSeCrea) {
+      return falla(
+        haySeriesRectInactivas
+          ? `Las series de ${tipoSeriesRect} están desactivadas. Activa una en Configuración > Series.`
+          : `No hay ninguna serie de ${tipoSeriesRect} activa. Actívala o crea una en Configuración > Series.`,
+        'serie',
+      );
     }
     if (fechaVencimiento < fechaEmision) return falla('El vencimiento no puede ser anterior a la fecha de emisión.', 'fechaVencimiento');
     if (!esRect && fechaOperacion && fechaOperacion > fechaEmision) return falla('La fecha de la operación no puede ser posterior a la de emisión.', 'fechaOperacion');
@@ -1108,8 +1123,8 @@ function FormularioFactura() {
   // Número que tendrá la rectificativa (para la confirmación).
   const numeroRect = serieElegidaRect
     ? `número ${serieElegidaRect.codigo}-${(serieElegidaRect.ultimoNumero ?? 0) + 1}, aprox.`
-    : ticket && opciones?.series.tickets.existe === false
-      ? `el primero de la serie ${opciones.series.tickets.codigo}, que se crea ahora`
+    : serieTicketsSeCrea
+      ? `el primero de la serie ${opciones?.series.tickets.codigo ?? 'RT'}, que se crea ahora`
       : 'con el siguiente número de la serie de rectificativas';
 
   const guardar = async (emitir: boolean) => {
@@ -1437,15 +1452,15 @@ function FormularioFactura() {
                 </button>
               </p>
             ) : seriesRect.length === 0 ? (
-              ticket && opciones?.series.tickets.existe === false ? (
+              serieTicketsSeCrea ? (
                 <p id="serie" tabIndex={-1} className={`${campo} bg-slate-50 text-slate-600`}>
-                  {opciones.series.tickets.codigo}: se crea al guardar
+                  {opciones?.series.tickets.codigo ?? 'RT'}: se crea al guardar
                 </p>
               ) : (
                 <p id="serie" tabIndex={-1} className="mt-1 rounded-lg border border-amber-200 bg-amber-50 p-2 text-sm text-amber-900">
-                  No hay ninguna serie de {ticket ? 'rectificativas de tickets' : 'rectificativas'} activa.{' '}
+                  {haySeriesRectInactivas ? `Las series de ${tipoSeriesRect} están desactivadas.` : `No hay ninguna serie de ${tipoSeriesRect} activa.`}{' '}
                   <Link href="/dashboard/configuracion/series" className="font-medium underline">
-                    Actívala o crea una en Configuración
+                    {haySeriesRectInactivas ? 'Activa una en Configuración' : 'Actívala o crea una en Configuración'}
                   </Link>
                   .
                 </p>
