@@ -180,11 +180,17 @@ export default function OrigenTercero({ tipo, valor, onCambiar, disabled = false
                 checked={elegida}
                 disabled={disabled}
                 onChange={() => elegir(o.valor)}
+                aria-labelledby={`${id}-${o.valor}-texto`}
+                aria-describedby={`${id}-${o.valor}-ayuda`}
                 className="mt-0.5 h-4 w-4 shrink-0 accent-emerald-600"
               />
               <span className="min-w-0">
-                <span className="block font-medium">{o.texto}</span>
-                <span className="block text-xs text-slate-500">{o.ayuda}</span>
+                <span id={`${id}-${o.valor}-texto`} className="block font-medium">
+                  {o.texto}
+                </span>
+                <span id={`${id}-${o.valor}-ayuda`} className="block text-xs text-slate-500">
+                  {o.ayuda}
+                </span>
               </span>
             </label>
           );
@@ -202,7 +208,8 @@ export default function OrigenTercero({ tipo, valor, onCambiar, disabled = false
             onChange={(e) => onCambiar({ origen: valor.origen, pais: e.target.value || null })}
             className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-accent-600 focus:outline-none focus:ring-2 focus:ring-accent-600 disabled:opacity-60"
           >
-            <option value="">Sin elegir: se toma de la dirección de la factura</option>
+            {/* Corto: tiene que caber en el móvil. */}
+            <option value="">Sin elegir (sale de la factura)</option>
             {paises.map(([c, n]) => (
               <option key={c} value={c}>
                 {n}
