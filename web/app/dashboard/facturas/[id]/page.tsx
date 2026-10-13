@@ -364,14 +364,16 @@ export default function FacturaDetallePage() {
     }
     accion(async () => {
       // Operación de un periodo cuyo 303 presenta la gestoría: se pregunta antes de emitirla.
-      const emitida = await conDevengoFuera((extra) =>
-        apiFetch<{ invoice: { contabilizada?: boolean; motivoSinAsiento?: string | null; avisosFiscales?: Array<{ codigo: string; mensaje: string }> } }>(
-          companyPath(`/income-invoices/${id}/finalizar`),
-          {
-            method: 'POST',
-            body: JSON.stringify({ ...(tipoCambio !== undefined ? { tipoCambio } : {}), ...extra }),
-          },
-        ),
+      const emitida = await conDevengoFuera(
+        (extra) =>
+          apiFetch<{ invoice: { contabilizada?: boolean; motivoSinAsiento?: string | null; avisosFiscales?: Array<{ codigo: string; mensaje: string }> } }>(
+            companyPath(`/income-invoices/${id}/finalizar`),
+            {
+              method: 'POST',
+              body: JSON.stringify({ ...(tipoCambio !== undefined ? { tipoCambio } : {}), ...extra }),
+            },
+          ),
+        factura.esRectificativa ? '¿La emites igualmente?' : undefined,
       );
       if (emitida === null) return;
       if (emitida.r.invoice.contabilizada === false) setSinAsiento(emitida.r.invoice.motivoSinAsiento || 'No se pudo contabilizar.');
