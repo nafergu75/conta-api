@@ -39,6 +39,7 @@ import {
   estadoVacio,
   infoConValidaciones,
   ingresoEfectivo,
+  lineaVacia,
   marcasDeLaLectura,
   validacionesDe,
   validacionesVigentes,
@@ -346,15 +347,18 @@ export default function LectorIngresosPage() {
       setCorr({ doc: ing.documentId, leido: vacio, estado: { ...vacio, lineas: vacio.lineas.map((l) => ({ ...l })) } });
     } else if (esMuyIncompleta(inf)) {
       const leido = estadoInicial(ing, inf);
-      setCorr({ doc: ing.documentId, leido, estado: copiaDe(leido) });
+      setCorr({ doc: ing.documentId, leido, estado: conUnaLinea(copiaDe(leido)) });
     } else setCorr(null);
   };
+
+  /** Sin ninguna base leída, el formulario empieza con una línea vacía para escribirla. */
+  const conUnaLinea = (e: EstadoCorreccion): EstadoCorreccion => (e.lineas.length ? e : { ...e, lineas: [lineaVacia(espanola ? 21 : 0)] });
 
   /** «Corregir los datos»: el formulario con lo leído (y las cuentas ya elegidas). */
   const abrirCorreccion = (foco = true) => {
     if (!ingreso || !info) return null;
     const leido = estadoInicial(ingreso, info);
-    const c: Correccion = { doc: ingreso.documentId, leido, estado: estadoInicial(ingreso, info, cuentas) };
+    const c: Correccion = { doc: ingreso.documentId, leido, estado: conUnaLinea(estadoInicial(ingreso, info, cuentas)) };
     setCorr(c);
     setErrorGuardar('');
     if (foco) requestAnimationFrame(() => document.getElementById('cv-numero')?.focus());
@@ -364,7 +368,7 @@ export default function LectorIngresosPage() {
   /** «Volver a lo leído»: lo que se leyó, con las cuentas de por defecto. */
   const volverALoLeido = () => {
     if (!corr) return;
-    setCorr({ ...corr, estado: copiaDe(corr.leido) });
+    setCorr({ ...corr, estado: conUnaLinea(copiaDe(corr.leido)) });
     setCuentas((cs) => cs.map(() => null));
     setErrorCorr(null);
     setValidacionesServidor({ lista: [], enviado: null });
@@ -1062,7 +1066,7 @@ export default function LectorIngresosPage() {
               )}
 
               {!bloqueada && infoPanel?.requiereRevision && (!corr || faltaRevision) && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                <div id="lv-revision" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
                   {!corr && <p>Si algún dato está mal, pulsa «Corregir los datos» y cámbialo antes de registrarla.</p>}
                   {faltaRevision && (
                     <p className={corr ? '' : 'mt-1'}>
@@ -1093,7 +1097,7 @@ export default function LectorIngresosPage() {
                   type="button"
                   onClick={confirmar}
                   disabled={guardando || bloqueada || faltaRevision || faltaCliente}
-                  aria-describedby={bloqueada ? 'lv-bloqueo' : faltaCliente ? 'lv-motivo-cliente' : undefined}
+                  aria-describedby={bloqueada ? 'lv-bloqueo' : faltaCliente ? 'lv-motivo-cliente' : faltaRevision ? 'lv-revision' : undefined}
                   className="rounded-lg bg-accent-600 px-5 py-2.5 font-semibold text-white transition-all hover:bg-accent-700 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-60"
                 >
                   {guardando ? 'Registrando…' : rv.activa ? 'Registrar la rectificativa' : 'Registrar la factura de venta'}
