@@ -7,14 +7,16 @@
  *  - 'default' (Estándar): la de siempre.
  *  - 'A': envases (packs, unidades, kg de plástico e IEEPNR), como la factura
  *    NZ004_26. El IVA se calcula por tipo, no por línea, y no hay descuento.
- *  - 'B': cerámica y materiales de construcción. Aún no tiene diseño, así que
- *    no se puede elegir (el catálogo la trae con disponible: false).
+ *  - 'B': cerámica y materiales de construcción (palets, cajas, m², piezas,
+ *    formato, calidad, peso, obra, pesos neto y bruto y cargo de palets), como
+ *    la factura NZ013_2026. El IVA se calcula por tipo y no hay descuento.
  *  - 'C': la estándar con otro nombre (prestaciones de servicios).
  *
  * Cada serie tiene su plantilla (Configuración > Series). La factura toma la
  * de su serie; una rectificativa de una factura de la app, la de esa factura.
- * La serie A usa sola la A si la empresa repercute el IEEPNR (Configuración >
- * Facturación); si no, la estándar.
+ * Sin plantilla elegida: la serie A usa la A si la empresa repercute el IEEPNR
+ * (Configuración > Facturación); la B, la B; la C, la C; el resto, la
+ * estándar. La A y la B, solo en empresas españolas.
  */
 import { useEffect, useState } from 'react';
 import { apiFetch, companyPath, errorMessage } from './api';
@@ -28,25 +30,31 @@ export interface PlantillaCatalogo {
   id: PlantillaVentaId;
   nombre: string;
   descripcion: string;
-  /** Lleva packs, kg de plástico, IEEPNR, texto adicional y peso bruto. */
+  /** Lleva packs, kg de plástico, IEEPNR, texto adicional y peso bruto (la A). */
   envases: boolean;
+  /** Lleva palets, cajas, m², piezas, formato, calidad, peso, obra, pesos y cargo de palets (la B). Un servidor anterior no lo manda. */
+  ceramica?: boolean;
+  /** Admite descuento por línea (la A y la B, no). */
+  descuento?: boolean;
   /** 'linea': la cuota de IVA se redondea en cada línea. 'tipo': sobre la suma de bases de cada tipo. */
   calculoIva: 'linea' | 'tipo';
   soloEmpresaEspanola: boolean;
-  /** Tiene su diseño (la B, todavía no). */
+  /** Tiene su diseño. */
   disenada?: boolean;
-  /** Se puede elegir en esta empresa (la A, solo en una española; la B, en ninguna mientras no tenga diseño). */
+  /** Se puede elegir en esta empresa (la A y la B, solo en una española). */
   disponible: boolean;
   /** Es la que usa la serie A sin plantilla elegida (la A, si la empresa repercute el IEEPNR). */
   automaticaSerieA?: boolean;
+  /** Las series A, B o C que la usan sin elegirla (las demás, la estándar). */
+  seriesAutomaticas?: string[];
 }
 
 /** Nombre corto para las listas, por si el servidor no manda el catálogo. */
 export const NOMBRE_PLANTILLA: Record<PlantillaVentaId, string> = {
   default: 'Estándar',
   A: 'Plantilla A (envases)',
-  B: 'Plantilla B',
-  C: 'Plantilla C',
+  B: 'Plantilla B (cerámica)',
+  C: 'Plantilla C (servicios)',
 };
 
 export const esPlantillaVenta = (v: unknown): v is PlantillaVentaId => typeof v === 'string' && (PLANTILLAS_VENTA as readonly string[]).includes(v);
@@ -54,11 +62,20 @@ export const esPlantillaVenta = (v: unknown): v is PlantillaVentaId => typeof v 
 /** Un valor desconocido o vacío pasa a 'default' (como el servidor). */
 export const normalizarPlantilla = (v: unknown): PlantillaVentaId => (esPlantillaVenta(v) ? v : 'default');
 
-/** Lleva packs, kg, IEEPNR, texto adicional y peso bruto. Solo la A. */
+/** Lleva packs, kg, IEEPNR y peso bruto. Solo la A. */
 export const admiteEnvases = (id: unknown): boolean => normalizarPlantilla(id) === 'A';
 
-/** El IVA se calcula sobre la suma de bases de cada tipo (solo la A). */
-export const ivaPorTipo = (id: unknown): boolean => normalizarPlantilla(id) === 'A';
+/** Lleva palets, cajas, m², piezas, formato, calidad, peso, obra, pesos neto y bruto y cargo de palets. Solo la B. */
+export const admiteCeramica = (id: unknown): boolean => normalizarPlantilla(id) === 'B';
+
+/** Admite descuento por línea (la estándar y la C; la A y la B, no). */
+export const admiteDescuento = (id: unknown): boolean => !['A', 'B'].includes(normalizarPlantilla(id));
+
+/** Lleva texto adicional bajo el concepto y peso bruto (la A y la B). */
+export const admiteTextoAdicional = (id: unknown): boolean => ['A', 'B'].includes(normalizarPlantilla(id));
+
+/** El IVA se calcula sobre la suma de bases de cada tipo (la A y la B). */
+export const ivaPorTipo = (id: unknown): boolean => ['A', 'B'].includes(normalizarPlantilla(id));
 
 /** Catálogo de plantillas de la empresa (Configuración > Series). null mientras carga o si el servidor no lo tiene. */
 export function useCatalogoPlantillas(activo: boolean): { catalogo: PlantillaCatalogo[] | null; error: string } {
