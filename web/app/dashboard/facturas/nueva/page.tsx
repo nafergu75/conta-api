@@ -139,6 +139,8 @@ interface AjustesFacturacionApi {
   ieepnrPorKg?: number;
   /** Plantilla B: cuenta del cargo de palets (null = la de ventas). */
   cuentaPalets?: string | null;
+  /** Plantilla B: por qué esa cuenta ya no vale (desactivada o fuera del plan); null si vale. */
+  cuentaPaletsProblema?: string | null;
 }
 
 interface Serie {
@@ -563,8 +565,10 @@ function FormularioFactura() {
   const [pesoNeto, setPesoNeto] = useState('');
   // Observaciones por defecto de la serie que se escribieron solas (siguen a la serie mientras no se toquen).
   const [obsDeSerie, setObsDeSerie] = useState<string | null>(null);
-  // Plantilla B: la cuenta del cargo de palets de Configuración > Facturación (null = la de ventas).
+  // Plantilla B: la cuenta del cargo de palets de Configuración > Facturación (null = la de ventas) y,
+  // si ya no vale, cuál era: el servidor pone entonces la de ventas de siempre, y eso es lo que se enseña.
   const [cuentaPaletsAjustes, setCuentaPaletsAjustes] = useState<string | null>(null);
+  const [cuentaPaletsNoVale, setCuentaPaletsNoVale] = useState<string | null>(null);
   // Plantilla con la que se guardó el borrador o la proforma que se edita (null: alta nueva).
   const [plantillaGuardada, setPlantillaGuardada] = useState<string | null>(null);
   const [ajustesIeepnr, setAjustesIeepnr] = useState<{ repercute: boolean; porKg: number }>({ repercute: false, porKg: 0.45 });
@@ -676,7 +680,11 @@ function FormularioFactura() {
         const productoDe = (id?: string | null) => catalogo.find((p) => p.id === id);
         // El IEEPNR solo se repercute en España y si la empresa lo ha activado (el servidor manda al guardar).
         if (ajustes) setAjustesIeepnr({ repercute: !!ajustes.empresaEspanola && ajustes.ieepnrRepercute === true, porKg: Number(ajustes.ieepnrPorKg ?? 0.45) || 0.45 });
-        if (ajustes) setCuentaPaletsAjustes(ajustes.cuentaPalets ?? null);
+        if (ajustes) {
+          const noVale = !!ajustes.cuentaPalets && !!ajustes.cuentaPaletsProblema;
+          setCuentaPaletsAjustes(noVale ? null : (ajustes.cuentaPalets ?? null));
+          setCuentaPaletsNoVale(noVale ? (ajustes.cuentaPalets ?? null) : null);
+        }
 
         if (borradorId) {
           const { invoice } = await apiFetch<{ invoice: FacturaApi }>(companyPath(`/income-invoices/${borradorId}`));
@@ -1845,7 +1853,12 @@ function FormularioFactura() {
       porDefecto={
         l.cargoPalets && cuentaPaletsAjustes
           ? { codigo: cuentaPaletsAjustes, texto: 'la de los palets (Configuración > Facturación)' }
-          : cuentaPorDefecto(productos.find((p) => p.id === l.productoServicioId))
+          : l.cargoPalets && cuentaPaletsNoVale
+            ? (() => {
+                const d = cuentaPorDefecto(productos.find((p) => p.id === l.productoServicioId));
+                return { ...d, texto: `${d.texto}: la de los palets, ${cuentaPaletsNoVale}, ya no vale; cámbiala en Configuración > Facturación` };
+              })()
+            : cuentaPorDefecto(productos.find((p) => p.id === l.productoServicioId))
       }
       linea={i + 1}
       id={`fv-cuenta-${l.clave}`}
