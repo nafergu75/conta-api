@@ -315,7 +315,10 @@ export default function SeriesPage() {
 
 /**
  * La serie usa la estándar porque una casilla de Configuración > Facturación
- * está sin marcar: cuál, con el enlace, y qué plantilla tendría.
+ * está sin marcar: cuál, con el enlace, y qué plantilla tendría. La casilla
+ * dice algo de la empresa (cobra el IEEPNR, vende cerámica), así que solo se
+ * propone marcarla en ese caso; si la serie es para otra cosa, elegirle la
+ * «Estándar» con Editar deja el motivo en 'elegida' y esta nota deja de salir.
  */
 function MotivoCasilla({ motivo, editar }: { motivo: SerieConfig['motivoPlantilla']; editar: boolean }) {
   const c = plantillaPorCasilla(motivo);
@@ -326,7 +329,8 @@ function MotivoCasilla({ motivo, editar }: { motivo: SerieConfig['motivoPlantill
       <Link href={RUTA_AJUSTES_FACTURACION} className="font-medium text-emerald-700 underline">
         Configuración &gt; Facturación
       </Link>
-      . Márcala para usar la plantilla {c.plantilla} ({c.que}){editar ? ', o elige aquí otra plantilla con Editar' : ''}.
+      . Márcala solo si {c.cuando}: así usará la plantilla {c.plantilla} ({c.que}).
+      {editar && ' Si esta serie es para otra cosa, elige la «Estándar» con Editar y esta nota dejará de salir.'}
     </p>
   );
 }
