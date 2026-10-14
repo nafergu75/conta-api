@@ -14,6 +14,7 @@
  */
 import { useEffect, useState } from 'react';
 import { apiFetch, companyPath, errorMessage } from './api';
+import { simboloMoneda } from './moneda';
 
 export const PLANTILLAS_VENTA = ['default', 'A', 'B', 'C'] as const;
 export type PlantillaVentaId = (typeof PLANTILLAS_VENTA)[number];
@@ -215,6 +216,13 @@ export function formatoCantidad(n: number, max = 3): string {
   dec = dec.replace(/0+$/, '');
   const signo = v < 0 && Number(Math.abs(v).toFixed(max)) !== 0 ? '−' : '';
   return `${signo}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, '.')}${dec ? `,${dec}` : ''}`;
+}
+
+/** Precio por unidad de la plantilla A: de 2 a 4 decimales, como en su PDF (0,162 €; 12,50 €). */
+export function formatoPrecio(n: number, moneda = 'EUR'): string {
+  const cifra = formatoCantidad(n, 4);
+  const [ent, dec = ''] = cifra.split(',');
+  return `${ent},${dec.padEnd(2, '0')} ${simboloMoneda(moneda)}`;
 }
 
 /** Valor de una casilla editable: sin miles y con coma decimal (103,089). */

@@ -21,7 +21,7 @@ import {
   type TipoRectificativaVenta,
 } from '@/lib/rectificativasVenta';
 import { ModalRectificativaAnterior } from '@/components/ventas/RectificativaServidorAnterior';
-import { admiteEnvases, formatoCantidad, resumenEnvases, type ResumenEnvases } from '@/lib/plantillasFactura';
+import { admiteEnvases, formatoCantidad, formatoPrecio, resumenEnvases, type ResumenEnvases } from '@/lib/plantillasFactura';
 
 interface Linea {
   id: string;
@@ -986,7 +986,7 @@ function LineasEnvasesFicha({
                 <td className="px-3 py-2 text-right tabular-nums">{formatoCantidad(l.cantidad, 3)}</td>
                 <td className="px-3 py-2 text-right tabular-nums">{kg(l)}</td>
                 <td className="px-3 py-2 text-right font-mono tabular-nums">{fmt(l.ieepnrImporte ?? 0)}</td>
-                <td className="px-3 py-2 text-right font-mono tabular-nums">{fmt(precio(l))}</td>
+                <td className="px-3 py-2 text-right font-mono tabular-nums">{formatoPrecio(precio(l), moneda)}</td>
                 {conIva && <td className="px-3 py-2 text-right tabular-nums">{etiquetaIva(l.tipoIva)}</td>}
                 <td className="px-4 py-2 text-right font-mono tabular-nums">{fmt(total(l))}</td>
               </tr>
@@ -1004,7 +1004,7 @@ function LineasEnvasesFicha({
               <DatoLinea etiqueta="Uds" valor={formatoCantidad(l.cantidad, 3)} />
               <DatoLinea etiqueta="KG Plástico" valor={kg(l)} />
               <DatoLinea etiqueta="IEEPNR" valor={fmt(l.ieepnrImporte ?? 0)} />
-              <DatoLinea etiqueta="Precio/ud" valor={fmt(precio(l))} />
+              <DatoLinea etiqueta="Precio/ud" valor={formatoPrecio(precio(l), moneda)} />
               {conIva && <DatoLinea etiqueta="IVA" valor={etiquetaIva(l.tipoIva)} />}
               <DatoLinea etiqueta="Total" valor={fmt(total(l))} fuerte />
             </dl>
