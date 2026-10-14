@@ -34,7 +34,12 @@ export interface FiltrosApuntes {
   /** Como los escribe la persona («1.250,50»); se normalizan al pedir. */
   importeMin: string;
   importeMax: string;
+  /** Con la regularización y el cierre del ejercicio (por defecto no salen, como en el libro diario). */
+  incluirCierre: boolean;
 }
+
+/** Tipo del asiento: la regularización y el cierre solo salen si se piden, y se marcan. */
+export type TipoAsientoApunte = 'NORMAL' | 'APERTURA' | 'REGULARIZACION' | 'CIERRE';
 
 export type TipoDocumentoApunte =
   | 'FACTURA_VENTA'
@@ -60,6 +65,7 @@ export interface Apunte {
   asientoId: string;
   asiento: string;
   estado: 'APROBADO' | 'BORRADOR';
+  tipoAsiento: TipoAsientoApunte;
   enlaceAsiento: string;
   cuenta: string;
   nombreCuenta: string;
@@ -78,11 +84,16 @@ export interface TotalesApuntes {
   /** Debe − Haber. */
   diferencia: number;
   enBorrador: number;
+  /**
+   * Apuntes de la regularización y el cierre que cumplen el resto del filtro:
+   * los que salen si se piden o, si no, los que se han dejado fuera.
+   */
+  deCierre: number;
 }
 
 export interface RespuestaApuntes {
   periodo: { desde: string; hasta: string; nombre: string | null };
-  filtro: { tercero: TerceroFiltro | null };
+  filtro: { tercero: TerceroFiltro | null; incluirCierre: boolean };
   pagina: number;
   porPagina: number;
   paginas: number;
@@ -143,7 +154,7 @@ export function importeNormalizado(texto: string): string | null {
 
 /** ¿Hay algún filtro aparte del año y el periodo? */
 export function hayFiltros(f: FiltrosApuntes): boolean {
-  return !!(f.desde || f.hasta || f.cuenta || f.tercero || f.texto.trim() || f.estado !== 'todos' || f.importeMin.trim() || f.importeMax.trim());
+  return !!(f.desde || f.hasta || f.cuenta || f.tercero || f.texto.trim() || f.estado !== 'todos' || f.importeMin.trim() || f.importeMax.trim() || f.incluirCierre);
 }
 
 /** Parámetros de la API para unos filtros (sin la página ni el formato). Los importes ya deben ser válidos. */
@@ -164,6 +175,7 @@ export function parametrosApuntes(f: FiltrosApuntes): URLSearchParams {
   const max = importeNormalizado(f.importeMax);
   if (min) p.set('importeMin', min);
   if (max) p.set('importeMax', max);
+  if (f.incluirCierre) p.set('incluirCierre', '1');
   return p;
 }
 
@@ -181,6 +193,7 @@ export function filtrosParaUrl(f: FiltrosApuntes, pagina: number): Record<string
     estado: f.estado === 'todos' ? null : f.estado,
     importeMin: f.importeMin.trim() || null,
     importeMax: f.importeMax.trim() || null,
+    cierre: f.incluirCierre ? '1' : null,
     pagina: pagina > 1 ? String(pagina) : null,
   };
 }
@@ -206,6 +219,7 @@ export function filtrosDeUrl(sp: URLSearchParams | null, anio: number): { filtro
       estado: estado === 'aprobados' || estado === 'borradores' ? estado : 'todos',
       importeMin: g('importeMin') ?? '',
       importeMax: g('importeMax') ?? '',
+      incluirCierre: g('cierre') === '1',
     },
     pagina: Number.isInteger(pagina) && pagina > 1 ? pagina : 1,
   };
@@ -227,6 +241,7 @@ export function partesNombreDescarga(f: FiltrosApuntes, nombreTercero: string): 
     f.tercero ? nombreTercero || f.tercero.nombre : '',
     f.cuenta ? `cuenta ${f.cuenta}` : '',
     f.estado === 'aprobados' ? 'aprobados' : f.estado === 'borradores' ? 'borradores' : '',
+    f.incluirCierre ? 'con cierre' : '',
     cuando,
   ].filter(Boolean);
 }
