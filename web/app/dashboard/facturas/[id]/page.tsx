@@ -138,6 +138,13 @@ interface Factura {
   obra?: string | null;
   pesoNetoKg?: number | null;
   resumenCeramica?: ResumenCeramica | null;
+  /** VERI*FACTU: descripción de la operación escrita a mano (null: la sacan las líneas). Un servidor anterior no la manda. */
+  descripcionOperacion?: string | null;
+  /**
+   * Emitida: el cliente tal como salió en la factura (el PDF y VERI*FACTU lo toman de ahí, no de su ficha de
+   * ahora). sinIdentificar: F2 o R5 registrada, sin NIF ni domicilio. Un servidor anterior no lo manda.
+   */
+  clienteEmision?: { nombreFiscal: string; nifCif: string | null; pais: string | null; sinIdentificar: boolean };
 }
 
 interface Cliente {
@@ -345,6 +352,12 @@ export default function FacturaDetallePage() {
   const esProforma = factura.estadoDocumento === 'PROFORMA';
   const esBorrador = factura.estadoDocumento === 'BORRADOR';
   const esFinal = factura.estadoDocumento === 'FINAL';
+  // Emitida: el cliente de la factura (el del PDF y el registro), aunque después se haya cambiado su ficha.
+  const emision = factura.clienteEmision ?? null;
+  const clienteFactura = emision ?? (cliente ? { nombreFiscal: cliente.nombreFiscal, nifCif: cliente.nifCif, pais: cliente.pais ?? null, sinIdentificar: false } : null);
+  const igual = (a: string | null | undefined, b: string | null | undefined) => (a ?? '').trim().toUpperCase() === (b ?? '').trim().toUpperCase();
+  const fichaCambiada =
+    !!emision && !!cliente && !(igual(emision.nombreFiscal, cliente.nombreFiscal) && igual(emision.nifCif, cliente.nifCif) && igual(emision.pais || 'ES', cliente.pais || 'ES'));
   // VERI*FACTU rechaza la completa porque el cliente no tiene NIF válido: si cabe como simplificada, se propone.
   // VERI*FACTU solo registra las facturas de una empresa española, que lleva la contabilidad en euros.
   const propuestaF2 = propuestaSimplificada(errorVf, {
@@ -723,11 +736,22 @@ export default function FacturaDetallePage() {
         )}
         <div className="col-span-2 md:col-span-4 border-t border-slate-100 pt-4">
           <p className="text-xs uppercase tracking-wide text-slate-500">Cliente</p>
-          <p className="font-medium text-slate-900">{cliente?.nombreFiscal ?? '—'}</p>
-          <p className="font-mono text-sm text-slate-600">
-            {conNombreNumeroFiscal(cliente?.nifCif, cliente?.pais)}
-            {cliente?.pais && cliente.pais !== 'ES' && <span className="ml-2 font-sans">{nombrePais(cliente.pais)}</span>}
-          </p>
+          <p className="font-medium text-slate-900">{clienteFactura?.nombreFiscal ?? '—'}</p>
+          {clienteFactura?.sinIdentificar ? (
+            <p className="text-sm text-slate-600">
+              La factura no lleva su NIF ni su domicilio: es {factura.tipoFactura === 'R5' ? 'una rectificativa de un ticket' : 'una simplificada'} registrada en VERI*FACTU.
+            </p>
+          ) : (
+            <p className="font-mono text-sm text-slate-600">
+              {conNombreNumeroFiscal(clienteFactura?.nifCif, clienteFactura?.pais)}
+              {clienteFactura?.pais && clienteFactura.pais !== 'ES' && <span className="ml-2 font-sans">{nombrePais(clienteFactura.pais)}</span>}
+            </p>
+          )}
+          {fichaCambiada && (
+            <p className="mt-1 text-xs text-slate-500">
+              Son los datos con los que se emitió. La ficha del cliente ha cambiado después; la factura no cambia.
+            </p>
+          )}
         </div>
       </section>
 
@@ -884,6 +908,13 @@ export default function FacturaDetallePage() {
 
       {factura.observaciones && !factura.esRectificativa && (
         <p className="whitespace-pre-line rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-700">{factura.observaciones}</p>
+      )}
+      {factura.descripcionOperacion && (
+        <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm">
+          <p className="text-xs uppercase tracking-wide text-slate-500">Descripción para VERI*FACTU</p>
+          <p className="whitespace-pre-line text-slate-700">{factura.descripcionOperacion}</p>
+          <p className="mt-1 text-xs text-slate-500">No se imprime en la factura: es para el registro de VERI*FACTU.</p>
+        </div>
       )}
 
       {esFinal && (
