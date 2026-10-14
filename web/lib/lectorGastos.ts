@@ -172,32 +172,50 @@ export function inicialDe(g: GastoLeido, paisExistente: string | null, tercero?:
  */
 export function marcasDelFormulario(campos: InfoLectura['campos'], inicial: FormInicial): MarcasLector {
   const m: MarcasLector = {};
-  const poner = (campo: string, nivel: NivelMarca) => {
-    if (m[campo] !== 'error') m[campo] = nivel;
-  };
+  for (const [id, c] of Object.entries(campos)) {
+    if (!c || c.estado === 'ok') continue;
+    const n: NivelMarca = c.estado;
+    for (const campo of camposDelFormulario(id, c, inicial)) if (m[campo] !== 'error') m[campo] = n;
+  }
+  return m;
+}
+
+/** Los campos del formulario donde se marca un dato de la lectura (ver marcasDelFormulario). */
+export function camposDelFormulario(id: string, c: EstadoCampo, inicial: FormInicial): string[] {
   const lineas = inicial.lineas ?? [];
   const todas = lineas.map((_, i) => i);
   const unica = lineas.length === 1 ? [0] : [];
   /** Lineas con ese tipo de IVA (la propuesta hace una por tipo). */
-  const deTipo = (tipoIva: number | undefined) =>
-    typeof tipoIva === 'number' ? todas.filter((i) => lineas[i].tipoIva === tipoIvaMasCercano(tipoIva)) : unica;
+  const deTipo = (tipoIva: number | undefined) => (typeof tipoIva === 'number' ? todas.filter((i) => lineas[i].tipoIva === tipoIvaMasCercano(tipoIva)) : unica);
+  const parte = /^desglose\.\d+\.(base|cuota)$/.exec(id)?.[1];
+  if (id === 'emisor.nif' || id === 'emisor.nombre') return ['proveedor', id === 'emisor.nif' ? 'proveedor.nifCif' : 'proveedor.nombreFiscal'];
+  if (id === 'numero') return ['numeroFacturaProveedor'];
+  if (id === 'fechaEmision') return ['fechaEmision'];
+  if (parte) return deTipo(c.tipoIva).map((i) => `lineas.${i}.${parte === 'base' ? 'precioUnitario' : 'tipoIva'}`);
+  if (id === 'retencion.tipo' || id === 'retencion.importe') return todas.map((i) => `lineas.${i}.tipoRetencion`);
+  if (id === 'totales.base') return unica.map((i) => `lineas.${i}.precioUnitario`);
+  if (id === 'totales.cuotaIva') return unica.map((i) => `lineas.${i}.tipoIva`);
+  if (id === 'concepto') return unica.map((i) => `lineas.${i}.descripcion`);
+  if (id === 'totales.totalFactura' || id === 'totales.totalAPagar') return ['totalDocumento'];
+  return [];
+}
+
+/**
+ * Los datos marcados de la lectura que ya se han corregido en el formulario:
+ * los que tenían marca en algún campo y ya no les queda ninguna con el valor
+ * leído (`vigentes`, de FormFacturaGasto). Para PanelLectura (`corregidos`):
+ * su tarjeta pasa a verde, «Corregido en el formulario».
+ */
+export function corregidosEnFormulario(campos: InfoLectura['campos'], inicial: FormInicial, vigentes: string[] | null): Record<string, null> {
+  if (!vigentes) return {};
+  const quedan = new Set(vigentes);
+  const fuera: Record<string, null> = {};
   for (const [id, c] of Object.entries(campos)) {
     if (!c || c.estado === 'ok') continue;
-    const n: NivelMarca = c.estado;
-    const parte = /^desglose\.\d+\.(base|cuota)$/.exec(id)?.[1];
-    if (id === 'emisor.nif' || id === 'emisor.nombre') {
-      poner('proveedor', n);
-      poner(id === 'emisor.nif' ? 'proveedor.nifCif' : 'proveedor.nombreFiscal', n);
-    } else if (id === 'numero') poner('numeroFacturaProveedor', n);
-    else if (id === 'fechaEmision') poner('fechaEmision', n);
-    else if (parte) for (const i of deTipo(c.tipoIva)) poner(`lineas.${i}.${parte === 'base' ? 'precioUnitario' : 'tipoIva'}`, n);
-    else if (id === 'retencion.tipo' || id === 'retencion.importe') for (const i of todas) poner(`lineas.${i}.tipoRetencion`, n);
-    else if (id === 'totales.base') for (const i of unica) poner(`lineas.${i}.precioUnitario`, n);
-    else if (id === 'totales.cuotaIva') for (const i of unica) poner(`lineas.${i}.tipoIva`, n);
-    else if (id === 'concepto') for (const i of unica) poner(`lineas.${i}.descripcion`, n);
-    else if (id === 'totales.totalFactura' || id === 'totales.totalAPagar') poner('totalDocumento', n);
+    const suyos = camposDelFormulario(id, c, inicial);
+    if (suyos.length > 0 && !suyos.some((f) => quedan.has(f))) fuera[id] = null;
   }
-  return m;
+  return fuera;
 }
 
 /**

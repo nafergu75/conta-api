@@ -133,6 +133,18 @@ interface Props {
   /** lector: los datos que el lector ha marcado, para colorearlos dentro del formulario. */
   marcas?: MarcasLector;
   /**
+   * lector: las marcas que siguen con el valor leído (las demás ya se han
+   * corregido o comprobado), cada vez que cambian. La página las usa para pasar
+   * a verde en el panel los datos ya corregidos.
+   */
+  onMarcasVigentes?: (campos: string[]) => void;
+  /**
+   * lector: la factura ya está registrada con ese número. No se registra mientras
+   * el número siga siendo el leído (`mensaje` explica por qué); si se leyó mal y
+   * se corrige, sí (el servidor vuelve a comprobarlo).
+   */
+  numeroDuplicado?: { numero: string; mensaje: string };
+  /**
    * lector: el proveedor tiene que estar dado de alta (o elegido de los que ya
    * hay) para registrar. Mientras no lo este, el boton queda desactivado con
    * `motivo`; `aviso` va encima del bloque del proveedor (AvisoTerceroNuevo) y
@@ -229,6 +241,8 @@ export default function FormFacturaGasto({
   campoInicial,
   avisoInicial,
   marcas,
+  onMarcasVigentes,
+  numeroDuplicado,
   proveedorDeAlta,
   numeroRectificadaLeida,
   onGuardado,
@@ -414,6 +428,38 @@ export default function FormFacturaGasto({
   const totalNoCuadra = modo === 'lector' && Number.isFinite(totalDoc) && Math.abs(totalDoc - totales.total) > 0.02;
   const marcaTotal = marcaLeida('totalDocumento', totalDocumento);
 
+  // Lector: las marcas que siguen con el valor leído (y a la vista: la del proveedor dado de alta o la
+  // de cada dato del proveedor nuevo). El aviso de las marcas sale mientras quede alguna.
+  const vigentes: string[] = [];
+  if (modo === 'lector' && marcas) {
+    for (const campo of Object.keys(marcas)) {
+      if (!marcas[campo]) continue;
+      const linea = /^lineas\.(\d+)\.(\w+)$/.exec(campo);
+      if (linea) {
+        const clave = valoresLeidos[`lineas.${linea[1]}`];
+        const l = lineas.find((x) => x.clave === clave);
+        const actual: Record<string, unknown> | null = l ? { descripcion: l.descripcion, precioUnitario: l.precio, tipoIva: l.tipoIva, tipoRetencion: l.tipoRetencion } : null;
+        if (l && marcaLeida(campo, actual?.[linea[2]], l.clave)) vigentes.push(campo);
+        continue;
+      }
+      let actual: unknown;
+      if (campo === 'proveedor') actual = proveedor?.tipo === 'existente' ? proveedor : undefined;
+      else if (campo.startsWith('proveedor.')) actual = proveedor?.tipo === 'nuevo' ? (proveedor as Record<string, unknown>)[campo.slice('proveedor.'.length)] : undefined;
+      else if (campo === 'numeroFacturaProveedor') actual = numero;
+      else if (campo === 'fechaEmision') actual = fechaEmision;
+      else if (campo === 'totalDocumento') actual = totalDocumento;
+      if (actual !== undefined && marcaLeida(campo, actual)) vigentes.push(campo);
+    }
+  }
+  const claveVigentes = vigentes.join('|');
+  useEffect(() => {
+    onMarcasVigentes?.(claveVigentes ? claveVigentes.split('|') : []);
+    // Solo cuando cambian las marcas que quedan (la función de la página cambia en cada pintado).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [claveVigentes]);
+  // La duplicada solo bloquea mientras el número siga siendo el leído.
+  const bloqueoDuplicada = numeroDuplicado && numero.trim() === numeroDuplicado.numero.trim() ? numeroDuplicado.mensaje : undefined;
+
   const inv = (campo: string) => !!campoError && (campoError === campo || campoError.startsWith(`${campo}.`));
   /** aria-invalid y, si hay mensaje, aria-describedby al cuadro del error: el lector de pantalla lee el motivo. */
   const marca = (...campos: string[]): PropsMarca => {
@@ -446,7 +492,7 @@ export default function FormFacturaGasto({
 
   // Lector: sin un proveedor dado de alta no se registra (el servidor tambien lo exige).
   const faltaAltaProveedor = proveedorDeAlta && proveedor?.tipo !== 'existente' ? proveedorDeAlta.motivo : undefined;
-  const motivoBloqueo = bloqueado ?? faltaAltaProveedor;
+  const motivoBloqueo = bloqueoDuplicada ?? bloqueado ?? faltaAltaProveedor;
   const cambiarProveedor = (p: ProveedorElegido | null) => {
     setProveedor(p);
     if (campoError?.startsWith('proveedor')) {
@@ -731,7 +777,8 @@ export default function FormFacturaGasto({
   return (
     <form onSubmit={guardar} noValidate className={PIE.formulario}>
       {avisoPlan.dialogo}
-      {modo === 'lector' && marcas && Object.values(marcas).some(Boolean) && (
+      {/* Solo mientras quede algún dato marcado con el valor leído: corregido todo, ya no hace falta. */}
+      {modo === 'lector' && vigentes.length > 0 && (
         <p id="fg-marcas-lector" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
           Los datos que el lector no ha podido confirmar van marcados en el formulario: en ámbar, los que conviene comprobar con la factura; en rojo, los que faltan o no
           cuadran. La marca se quita cuando cambias el dato.
