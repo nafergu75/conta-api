@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { X } from '@phosphor-icons/react';
 import { apiFetch, campoDelError, companyPath, errorMessage } from '@/lib/api';
 import { decimalesDe, leerCantidad, paraEditar, problemaTextoAdicional, TEXTO_ADICIONAL_LINEAS_MAX, TEXTO_ADICIONAL_MAX } from '@/lib/plantillasFactura';
+import { FORMATO_MAX, NOMBRE_UNIDAD_PRECIO, UNIDADES_PRECIO, type UnidadPrecio } from '@/lib/ceramica';
 
 export interface Familia {
   id: string;
@@ -37,6 +38,12 @@ export interface Producto {
   kgPlasticoUnidad?: number | null;
   llevaIeepnr?: boolean;
   textoFactura?: string | null;
+  /** Plantilla B (cerámica): formato, m² y piezas por caja, unidad del precio y kg por esa unidad. */
+  formato?: string | null;
+  metros2PorCaja?: number | null;
+  piezasPorCaja?: number | null;
+  unidadPrecio?: string | null;
+  pesoKgPorUnidad?: number | null;
 }
 
 /** Familias en lista plana, con las subfamilias detras de su familia. */
@@ -76,14 +83,21 @@ export function ProductoModal({
     kgPlasticoUnidad: paraEditar(producto?.kgPlasticoUnidad),
     llevaIeepnr: producto?.llevaIeepnr === true,
     textoFactura: producto?.textoFactura ?? '',
+    formato: producto?.formato ?? '',
+    metros2PorCaja: paraEditar(producto?.metros2PorCaja),
+    piezasPorCaja: paraEditar(producto?.piezasPorCaja),
+    unidadPrecio: producto?.unidadPrecio ?? '',
+    pesoKgPorUnidad: paraEditar(producto?.pesoKgPorUnidad),
   });
   const [codigoTocado, setCodigoTocado] = useState(Boolean(producto));
   const [error, setError] = useState('');
   // Campo que señala el error (de la comprobación o del servidor).
   const [campoError, setCampoError] = useState<string | undefined>();
   // Bloque «Factura con envases»: abierto si el producto ya trae algo de él.
-  const [envasesAbierto, setEnvasesAbierto] = useState(
-    () => !!(producto?.unidadesPorPack || producto?.kgPlasticoUnidad || producto?.llevaIeepnr || producto?.textoFactura),
+  const [envasesAbierto, setEnvasesAbierto] = useState(() => !!(producto?.unidadesPorPack || producto?.kgPlasticoUnidad || producto?.llevaIeepnr));
+  // Bloque «Factura de cerámica»: abierto si el producto ya trae algo de él.
+  const [ceramicaAbierto, setCeramicaAbierto] = useState(
+    () => !!(producto?.formato || producto?.metros2PorCaja || producto?.piezasPorCaja || producto?.unidadPrecio || producto?.pesoKgPorUnidad != null),
   );
   const lineasTexto = f.textoFactura ? f.textoFactura.split(/\r\n|\r|\n/).length : 0;
   const invalido = (c: string) => (campoError === c ? { 'aria-invalid': true as const, 'aria-describedby': 'prod-error' } : {});
@@ -117,8 +131,24 @@ export function ProductoModal({
     if (kg !== null && !(kg >= 0 && kg <= 1000 && decimalesDe(kg) <= 6)) {
       return { mensaje: 'Los kg de plástico no reciclado por unidad son un número entre 0 y 1.000, con 6 decimales como mucho (por ejemplo, 0,033558).', campo: 'kgPlasticoUnidad' };
     }
-    const texto = problemaTextoAdicional(f.textoFactura);
-    if (texto) return { mensaje: texto, campo: 'textoFactura' };
+    return null;
+  };
+
+  /** Lo que falta o no vale en el bloque de cerámica (plantilla B), con su campo (las mismas reglas que el servidor). */
+  const problemaCeramica = (): { mensaje: string; campo: string } | null => {
+    if (f.formato.trim().length > FORMATO_MAX) return { mensaje: `El formato admite ${FORMATO_MAX} caracteres como mucho (por ejemplo, 23,3x120).`, campo: 'formato' };
+    const m2 = leerCantidad(f.metros2PorCaja);
+    if (m2 !== null && !(m2 > 0 && m2 <= 1000 && decimalesDe(m2) <= 4)) {
+      return { mensaje: 'Los m² por caja son un número mayor que 0 y de 1.000 como mucho, con 4 decimales como máximo (por ejemplo, 1,68).', campo: 'metros2PorCaja' };
+    }
+    const piezas = leerCantidad(f.piezasPorCaja);
+    if (piezas !== null && !(Number.isInteger(piezas) && piezas >= 1 && piezas <= 100000)) {
+      return { mensaje: 'Las piezas por caja son un número entero entre 1 y 100.000.', campo: 'piezasPorCaja' };
+    }
+    const peso = leerCantidad(f.pesoKgPorUnidad);
+    if (peso !== null && !(peso >= 0 && peso <= 100000 && decimalesDe(peso) <= 4)) {
+      return { mensaje: 'El peso por unidad son los kg de cada m², pieza o unidad: un número de 0 a 100.000, con 4 decimales como mucho.', campo: 'pesoKgPorUnidad' };
+    }
     return null;
   };
 
@@ -126,9 +156,11 @@ export function ProductoModal({
     e.preventDefault();
     setError('');
     setCampoError(undefined);
-    const mal = problemaEnvases();
+    const texto = problemaTextoAdicional(f.textoFactura);
+    const mal = problemaEnvases() ?? problemaCeramica() ?? (texto ? { mensaje: texto, campo: 'textoFactura' } : null);
     if (mal) {
-      setEnvasesAbierto(true);
+      if (['unidadesPorPack', 'kgPlasticoUnidad'].includes(mal.campo)) setEnvasesAbierto(true);
+      if (['formato', 'metros2PorCaja', 'piezasPorCaja', 'pesoKgPorUnidad'].includes(mal.campo)) setCeramicaAbierto(true);
       setError(mal.mensaje);
       setCampoError(mal.campo);
       return;
@@ -151,6 +183,12 @@ export function ProductoModal({
         kgPlasticoUnidad: leerCantidad(f.kgPlasticoUnidad),
         llevaIeepnr: f.llevaIeepnr,
         textoFactura: f.textoFactura.trim() || null,
+        // Plantilla B (cerámica). Vacío: sin dato.
+        formato: f.formato.trim() || null,
+        metros2PorCaja: leerCantidad(f.metros2PorCaja),
+        piezasPorCaja: leerCantidad(f.piezasPorCaja),
+        unidadPrecio: f.unidadPrecio || null,
+        pesoKgPorUnidad: leerCantidad(f.pesoKgPorUnidad),
       };
       const r = await apiFetch<Producto>(companyPath(producto ? `/productos/${producto.id}` : '/productos'), {
         method: producto ? 'PUT' : 'POST',
@@ -161,7 +199,8 @@ export function ProductoModal({
       setError(errorMessage(err));
       const campo = campoDelError(err);
       setCampoError(campo);
-      if (campo && ['unidadesPorPack', 'kgPlasticoUnidad', 'llevaIeepnr', 'textoFactura'].includes(campo)) setEnvasesAbierto(true);
+      if (campo && ['unidadesPorPack', 'kgPlasticoUnidad', 'llevaIeepnr'].includes(campo)) setEnvasesAbierto(true);
+      if (campo && ['formato', 'metros2PorCaja', 'piezasPorCaja', 'unidadPrecio', 'pesoKgPorUnidad'].includes(campo)) setCeramicaAbierto(true);
     } finally {
       setGuardando(false);
     }
@@ -255,7 +294,7 @@ export function ProductoModal({
               Factura con envases (plantilla A) <span className="font-normal text-slate-500">(opcional)</span>
             </summary>
             <p className="mt-2 text-xs text-slate-500">
-              Solo en las series con la plantilla A: al elegir el producto en la factura se proponen las uds (packs × unidades por pack), los kg de plástico y el texto.
+              Solo en las series con la plantilla A: al elegir el producto en la factura se proponen las uds (packs × unidades por pack) y los kg de plástico.
             </p>
             <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-6">
               <div className="md:col-span-2">
@@ -301,28 +340,116 @@ export function ProductoModal({
                   </span>
                 </span>
               </label>
-              <div className="md:col-span-6">
-                <label htmlFor="p-texto" className="block text-sm font-medium text-slate-700">Texto adicional en la factura</label>
-                <textarea
-                  id="p-texto"
-                  rows={3}
-                  maxLength={TEXTO_ADICIONAL_MAX}
-                  value={f.textoFactura}
-                  onChange={(e) => setF({ ...f, textoFactura: e.target.value })}
+            </div>
+          </details>
+          <details
+            className="rounded-lg border border-slate-200 p-3 md:col-span-6"
+            open={ceramicaAbierto}
+            onToggle={(e) => setCeramicaAbierto(e.currentTarget.open)}
+          >
+            <summary className="cursor-pointer text-sm font-medium text-slate-700">
+              Factura de cerámica (plantilla B) <span className="font-normal text-slate-500">(opcional)</span>
+            </summary>
+            <p className="mt-2 text-xs text-slate-500">
+              Solo en las series con la plantilla B: al elegir el producto en la factura se proponen el formato, la unidad del precio, los m² y las piezas (desde las
+              cajas) y el peso.
+            </p>
+            <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-6">
+              <div className="md:col-span-2">
+                <label htmlFor="p-formato" className="block text-sm font-medium text-slate-700">Formato</label>
+                <input
+                  id="p-formato"
+                  value={f.formato}
+                  maxLength={FORMATO_MAX}
+                  onChange={(e) => setF({ ...f, formato: e.target.value })}
                   className={`${campo} aria-[invalid=true]:border-red-500`}
-                  placeholder={'Cod. RPA Azúcar: 6B30250\nUnidad 1,5 L Refrescos SR'}
-                  aria-describedby="p-texto-ayuda"
-                  {...invalido('textoFactura')}
+                  placeholder="23,3x120"
+                  {...invalido('formato')}
                 />
-                <p id="p-texto-ayuda" className="mt-1 flex justify-between gap-2 text-xs text-slate-500">
-                  <span>Sale bajo el concepto, en letra pequeña. Se puede cambiar en cada factura.</span>
-                  <span className={`tabular-nums ${lineasTexto > TEXTO_ADICIONAL_LINEAS_MAX ? 'text-red-700' : ''}`}>
-                    {f.textoFactura.length}/{TEXTO_ADICIONAL_MAX} · {lineasTexto}/{TEXTO_ADICIONAL_LINEAS_MAX} líneas
-                  </span>
-                </p>
+              </div>
+              <div className="md:col-span-2">
+                <label htmlFor="p-m2caja" className="block text-sm font-medium text-slate-700">m² por caja</label>
+                <input
+                  id="p-m2caja"
+                  inputMode="decimal"
+                  value={f.metros2PorCaja}
+                  onChange={(e) => setF({ ...f, metros2PorCaja: e.target.value })}
+                  className={`${campo} text-right tabular-nums aria-[invalid=true]:border-red-500`}
+                  placeholder="1,68"
+                  {...invalido('metros2PorCaja')}
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label htmlFor="p-pzcaja" className="block text-sm font-medium text-slate-700">Piezas por caja</label>
+                <input
+                  id="p-pzcaja"
+                  inputMode="numeric"
+                  value={f.piezasPorCaja}
+                  onChange={(e) => setF({ ...f, piezasPorCaja: e.target.value })}
+                  className={`${campo} text-right tabular-nums aria-[invalid=true]:border-red-500`}
+                  placeholder="6"
+                  {...invalido('piezasPorCaja')}
+                />
+              </div>
+              <div className="md:col-span-3">
+                <label htmlFor="p-unidadprecio" className="block text-sm font-medium text-slate-700">El precio va por</label>
+                <select
+                  id="p-unidadprecio"
+                  value={f.unidadPrecio}
+                  onChange={(e) => setF({ ...f, unidadPrecio: e.target.value })}
+                  className={`${campo} aria-[invalid=true]:border-red-500`}
+                  aria-describedby="p-unidadprecio-ayuda"
+                  {...invalido('unidadPrecio')}
+                >
+                  <option value="">Sin indicar (por unidad)</option>
+                  {UNIDADES_PRECIO.map((u) => (
+                    <option key={u} value={u}>
+                      {NOMBRE_UNIDAD_PRECIO[u as UnidadPrecio]}
+                    </option>
+                  ))}
+                </select>
+                <p id="p-unidadprecio-ayuda" className="mt-1 text-xs text-slate-500">El precio de venta de arriba es por esa unidad.</p>
+              </div>
+              <div className="md:col-span-3">
+                <label htmlFor="p-pesounidad" className="block text-sm font-medium text-slate-700">
+                  Kg por {f.unidadPrecio ? NOMBRE_UNIDAD_PRECIO[f.unidadPrecio as UnidadPrecio] : 'unidad'}
+                </label>
+                <input
+                  id="p-pesounidad"
+                  inputMode="decimal"
+                  value={f.pesoKgPorUnidad}
+                  onChange={(e) => setF({ ...f, pesoKgPorUnidad: e.target.value })}
+                  className={`${campo} text-right tabular-nums aria-[invalid=true]:border-red-500 md:max-w-[12rem]`}
+                  placeholder="22,5"
+                  aria-describedby="p-pesounidad-ayuda"
+                  {...invalido('pesoKgPorUnidad')}
+                />
+                <p id="p-pesounidad-ayuda" className="mt-1 text-xs text-slate-500">Para proponer el peso de la línea (cantidad × kg). Se puede cambiar en cada factura.</p>
               </div>
             </div>
           </details>
+          <div className="md:col-span-6">
+            <label htmlFor="p-texto" className="block text-sm font-medium text-slate-700">
+              Texto adicional en la factura <span className="font-normal text-slate-500">(plantillas A y B, opcional)</span>
+            </label>
+            <textarea
+              id="p-texto"
+              rows={3}
+              maxLength={TEXTO_ADICIONAL_MAX}
+              value={f.textoFactura}
+              onChange={(e) => setF({ ...f, textoFactura: e.target.value })}
+              className={`${campo} aria-[invalid=true]:border-red-500`}
+              placeholder={'Cod. RPA Azúcar: 6B30250\nUnidad 1,5 L Refrescos SR'}
+              aria-describedby="p-texto-ayuda"
+              {...invalido('textoFactura')}
+            />
+            <p id="p-texto-ayuda" className="mt-1 flex justify-between gap-2 text-xs text-slate-500">
+              <span>Sale bajo el concepto, en letra pequeña. Se puede cambiar en cada factura.</span>
+              <span className={`tabular-nums ${lineasTexto > TEXTO_ADICIONAL_LINEAS_MAX ? 'text-red-700' : ''}`}>
+                {f.textoFactura.length}/{TEXTO_ADICIONAL_MAX} · {lineasTexto}/{TEXTO_ADICIONAL_LINEAS_MAX} líneas
+              </span>
+            </p>
+          </div>
         </div>
 
         {error && <p id="prod-error" role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
