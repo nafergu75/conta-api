@@ -1,6 +1,6 @@
 'use client';
 
-import { formatoCantidad } from '@/lib/plantillasFactura';
+import { formatoCantidad, leerCantidad } from '@/lib/plantillasFactura';
 import type { ResumenCeramica as Resumen } from '@/lib/ceramica';
 
 /**
@@ -8,7 +8,7 @@ import type { ResumenCeramica as Resumen } from '@/lib/ceramica';
  * la fila de totales de la factura NZ013_2026: los palets, las cajas, los m² y
  * las piezas de las líneas (los suma la app), y el peso neto y el peso bruto,
  * que se escriben a mano. Si las líneas llevan peso, su suma se ofrece para el
- * peso neto.
+ * peso neto. Si el neto pasa del bruto, se avisa (no bloquea).
  */
 
 const campo =
@@ -35,6 +35,9 @@ export default function ResumenCeramica({
   const marcaNeto = marca('pesoNetoKg');
   const marcaBruto = marca('pesoBrutoKg');
   const sumaPesos = resumen.pesoKg !== 0 ? formatoCantidad(resumen.pesoKg, 3) : null;
+  const neto = leerCantidad(pesoNeto);
+  const bruto = leerCantidad(pesoBruto);
+  const netoMayor = neto !== null && bruto !== null && Number.isFinite(neto) && Number.isFinite(bruto) && neto > bruto;
   return (
     <section aria-labelledby="ceramica-titulo" className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 md:p-5">
       <h2 id="ceramica-titulo" className="font-semibold text-slate-900">
@@ -93,6 +96,11 @@ export default function ResumenCeramica({
           </p>
         </div>
       </div>
+      {netoMayor && (
+        <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 lg:max-w-xl">
+          El peso neto es mayor que el bruto. Revísalos: el bruto es la mercancía más los palets y el embalaje.
+        </p>
+      )}
     </section>
   );
 }
