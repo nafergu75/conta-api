@@ -539,9 +539,10 @@ export interface ErrorCorreccion {
  * Lo que la persona entiende mejor aqui que como un 400 (el servidor lo repite
  * todo). `aMano`: sin nada leido, hacen falta el numero, la fecha, las lineas y
  * el total. `negativos`: la lectura es una rectificativa o un abono (solo
- * entonces puede haber bases en negativo).
+ * entonces puede haber bases en negativo). `espanola` false: las lineas van
+ * sin IVA (la lectura puede traer un 21 % puesto por defecto).
  */
-export function comprobarCorreccion(leido: EstadoCorreccion, e: EstadoCorreccion, op: { aMano: boolean; negativos: boolean }): ErrorCorreccion | null {
+export function comprobarCorreccion(leido: EstadoCorreccion, e: EstadoCorreccion, op: { aMano: boolean; negativos: boolean; espanola?: boolean }): ErrorCorreccion | null {
   const c = cambios(leido, e);
   if (op.aMano || c.numero) {
     if (!e.numero.trim()) return { campo: 'correcciones.numero', mensaje: 'Escribe el número de la factura tal como aparece en ella.' };
@@ -565,10 +566,16 @@ export function comprobarCorreccion(leido: EstadoCorreccion, e: EstadoCorreccion
           mensaje: `${n}: la base está en negativo y la factura leída no es una rectificativa. Si es un abono, créalo en Ventas → Nueva factura → «Rectificativa o abono».`,
         };
       }
+      if (op.espanola === false && l.tipoIva !== 0) {
+        return { campo: `correcciones.lineas.${i}.tipoIva`, mensaje: `${n}: tu empresa no está establecida en España y sus ventas no llevan IVA español. Pon «Sin IVA».` };
+      }
     }
   }
   const tipoRet = e.tipoRetencion.trim() ? leerImporte(e.tipoRetencion) : 0;
-  if (!Number.isFinite(tipoRet) || tipoRet < 0 || tipoRet > 50) return { campo: 'correcciones.tipoRetencion', mensaje: 'La retención tiene que ser un porcentaje entre 0 y 50.' };
+  // Sin decimales, como el servidor: la línea de la factura guarda el porcentaje en entero.
+  if (!Number.isInteger(tipoRet) || tipoRet < 0 || tipoRet > 50) {
+    return { campo: 'correcciones.tipoRetencion', mensaje: 'La retención tiene que ser un porcentaje sin decimales entre 0 y 50 (por ejemplo, 15).' };
+  }
   if (op.aMano || c.lineas || c.retencion || c.total) {
     const q = cuadre(e);
     if (!Number.isFinite(q.escrito)) return { campo: 'correcciones.total', mensaje: 'Escribe el total de la factura: con él se comprueba que las líneas cuadran.' };
