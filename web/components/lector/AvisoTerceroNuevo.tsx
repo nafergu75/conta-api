@@ -7,6 +7,7 @@ import { ApiError, apiFetch, campoDelError, companyPath, errorMessage } from '@/
 import { nombreNumeroFiscal, numeroFiscalEnFrase, origenDePais, PAISES, pareceNifIvaUe, type OrigenTercero } from '@/lib/fiscal';
 import { paisDelPrefijo } from '@/lib/compras';
 import { useAvisoPlanAnterior } from '@/components/contabilidad/AvisoPlanAnterior';
+import { CampoWeb } from '@/components/terceros/Web';
 
 /**
  * Proveedor o cliente de una factura leida que no esta dado de alta (lector de
@@ -63,6 +64,7 @@ export interface DatosTercero {
   provincia?: string;
   email?: string;
   telefono?: string;
+  web?: string;
   /** Campos de la direccion leidos con poca seguridad: salen en ambar en la ficha hasta que se cambian. */
   dudosos?: CampoDireccion[];
   /** De donde se ha dicho que es (o se ha deducido). De la UE o de fuera y sin pais: la ficha pide elegirlo. */
@@ -580,6 +582,7 @@ function DialogoAlta({
       provincia: datos.provincia ?? '',
       email: datos.email ?? '',
       telefono: datos.telefono ?? '',
+      web: datos.web ?? '',
     };
   });
   // Lo que traia la ficha al abrirla: un dato dudoso deja de marcarse en cuanto se cambia.
@@ -653,7 +656,7 @@ function DialogoAlta({
       return;
     }
     const cuerpo: Record<string, string> = { nombreFiscal: f.nombreFiscal.trim(), nifCif: f.nifCif.trim(), pais: f.pais };
-    for (const c of ['direccion', 'cp', 'municipio', 'provincia', 'email', 'telefono'] as const) {
+    for (const c of ['direccion', 'cp', 'municipio', 'provincia', 'email', 'telefono', 'web'] as const) {
       if (f[c].trim()) cuerpo[c] = f[c].trim();
     }
     setGuardando(true);
@@ -708,7 +711,7 @@ function DialogoAlta({
       {avisoPlan.dialogo}
       <form onSubmit={guardar} noValidate className="flex flex-col gap-4">
         <p className="text-sm text-slate-600">
-          Lo hemos rellenado con lo que pone la factura, menos el correo y el teléfono, que no se leen. Corrige lo que haga falta: se guarda en tu lista de {t.plural} con su
+          Lo hemos rellenado con lo que pone la factura, menos el correo, el teléfono y la web, que no se leen. Corrige lo que haga falta: se guarda en tu lista de {t.plural} con su
           subcuenta y la factura queda a su nombre.
         </p>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -795,9 +798,13 @@ function DialogoAlta({
             </label>
             <input id={idDe('telefono')} type="tel" value={f.telefono} onChange={cambiar('telefono')} maxLength={30} autoComplete="off" {...mal('telefono')} className={campo} />
           </div>
+          <div className="sm:col-span-2">
+            {/* Su error sale aqui, junto a la casilla, y no abajo. */}
+            <CampoWeb id={idDe('web')} value={f.web} onChange={cambiar('web')} error={campoMal === 'web' ? error : null} claseEtiqueta={etiqueta} claseCampo={campo} />
+          </div>
         </div>
 
-        {error && (
+        {error && campoMal !== 'web' && (
           <div id={idDe('error')} role="alert" tabIndex={-1} className="flex flex-col gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 focus:outline-none text-sm text-rose-700">
             <p className="flex items-start gap-2">
               <WarningCircle size={18} className="mt-0.5 shrink-0" aria-hidden="true" />
