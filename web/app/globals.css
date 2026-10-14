@@ -68,6 +68,8 @@ body {
 .dark .zona-app .hover\:text-slate-700:hover { color: #e5e5e5; }
 .dark .zona-app .hover\:text-slate-600:hover { color: #d4d4d4; }
 .dark .zona-app .divide-slate-100 > * + *, .dark .zona-app .divide-slate-200 > * + *, .dark .zona-app .divide-gray-200 > * + * { border-color: #262626; }
+/* Separadores de una lista dentro de un aviso ambar (facturas que no salen en el mayor): de noche, ambar tenue. */
+.dark .zona-app .divide-amber-200 > * + * { border-color: rgba(245,158,11,.35); }
 .dark .zona-app .bg-emerald-50 { background-color: rgba(16,185,129,.12); }
 .dark .zona-app .bg-emerald-100 { background-color: rgba(16,185,129,.2); }
 .dark .zona-app .border-emerald-100, .dark .zona-app .border-emerald-200 { border-color: rgba(16,185,129,.35); }
