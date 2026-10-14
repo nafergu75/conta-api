@@ -753,21 +753,29 @@ function FormularioFactura() {
   const confirmarPlantilla = (otra: string | undefined): boolean => {
     const destino = normalizarPlantilla(otra);
     if (admiteEnvases(destino) === envases) return true;
+    // Ya se ha preguntado: al guardar no se vuelve a preguntar por lo mismo.
+    const aceptado = () => {
+      if (plantillaGuardada !== null) setPlantillaGuardada(destino);
+      return true;
+    };
     if (envases) {
       const conDatos = !!pesoBruto.trim() || lineas.some((l) => l.packs.trim() || l.kgPlastico.trim() || l.textoAdicional.trim());
-      return (
-        !conDatos ||
-        window.confirm(
+      if (
+        conDatos &&
+        !window.confirm(
           `Esa serie usa la plantilla ${NOMBRE_PLANTILLA[destino]}, que no lleva packs, kg de plástico, IEEPNR, texto adicional ni peso bruto: si la cambias, esos datos no se guardan.\n\n¿Cambiar de serie?`,
         )
-      );
+      ) {
+        return false;
+      }
+      return aceptado();
     }
-    if (!lineas.some((l) => num(l.descuentoPorcentaje) !== 0)) return true;
+    if (!lineas.some((l) => num(l.descuentoPorcentaje) !== 0)) return aceptado();
     if (!window.confirm('Esa serie usa la plantilla A (envases), que no lleva descuento por línea: se quitan los descuentos y tendrás que poner el precio ya rebajado.\n\n¿Cambiar de serie?')) {
       return false;
     }
     setLineas((ls) => ls.map((l) => ({ ...l, descuentoPorcentaje: '0' })));
-    return true;
+    return aceptado();
   };
 
   const elegirProducto = (clave: number, id: string) => {
