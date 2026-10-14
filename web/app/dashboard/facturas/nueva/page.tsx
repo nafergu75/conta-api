@@ -27,6 +27,8 @@ import { useCuentasLinea } from '@/lib/subcuentas';
 import { CuentaLinea } from '@/components/contabilidad/CuentaLinea';
 import { hoyEspana, LIMITE_SIMPLIFICADA, useRedSeguridad } from '@/lib/verifactu';
 import AvisoRedSeguridad from '@/components/verifactu/AvisoRedSeguridad';
+import AvisoErrorVerifactu from '@/components/verifactu/AvisoErrorVerifactu';
+import { errorVerifactu, propuestaSimplificada, type ErrorVerifactu } from '@/lib/erroresVerifactu';
 import { useAvisoPlanAnterior } from '@/components/contabilidad/AvisoPlanAnterior';
 import BloqueRectificativaVenta from '@/components/ventas/BloqueRectificativaVenta';
 import { AvisoServidorAnterior, BloqueRectificaFueraAnterior } from '@/components/ventas/RectificativaServidorAnterior';
@@ -543,6 +545,10 @@ function FormularioFactura() {
   // Campo que señala el último error (del servidor o de la comprobación): se marca y recibe el foco.
   const [campoError, setCampoError] = useState<string | undefined>();
   const [intentoFallido, setIntentoFallido] = useState(0);
+  // El último error, si es de VERI*FACTU (422 VERIFACTU_* o 409): se enseña con su salida al lado.
+  const [errorVf, setErrorVf] = useState<ErrorVerifactu | null>(null);
+  // La factura se acaba de cambiar a simplificada desde ese aviso.
+  const [avisoSimplificada, setAvisoSimplificada] = useState(false);
   const avisoPlan = useAvisoPlanAnterior();
 
   const [clienteId, setClienteId] = useState('');
@@ -1319,6 +1325,23 @@ function FormularioFactura() {
   // Simplificada (F2): hasta 3.000 € de base mas IVA, en euros.
   const totalSimplificada = calculo.cuenta ? r2(calculo.cuenta.base + calculo.cuenta.iva) : null;
   const simplificadaExcedida = !esRect && espanola && tipoFactura === 'F2' && totalSimplificada !== null && totalSimplificada > LIMITE_SIMPLIFICADA;
+  // VERI*FACTU rechaza la completa porque el cliente no tiene NIF válido: si cabe como simplificada, se propone.
+  const propuestaF2 = propuestaSimplificada(errorVf, {
+    tipoFactura,
+    esRect,
+    espanola,
+    f2Prohibida: !!regla?.tiposFacturaProhibidos.includes('F2'),
+    totalConIva: totalSimplificada,
+    limite: LIMITE_SIMPLIFICADA,
+  });
+  const aplicarSimplificada = () => {
+    cambiarTipo('F2');
+    setError('');
+    setErrorVf(null);
+    setCampoError(undefined);
+    setAvisoSimplificada(true);
+    document.getElementById('tipo')?.focus();
+  };
   const serieElegidaRect = (seriesRect ?? []).find((s) => s.codigo === serieRect);
   // Rectificativa de un ticket sin ninguna serie de ese tipo: el servidor crea la RT (o la RTK) al guardar.
   // Si las hay pero están todas desactivadas, no crea otra: hay que activarla en Configuración > Series.
@@ -1354,6 +1377,17 @@ function FormularioFactura() {
     const mal = !!campoError && campos.includes(campoError);
     return { 'aria-invalid': mal, 'aria-describedby': mal && error ? 'nf-error' : undefined };
   };
+
+  /**
+   * VERI*FACTU: su texto también junto al campo que señala, como en el bloque de la rectificativa (el
+   * campo ya lo lee el lector de pantalla con aria-describedby; arriba queda el aviso con la salida).
+   */
+  const junto = (...campos: string[]) =>
+    error && errorVf?.campo && campos.includes(errorVf.campo) ? (
+      <p aria-hidden="true" className="mt-1 text-sm text-red-700">
+        {error}
+      </p>
+    ) : null;
 
   const cuerpo = () => {
     const fiscal = espanola ? { tipoOperacion: tipoOperacion || null, ...causaYReferencia() } : {};
@@ -1671,8 +1705,10 @@ function FormularioFactura() {
 
   const guardar = async (emitir: boolean) => {
     const fallo = comprobar(emitir);
+    setAvisoSimplificada(false);
     if (fallo) {
       setError(fallo.mensaje);
+      setErrorVf(null);
       setCampoError(fallo.campo);
       setIntentoFallido((n) => n + 1);
       return;
@@ -1716,6 +1752,7 @@ function FormularioFactura() {
     }
     setGuardando(true);
     setError('');
+    setErrorVf(null);
     try {
       let id = borradorId ?? idCreado;
       if (id) {
@@ -1775,9 +1812,12 @@ function FormularioFactura() {
       }
       router.push(`/dashboard/${esProforma ? 'proformas' : 'facturas'}/${id}`);
     } catch (e) {
+      // VERI*FACTU (422 VERIFACTU_*, 409): su texto, con la salida al lado y el campo que toca.
+      const vf = errorVerifactu(e, { esRect });
       setError(errorMessage(e));
+      setErrorVf(vf);
       // El campo que señala el servidor (details.campo) se marca y recibe el foco.
-      setCampoError(campoDelError(e));
+      setCampoError(vf?.campo ?? campoDelError(e));
       setIntentoFallido((n) => n + 1);
       setGuardando(false);
     }
@@ -1911,10 +1951,25 @@ function FormularioFactura() {
 
       {!esProforma && <AvisoRedSeguridad estado={redSeguridad} donde="formulario" />}
 
-      {error && (
-        <p id="nf-error" role="alert" tabIndex={-1} className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 focus:outline-none">
-          {error}
-        </p>
+      {error && errorVf ? (
+        <AvisoErrorVerifactu
+          id="nf-error"
+          error={errorVf}
+          clienteId={clienteId || null}
+          borradorGuardado={!!(borradorId ?? idCreado)}
+          verbo={esRect ? 'Emitir rectificativa' : 'Pasar a factura'}
+          propuesta={propuestaF2}
+          onSimplificada={aplicarSimplificada}
+          onReintentar={() => guardar(true)}
+          ocupado={guardando}
+          fmt={fmtCuenta}
+        />
+      ) : (
+        error && (
+          <p id="nf-error" role="alert" tabIndex={-1} className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 focus:outline-none">
+            {error}
+          </p>
+        )
       )}
 
       {(espanola || !esProforma) && (
@@ -1934,12 +1989,18 @@ function FormularioFactura() {
               {!esProforma && !(modoFijo && !esRect) && <option value="rectificativa">Rectificativa o abono</option>}
               {!esProforma && espanola && !compat && !(modoFijo && !esRect) && <option value="ticket">Rectificativa de un ticket</option>}
             </select>
+            {!esRect && junto('tipoFactura')}
             {avisoBorradorTicket && borradorSinSerieTickets && (
               <p role="alert" className="mt-1 rounded-lg border border-amber-200 bg-amber-50 p-2 text-sm text-amber-900">
                 {TEXTO_BORRADOR_SIN_TICKETS}{' '}
                 <Link href="/dashboard/configuracion/series" className="font-medium underline">
                   Ir a Configuración &gt; Series
                 </Link>
+              </p>
+            )}
+            {avisoSimplificada && !esRect && tipoFactura === 'F2' && (
+              <p role="status" className="mt-1 rounded-lg border border-green-200 bg-green-50 p-2 text-sm text-green-800">
+                Cambiada a simplificada. Revísala y pulsa «Pasar a factura».
               </p>
             )}
             {!esRect && tipoFactura === 'F2' && (
@@ -2065,6 +2126,7 @@ function FormularioFactura() {
               )}
             </>
           )}
+          {junto('customer', 'customer.id', 'clienteId')}
         </div>
         <div>
           <label className={etiqueta} htmlFor="serie">Serie</label>
@@ -2143,6 +2205,7 @@ function FormularioFactura() {
               ))}
             </select>
           )}
+          {junto('serie')}
           {/* La plantilla sale de la serie (Configuración > Series); la A y la B cambian las líneas. */}
           {envases && (
             <p className="mt-1 text-xs text-slate-500">
@@ -2204,6 +2267,7 @@ function FormularioFactura() {
                   </option>
                 ))}
               </select>
+              {junto('tipoOperacion')}
               {tipoTocado && clienteId && sugerido && sugerido !== tipoOperacion && (
                 <p className="mt-1 text-xs text-slate-600">
                   Para este cliente se suele usar «{contexto.tipos.find((t) => t.codigo === sugerido)?.etiqueta ?? sugerido}».{' '}
@@ -2346,6 +2410,7 @@ function FormularioFactura() {
               if (!vencimientoTocado && /^\d{4}-\d{2}-\d{2}$/.test(e.target.value)) setFechaVencimiento(masDias(e.target.value, diasVencimiento));
             }}
           />
+          {junto('fechaEmision')}
         </div>
         <div>
           <label className={etiqueta} htmlFor="vencimiento">Vencimiento</label>
@@ -2376,6 +2441,7 @@ function FormularioFactura() {
               onChange={(e) => setFechaOperacion(e.target.value)}
               {...marca('fechaOperacion')}
             />
+            {junto('fechaOperacion')}
           </div>
         )}
       </section>
@@ -2448,6 +2514,11 @@ function FormularioFactura() {
             </button>
           </div>
         </div>
+        {error && errorVf?.campo === 'lineas' && (
+          <p aria-hidden="true" className="border-b border-slate-100 px-5 py-2 text-sm text-red-700">
+            {error}
+          </p>
+        )}
         {esRect && (
           <p className="border-b border-slate-100 px-5 py-2 text-sm text-slate-600">
             {sustitucion
