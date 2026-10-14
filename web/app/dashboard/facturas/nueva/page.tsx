@@ -30,6 +30,21 @@ import AvisoRedSeguridad from '@/components/verifactu/AvisoRedSeguridad';
 import { useAvisoPlanAnterior } from '@/components/contabilidad/AvisoPlanAnterior';
 import BloqueRectificativaVenta from '@/components/ventas/BloqueRectificativaVenta';
 import { AvisoServidorAnterior, BloqueRectificaFueraAnterior } from '@/components/ventas/RectificativaServidorAnterior';
+import LineasEnvases, { kgPropuestos, seguirPropuestas, udsPropuestas } from '@/components/ventas/LineasEnvases';
+import ResumenEnvases, { type SinIeepnr } from '@/components/ventas/ResumenEnvases';
+import {
+  admiteEnvases,
+  calcularIeepnr,
+  decimalesDe,
+  formatoCantidad,
+  ivaPorTipo,
+  leerCantidad,
+  NOMBRE_PLANTILLA,
+  normalizarPlantilla,
+  paraEditar,
+  problemaTextoAdicional,
+  resumenEnvases,
+} from '@/lib/plantillasFactura';
 import {
   anuladaEntera,
   bloqueParaEnviar,
@@ -85,6 +100,13 @@ import {
  * Con el servidor anterior a las rectificativas nuevas (solo durante la
  * publicación), el abono de una factura de fuera va con los campos de antes y
  * lo demás se hace desde la ficha (ver RectificativaServidorAnterior).
+ *
+ * Plantilla (Configuración > Series): la de la serie elegida (la proforma, la
+ * de su serie P; una rectificativa de una factura de la app, la de esa
+ * factura). Con la plantilla A (envases) las líneas llevan packs, uds, kg de
+ * plástico, IEEPNR y texto adicional (LineasEnvases), sin descuento, con el
+ * resumen y el peso bruto (ResumenEnvases), y el IVA se calcula por tipo. Con
+ * las demás, la tabla de siempre, sin cambios.
  */
 
 interface Cliente {
@@ -101,6 +123,9 @@ interface AjustesFacturacionApi {
   diasVencimiento: number;
   irpfDefecto: number;
   empresaEspanola: boolean;
+  /** IEEPNR (plantilla A): si la empresa lo repercute y a cuánto el kg. Un servidor anterior no los manda. */
+  ieepnrRepercute?: boolean;
+  ieepnrPorKg?: number;
 }
 
 interface Serie {
@@ -110,6 +135,8 @@ interface Serie {
   activa: boolean;
   porDefecto: boolean;
   ultimoNumero?: number;
+  /** Plantilla que usa la serie ('default', 'A'...). Un servidor anterior no la manda: la estándar. */
+  plantilla?: string;
 }
 
 interface Producto {
@@ -121,16 +148,29 @@ interface Producto {
   bloqueado: boolean;
   /** Cuenta de ventas del producto (la suya, la de su familia, o 705 / 700). */
   cuentaVentasEfectiva?: string;
+  /** Plantilla A: unidades por pack, kg de plástico por unidad, si lleva IEEPNR y su texto en la factura. */
+  unidadesPorPack?: number | null;
+  kgPlasticoUnidad?: number | null;
+  llevaIeepnr?: boolean;
+  textoFactura?: string | null;
 }
 
 interface Linea {
   clave: number;
   productoServicioId: string;
   descripcion: string;
+  /** Uds en la plantilla A. */
   cantidad: string;
   precioUnitario: string;
   descuentoPorcentaje: string;
   tipoIva: number;
+  /** Plantilla A: packs, kg de plástico y texto adicional (con las demás no se mandan). */
+  packs: string;
+  kgPlastico: string;
+  textoAdicional: string;
+  /** Plantilla A: las uds o los kg se escribieron a mano y ya no siguen a la propuesta. */
+  udsTocadas?: boolean;
+  kgTocados?: boolean;
   /** IVA que tenia antes de elegir un tipo de operacion sin cuota (se restaura al volver a nacional). */
   ivaPrevio?: number;
   /** Cuenta de ingresos propia de la linea (70x); sin ella, la del producto o la 700. */
@@ -168,6 +208,8 @@ interface FacturaApi {
   rectificaFuera?: { numero: string; fecha: string | null };
   /** Rectificativa: lo que rectifica, el motivo y la forma. */
   rectificativa?: RectificativaVentaResp | null;
+  /** Plantilla A: peso bruto escrito a mano. */
+  pesoBrutoKg?: number | null;
   lineas: Array<{
     descripcion: string;
     cantidad: number;
@@ -178,6 +220,9 @@ interface FacturaApi {
     tipoRetencion: number;
     productoServicioId?: string;
     cuenta?: string | null;
+    packs?: number | null;
+    kgPlastico?: number | null;
+    textoAdicional?: string | null;
   }>;
 }
 
@@ -232,7 +277,32 @@ const lineaVacia = (tipoIva = 21): Linea => ({
   precioUnitario: '',
   descuentoPorcentaje: '0',
   tipoIva,
+  packs: '',
+  kgPlastico: '',
+  textoAdicional: '',
 });
+
+/**
+ * Datos de envase de una línea guardada (borrador o propuesta de una
+ * rectificativa). Las uds y los kg siguen a la propuesta del producto solo si
+ * coinciden con ella; si no, son los que se escribieron.
+ */
+function envaseGuardado(
+  l: { cantidad: number; packs?: number | null; kgPlastico?: number | null; textoAdicional?: string | null },
+  p: Producto | undefined,
+): Pick<Linea, 'packs' | 'kgPlastico' | 'textoAdicional' | 'udsTocadas' | 'kgTocados'> {
+  const packs = paraEditar(l.packs);
+  const kgPlastico = paraEditar(l.kgPlastico);
+  const uds = udsPropuestas({ packs }, p);
+  const kg = kgPropuestos({ cantidad: paraEditar(l.cantidad) }, p);
+  return {
+    packs,
+    kgPlastico,
+    textoAdicional: l.textoAdicional ?? '',
+    udsTocadas: uds !== null && uds !== l.cantidad,
+    kgTocados: kg !== null && kg !== (l.kgPlastico ?? null),
+  };
+}
 
 /** Cuenta de ingresos de una linea sin cuenta propia: la del producto o la 700. */
 const cuentaPorDefecto = (p: Producto | undefined) =>
@@ -307,7 +377,9 @@ function idDelCampo(c: string | undefined, esRect: boolean): string | null {
   if (c === 'moneda') return 'moneda';
   if (c === 'tipoCambio') return 'tipo-cambio';
   if (c === 'tipoRetencion') return 'irpf';
-  const l = /^lineas\.(\d+)\.(cantidad|precioUnitario|descripcion)/.exec(c);
+  if (c === 'pesoBrutoKg') return 'peso-bruto';
+  // packs, kgPlastico y textoAdicional: plantilla A (LineasEnvases); el descuento, solo en la tabla de siempre.
+  const l = /^lineas\.(\d+)\.(cantidad|precioUnitario|descripcion|packs|kgPlastico|textoAdicional|descuentoPorcentaje)/.exec(c);
   if (l) return `linea-${l[1]}-${l[2]}`;
   if (c.startsWith('lineas')) return 'lineas-titulo';
   return null;
@@ -372,6 +444,10 @@ function FormularioFactura() {
   const [fechaOperacion, setFechaOperacion] = useState('');
   const [irpf, setIrpf] = useState(0);
   const [observaciones, setObservaciones] = useState('');
+  // Plantilla A: peso bruto escrito a mano, el IEEPNR de Configuración > Facturación y las series de proformas.
+  const [pesoBruto, setPesoBruto] = useState('');
+  const [ajustesIeepnr, setAjustesIeepnr] = useState<{ repercute: boolean; porKg: number }>({ repercute: false, porKg: 0.45 });
+  const [seriesProforma, setSeriesProforma] = useState<Serie[]>([]);
   const [lineas, setLineas] = useState<Linea[]>([lineaVacia()]);
   // Rectificativa: las líneas se proponen desde la original mientras no se hayan tocado a mano;
   // si ya se tocaron, la propuesta nueva se ofrece con un botón.
@@ -434,6 +510,34 @@ function FormularioFactura() {
   // Tipo que se revisa: el R que sale del motivo (sin motivo todavía, el habitual).
   const tipoFacturaEfectivo = esRect ? (tipoR ?? (ticket ? 'R5' : 'R1')) : tipoFactura;
 
+  // Plantilla de la factura, como la fija el servidor: una rectificativa de una factura de la app, la de
+  // esa factura; la proforma, la de su serie P; si no, la de la serie elegida (la de rectificativas en una
+  // rectificativa). Sin el dato (servidor anterior), la estándar.
+  const serieProforma = esProforma
+    ? (borradorId ? seriesProforma.find((s) => s.codigo === serie) : undefined) ?? seriesProforma.find((s) => s.porDefecto) ?? seriesProforma[0]
+    : undefined;
+  const plantilla = normalizarPlantilla(
+    esRect && conOriginalApp
+      ? datosPrincipal?.original.plantillaId
+      : esProforma
+        ? serieProforma?.plantilla
+        : esRect
+          ? (seriesRect ?? []).find((s) => s.codigo === serieRect)?.plantilla
+          : series.find((s) => s.codigo === serie)?.plantilla,
+  );
+  const envases = admiteEnvases(plantilla);
+  const cuotaPorTipo = ivaPorTipo(plantilla);
+  // IEEPNR por kg: en una rectificativa de una factura de la app, el de esa factura (null si no lo
+  // llevaba); si no, el de Configuración > Facturación si la empresa lo repercute (0 si no).
+  const tipoIeepnr: number | null = !envases
+    ? null
+    : esRect && conOriginalApp
+      ? (datosPrincipal?.original.ieepnrPorKg ?? null)
+      : espanola && ajustesIeepnr.repercute
+        ? ajustesIeepnr.porKg
+        : null;
+  const sinIeepnr: SinIeepnr = !envases || tipoIeepnr ? null : esRect && conOriginalApp ? 'original' : 'ajustes';
+
   useEffect(() => {
     (async () => {
       try {
@@ -447,7 +551,11 @@ function FormularioFactura() {
         setClientes(Array.isArray(cli) ? cli : cli.items ?? []);
         const activas = ser.filter((s) => s.activa);
         setSeries(activas);
-        setProductos(prod.items ?? []);
+        const catalogo = prod.items ?? [];
+        setProductos(catalogo);
+        const productoDe = (id?: string | null) => catalogo.find((p) => p.id === id);
+        // El IEEPNR solo se repercute en España y si la empresa lo ha activado (el servidor manda al guardar).
+        if (ajustes) setAjustesIeepnr({ repercute: !!ajustes.empresaEspanola && ajustes.ieepnrRepercute === true, porKg: Number(ajustes.ieepnrPorKg ?? 0.45) || 0.45 });
 
         if (borradorId) {
           const { invoice } = await apiFetch<{ invoice: FacturaApi }>(companyPath(`/income-invoices/${borradorId}`));
@@ -467,6 +575,7 @@ function FormularioFactura() {
           setVencimientoTocado(true);
           setFechaOperacion(invoice.fechaOperacion ?? '');
           setObservaciones(invoice.observaciones ?? '');
+          setPesoBruto(paraEditar(invoice.pesoBrutoKg));
           setIrpf(invoice.lineas.find((l) => l.tipoRetencion)?.tipoRetencion ?? 0);
           if (invoice.moneda) {
             setMoneda(invoice.moneda);
@@ -504,6 +613,7 @@ function FormularioFactura() {
               descuentoPorcentaje: String(l.descuentoPorcentaje ?? 0),
               tipoIva: l.tipoIva,
               cuenta: l.cuenta ?? undefined,
+              ...envaseGuardado(l, productoDe(l.productoServicioId)),
             })),
           );
         } else {
@@ -526,6 +636,18 @@ function FormularioFactura() {
       }
     })();
   }, [borradorId, router]);
+
+  // Proforma: su plantilla es la de su serie P (Configuración > Series).
+  useEffect(() => {
+    if (!esProforma) return;
+    let vivo = true;
+    apiFetch<Serie[]>(companyPath('/series?tipoDocumento=PROFORMA'))
+      .then((l) => vivo && setSeriesProforma(Array.isArray(l) ? l : []))
+      .catch(() => vivo && setSeriesProforma([]));
+    return () => {
+      vivo = false;
+    };
+  }, [esProforma]);
 
   // Supuesto de exencion guardado: se busca en el catalogo por su referencia.
   useEffect(() => {
@@ -617,17 +739,53 @@ function FormularioFactura() {
     setLineas((ls) => ls.map((l) => (l.clave === clave ? { ...l, ...cambios } : l)));
   };
 
+  /**
+   * Antes de cambiar a una serie con otra plantilla: de la A a otra, los
+   * packs, kg, texto adicional y peso bruto ya escritos no se guardan (se
+   * pregunta); de otra a la A, que no lleva descuento por línea, se quitan los
+   * descuentos (se pregunta). false: no se cambia.
+   */
+  const confirmarPlantilla = (otra: string | undefined): boolean => {
+    const destino = normalizarPlantilla(otra);
+    if (admiteEnvases(destino) === envases) return true;
+    if (envases) {
+      const conDatos = !!pesoBruto.trim() || lineas.some((l) => l.packs.trim() || l.kgPlastico.trim() || l.textoAdicional.trim());
+      return (
+        !conDatos ||
+        window.confirm(
+          `Esa serie usa la plantilla ${NOMBRE_PLANTILLA[destino]}, que no lleva packs, kg de plástico, IEEPNR, texto adicional ni peso bruto: si la cambias, esos datos no se guardan.\n\n¿Cambiar de serie?`,
+        )
+      );
+    }
+    if (!lineas.some((l) => num(l.descuentoPorcentaje) !== 0)) return true;
+    if (!window.confirm('Esa serie usa la plantilla A (envases), que no lleva descuento por línea: se quitan los descuentos y tendrás que poner el precio ya rebajado.\n\n¿Cambiar de serie?')) {
+      return false;
+    }
+    setLineas((ls) => ls.map((l) => ({ ...l, descuentoPorcentaje: '0' })));
+    return true;
+  };
+
   const elegirProducto = (clave: number, id: string) => {
     const p = productos.find((x) => x.id === id);
     if (!p) return cambiarLinea(clave, { productoServicioId: '' });
     // El precio del catalogo esta en la moneda de la contabilidad: en otra moneda se convierte al tipo propuesto.
     const precio = enDivisa && tipoAplicado ? redondear2(p.precio * tipoAplicado) : p.precio;
     const iva = IVAS.includes(p.ivaPorcentaje) ? p.ivaPorcentaje : 21;
+    // Plantilla A: su texto en la factura y, con unidades por pack o IEEPNR, las uds y los kg propuestos
+    // (siguen a los packs y a las uds hasta que se escriban a mano). Sin IEEPNR, sin kg.
+    const actual = lineas.find((l) => l.clave === clave);
+    const envase = actual
+      ? seguirPropuestas({ ...actual, udsTocadas: false, kgTocados: false, kgPlastico: p.llevaIeepnr ? actual.kgPlastico : '' }, p)
+      : null;
     cambiarLinea(clave, {
       productoServicioId: p.id,
       descripcion: p.descripcion,
       precioUnitario: String(precio),
       ...(sinCuota ? { tipoIva: 0, ivaPrevio: iva } : { tipoIva: iva }),
+      textoAdicional: p.textoFactura ?? '',
+      udsTocadas: false,
+      kgTocados: false,
+      ...(envase ? { cantidad: envase.cantidad, kgPlastico: envase.kgPlastico } : {}),
     });
   };
 
@@ -751,6 +909,8 @@ function FormularioFactura() {
             cuenta: l.cuenta,
             origenId: l.originalId,
             retencionOrigen: l.tipoRetencion,
+            // Plantilla A: los packs y los kg de la original (con el signo de la cantidad) y su texto.
+            ...envaseGuardado(l, productos.find((x) => x.id === l.productoServicioId)),
           }))
         : [lineaVacia()],
     );
@@ -812,26 +972,31 @@ function FormularioFactura() {
   };
 
   // Mismo calculo que el servidor (redondeo por linea), para que lo que se ve sea lo que se emite.
-  // Las rectificativas redondean con signo (-0,525 da -0,53), como el servidor.
+  // Las rectificativas redondean con signo (-0,525 da -0,53), como el servidor. Con la plantilla A,
+  // sin descuento, con el IEEPNR de cada línea dentro de su base y el IVA por tipo.
   const lineasCalculo = useMemo(
     () =>
-      lineas.map((l) => ({
-        cantidad: num(l.cantidad),
-        precioUnitario: num(l.precioUnitario),
-        descuentoPorcentaje: num(l.descuentoPorcentaje),
-        tipoIva: l.tipoIva,
-        tipoRetencion: irpf,
-      })),
-    [lineas, irpf],
+      lineas.map((l) => {
+        const kg = envases ? leerCantidad(l.kgPlastico) : null;
+        return {
+          cantidad: num(l.cantidad),
+          precioUnitario: num(l.precioUnitario),
+          descuentoPorcentaje: envases ? 0 : num(l.descuentoPorcentaje),
+          tipoIva: l.tipoIva,
+          tipoRetencion: irpf,
+          ...(kg && tipoIeepnr ? { ieepnr: calcularIeepnr(kg, tipoIeepnr, { simetrico: esRect }) } : {}),
+        };
+      }),
+    [lineas, irpf, envases, tipoIeepnr, esRect],
   );
   const calculo = useMemo(
-    () => calcularFactura(lineasCalculo, { tipoCambio: tipoAplicado, mismaMoneda: !enDivisa, simetrico: esRect }),
-    [lineasCalculo, tipoAplicado, enDivisa, esRect],
+    () => calcularFactura(lineasCalculo, { tipoCambio: tipoAplicado, mismaMoneda: !enDivisa, simetrico: esRect, cuotaPorTipo }),
+    [lineasCalculo, tipoAplicado, enDivisa, esRect, cuotaPorTipo],
   );
   // Varias originales: lo que toca a cada una sale de las líneas propuestas desde ella.
   const repartoLineas = useMemo(
-    () => repartoDeLineas(lineasCalculo.map((l, i) => ({ ...l, originalId: lineas[i]?.origenId }))),
-    [lineasCalculo, lineas],
+    () => repartoDeLineas(lineasCalculo.map((l, i) => ({ ...l, originalId: lineas[i]?.origenId })), { cuotaPorTipo }),
+    [lineasCalculo, lineas, cuotaPorTipo],
   );
   // El reparto entre varias facturas se escribe sin signo: si la rectificativa resta, cada parte va en negativo.
   const restaRect = calculo.doc.base < 0 || (calculo.doc.base === 0 && calculo.doc.total < 0);
@@ -840,10 +1005,17 @@ function FormularioFactura() {
   const retencionesDistintas = esRect && !sustitucion ? Array.from(new Set(lineas.filter((l) => l.retencionOrigen !== undefined).map((l) => l.retencionOrigen as number))) : [];
   // Por sustitución: la factura corregida menos la original (lo que se registra).
   const diferencia = useMemo(
-    () => (sustitucion && datosPrincipal ? diferenciaSustitucion(lineasCalculo, lineasCalculoDe(datosPrincipal)) : null),
-    [sustitucion, datosPrincipal, lineasCalculo],
+    () => (sustitucion && datosPrincipal ? diferenciaSustitucion(lineasCalculo, lineasCalculoDe(datosPrincipal), { cuotaPorTipo }) : null),
+    [sustitucion, datosPrincipal, lineasCalculo, cuotaPorTipo],
   );
   const totales = calculo.doc;
+  // Plantilla A: el IEEPNR y el TOTAL del artículo (uds × precio) de cada línea, y el resumen de envases.
+  const ieepnrLineas = lineasCalculo.map((l) => l.ieepnr ?? 0);
+  const totalesArticulo = lineasCalculo.map((l) => (esRect ? Math.sign(l.cantidad * l.precioUnitario) * r2(Math.abs(l.cantidad * l.precioUnitario)) : r2(l.cantidad * l.precioUnitario)));
+  const finito = (n: number | null) => (n !== null && Number.isFinite(n) ? n : 0);
+  const resumen = resumenEnvases(
+    lineas.map((l, i) => ({ cantidad: num(l.cantidad), packs: finito(leerCantidad(l.packs)), kgPlastico: finito(leerCantidad(l.kgPlastico)), ieepnrImporte: ieepnrLineas[i] })),
+  );
   const fmt = (n: number) => formatoImporte(n, monedaDoc);
   const fmtCuenta = (n: number) => formatoImporte(n, monedaCuenta);
 
@@ -956,14 +1128,21 @@ function FormularioFactura() {
       descripcion: l.descripcion.trim(),
       cantidad: num(l.cantidad),
       precioUnitario: num(l.precioUnitario),
-      descuentoPorcentaje: num(l.descuentoPorcentaje),
+      // La plantilla A no lleva descuento por línea.
+      descuentoPorcentaje: envases ? 0 : num(l.descuentoPorcentaje),
       tipoIva: sinCuota ? 0 : l.tipoIva,
       tipoRetencion: sinRetencion ? 0 : irpf,
       productoServicioId: l.productoServicioId || undefined,
       // Sin cuenta, el servidor usa la del producto (o la 700).
       ...(l.cuenta ? { cuenta: l.cuenta } : {}),
+      // Plantilla A: packs, kg y texto adicional (el IEEPNR lo calcula el servidor). Con las demás no se mandan.
+      ...(envases
+        ? { packs: leerCantidad(l.packs), kgPlastico: leerCantidad(l.kgPlastico), textoAdicional: l.textoAdicional.trim() || null }
+        : {}),
       moneda: monedaDoc,
     }));
+    // Plantilla A: peso bruto escrito a mano (null: sin peso).
+    const peso = envases ? { pesoBrutoKg: leerCantidad(pesoBruto) } : {};
     if (esRect && compat) {
       // Servidor anterior: abono de una factura de fuera, R1 por diferencias, con los campos de antes.
       const o = rect.originales[0];
@@ -1002,6 +1181,7 @@ function FormularioFactura() {
         ...(conOriginalApp
           ? {}
           : { moneda: monedaDoc, ...(enDivisa && tipoManual.trim() ? { tipoCambio: manual } : volverAlBce ? { tipoCambio: null } : {}), ...fiscal }),
+        ...peso,
         lineas: lineasCuerpo,
         rectificativa: bloqueParaEnviar(rectEnviar, { ticket, reparto: repartoLineas.porOriginal }),
       };
@@ -1020,6 +1200,7 @@ function FormularioFactura() {
       // Solo el tipo escrito a mano; sin el, el del BCE (null: volver al del BCE).
       ...(enDivisa && tipoManual.trim() ? { tipoCambio: manual } : volverAlBce ? { tipoCambio: null } : {}),
       ...fiscal,
+      ...peso,
       lineas: lineasCuerpo,
     };
   };
@@ -1082,7 +1263,32 @@ function FormularioFactura() {
     if (mal >= 0) {
       const l = lineas[mal];
       const que = !l.descripcion.trim() ? 'descripcion' : num(l.cantidad) === 0 ? 'cantidad' : 'precioUnitario';
-      return falla(`Completa la línea ${mal + 1}: descripción, cantidad y precio.`, `lineas.${mal}.${que}`);
+      return falla(`Completa la línea ${mal + 1}: ${envases ? 'concepto, uds' : 'descripción, cantidad'} y precio.`, `lineas.${mal}.${que}`);
+    }
+    if (envases) {
+      // Plantilla A: las mismas reglas que el servidor, con el campo que lo arregla.
+      for (let i = 0; i < lineas.length; i++) {
+        const l = lineas[i];
+        const n = i + 1;
+        const packs = leerCantidad(l.packs);
+        if (packs !== null && !Number.isInteger(packs)) return falla(`Línea ${n}: los packs son un número entero.`, `lineas.${i}.packs`);
+        const kg = leerCantidad(l.kgPlastico);
+        if (kg !== null && (Number.isNaN(kg) || decimalesDe(kg) > 3)) {
+          return falla(`Línea ${n}: los kg de plástico son un número con 3 decimales como mucho (por ejemplo, 103,089).`, `lineas.${i}.kgPlastico`);
+        }
+        const signo = Math.sign(num(l.cantidad));
+        if (packs && Math.sign(packs) !== signo) return falla(`Línea ${n}: los packs van con el mismo signo que las uds (en negativo solo si las uds lo están).`, `lineas.${i}.packs`);
+        if (kg && Math.sign(kg) !== signo) return falla(`Línea ${n}: los kg de plástico van con el mismo signo que las uds (en negativo solo si las uds lo están).`, `lineas.${i}.kgPlastico`);
+        const texto = problemaTextoAdicional(l.textoAdicional);
+        if (texto) return falla(`Línea ${n}: ${texto.charAt(0).toLowerCase()}${texto.slice(1)}`, `lineas.${i}.textoAdicional`);
+      }
+      const peso = leerCantidad(pesoBruto);
+      if (peso !== null && (Number.isNaN(peso) || peso < 0 || decimalesDe(peso) > 3)) {
+        return falla('El peso bruto son los kg de la mercancía: un número desde 0 y con 3 decimales como mucho.', 'pesoBrutoKg');
+      }
+      if (monedaDoc !== 'EUR' && resumen.ieepnr !== 0) {
+        return falla(`El IEEPNR solo se repercute en euros y esta factura va en ${monedaDoc}. Hazla en euros o quita los kg de plástico.`, 'moneda');
+      }
     }
     if (enDivisa && tipoManual.trim() && !(manual > 0)) return falla('El tipo de cambio tiene que ser un número mayor que cero.', 'tipoCambio');
     if (enDivisa && tipoManual.trim() && bce?.tipoCambio && pareceInvertido(manual, bce.tipoCambio)) return falla(avisoTipo, 'tipoCambio');
@@ -1503,7 +1709,17 @@ function FormularioFactura() {
                 </p>
               )
             ) : (
-              <select id="serie" className={campo} value={serieRect} onChange={(e) => setSerieRect(e.target.value)} {...marca('serie')}>
+              <select
+                id="serie"
+                className={campo}
+                value={serieRect}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  // Con una factura de la app, la plantilla es la suya: la serie no la cambia.
+                  if (conOriginalApp || confirmarPlantilla(seriesRect.find((s) => s.codigo === v)?.plantilla)) setSerieRect(v);
+                }}
+                {...marca('serie')}
+              >
                 {seriesRect.map((s) => (
                   <option key={s.id} value={s.codigo}>
                     {s.codigo} — {s.descripcion}
@@ -1524,13 +1740,30 @@ function FormularioFactura() {
               .
             </p>
           ) : (
-            <select id="serie" className={campo} value={serie} onChange={(e) => setSerie(e.target.value)} {...marca('serie')}>
+            <select
+              id="serie"
+              className={campo}
+              value={serie}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (confirmarPlantilla(series.find((s) => s.codigo === v)?.plantilla)) setSerie(v);
+              }}
+              {...marca('serie')}
+            >
               {series.map((s) => (
                 <option key={s.id} value={s.codigo}>
                   {s.codigo} — {s.descripcion}
                 </option>
               ))}
             </select>
+          )}
+          {/* La plantilla sale de la serie (Configuración > Series); la A cambia las líneas. */}
+          {envases && (
+            <p className="mt-1 text-xs text-slate-500">
+              {esRect && conOriginalApp
+                ? 'Plantilla A (envases): la de la factura que rectificas.'
+                : 'Plantilla A (envases): packs, uds, kg de plástico e IEEPNR, sin descuento por línea.'}
+            </p>
           )}
           {esRect && (
             <p className="mt-1 text-xs text-slate-500">
@@ -1824,7 +2057,7 @@ function FormularioFactura() {
               : conOriginalApp && anuladas.length > 0
                 ? `${anuladas.length === 1 ? `La ${anuladas[0]} ya está anulada` : `Las ${anuladas.join(', ')} ya están anuladas`} por completo: salen sus líneas en positivo, que es como se deshace la anulación. Elige el motivo (una devolución, un descuento, un rappel, un impago o un concurso no valen: solo restan) y explica por qué se deshace.`
                 : conOriginalApp
-                ? `Salen ${deDondeSalen}, en negativo. Deja solo lo que se devuelve o se descuenta y ajusta las cantidades. Un rappel puede ir en una línea: 1 × -500.`
+                ? `Salen ${deDondeSalen}, en negativo. Deja solo lo que se devuelve o se descuenta y ajusta las cantidades. Un rappel puede ir en una línea: 1 × -500.${envases ? ' Los packs y los kg de plástico van con el mismo signo que las uds.' : ''}`
                 : 'Escribe lo que cambia: en negativo lo que baja, como una devolución o un descuento.'}
             {propuestaPendiente &&
               (lineasDeBorrador
@@ -1841,6 +2074,67 @@ function FormularioFactura() {
             </span>
           </p>
         )}
+        {envases ? (
+          <LineasEnvases
+            lineas={lineas}
+            productos={productos}
+            ieepnr={ieepnrLineas}
+            totales={totalesArticulo}
+            moneda={monedaDoc}
+            fmt={fmt}
+            onCambiar={cambiarLinea}
+            onElegirProducto={elegirProducto}
+            onQuitar={(clave) => {
+              setLineasTocadas(true);
+              setLineasDeBorrador(false);
+              setLineas((ls) => ls.filter((x) => x.clave !== clave));
+            }}
+            marca={marca}
+            iva={(l, i) =>
+              espanola ? (
+                sinCuota ? (
+                  <>
+                    <p className="mb-1 text-xs font-medium text-slate-600">IVA</p>
+                    <p className={`${campo} whitespace-nowrap bg-slate-100 text-slate-600`} title="El tipo de operación no lleva IVA">
+                      {etiquetaSinCuota}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <label htmlFor={`linea-${i}-iva`} className="mb-1 block text-xs font-medium text-slate-600">
+                      IVA
+                    </label>
+                    <select
+                      id={`linea-${i}-iva`}
+                      aria-label={`IVA de la línea ${i + 1}`}
+                      className={campo}
+                      value={l.tipoIva}
+                      onChange={(e) => cambiarLinea(l.clave, { tipoIva: Number(e.target.value) })}
+                    >
+                      {IVAS.map((t) => (
+                        <option key={t} value={t}>
+                          {t} %
+                        </option>
+                      ))}
+                    </select>
+                  </>
+                )
+              ) : null
+            }
+            cuenta={(l, i) => (
+              <CuentaLinea
+                tipo="venta"
+                catalogo={catalogoCuentas}
+                valor={lineas[i]?.cuenta}
+                onCambiar={(codigo) => cambiarLinea(l.clave, { cuenta: codigo ?? undefined })}
+                porDefecto={cuentaPorDefecto(productos.find((p) => p.id === l.productoServicioId))}
+                linea={i + 1}
+                id={`fv-cuenta-${l.clave}`}
+                puedeCrear={puedeCrearCuenta}
+              />
+            )}
+          />
+        ) : (
         <div className="overflow-x-auto">
           <table className={`w-full text-sm ${espanola ? 'min-w-[860px]' : 'min-w-[720px]'}`}>
             <thead className="bg-slate-50 text-left text-slate-600">
@@ -1913,7 +2207,9 @@ function FormularioFactura() {
                     </td>
                     <td className="px-3 py-2">
                       <input
+                        id={`linea-${i}-descuentoPorcentaje`}
                         aria-label={`Descuento de la línea ${i + 1}`}
+                        {...marca(`lineas.${i}.descuentoPorcentaje`)}
                         inputMode="decimal"
                         className={`${campo} text-right`}
                         value={l.descuentoPorcentaje}
@@ -1982,7 +2278,22 @@ function FormularioFactura() {
             </tbody>
           </table>
         </div>
+        )}
       </section>
+
+      {envases && (
+        <ResumenEnvases
+          resumen={resumen}
+          pesoBruto={pesoBruto}
+          onPesoBruto={setPesoBruto}
+          marca={marca}
+          tipoIeepnr={tipoIeepnr}
+          sinIeepnr={sinIeepnr}
+          monedaNoEuro={monedaDoc !== 'EUR' ? monedaDoc : null}
+          puedeConfigurar={tieneAlgunPermiso(getUser(), ['ventas:write'])}
+          fmt={fmt}
+        />
+      )}
 
       <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-5">
@@ -2026,8 +2337,23 @@ function FormularioFactura() {
 
         <div className="space-y-4 rounded-xl border border-slate-200 bg-slate-50 p-5">
           <dl className="space-y-2 text-sm">
-            <div className="flex justify-between gap-3">
-              <dt className="text-slate-600">Base imponible</dt>
+            {/* Plantilla A: el subtotal (la base del IVA) son los artículos más el IEEPNR. */}
+            {envases && (
+              <>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-slate-600">Artículos</dt>
+                  <dd className={`font-mono tabular-nums ${rojo(totales.base)}`}>{fmt((Math.round(totales.base * 100) - Math.round(resumen.ieepnr * 100)) / 100)}</dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-slate-600">
+                    IEEPNR{tipoIeepnr ? ` (${formatoCantidad(tipoIeepnr, 4)} € por kg)` : ''}
+                  </dt>
+                  <dd className={`font-mono tabular-nums ${rojo(resumen.ieepnr)}`}>{fmt(resumen.ieepnr)}</dd>
+                </div>
+              </>
+            )}
+            <div className={`flex justify-between gap-3 ${envases ? 'border-t border-slate-200 pt-2 font-medium' : ''}`}>
+              <dt className="text-slate-600">{envases ? 'Subtotal (base imponible)' : 'Base imponible'}</dt>
               <dd className={`font-mono tabular-nums ${rojo(totales.base)}`}>{fmt(totales.base)}</dd>
             </div>
             {espanola &&
