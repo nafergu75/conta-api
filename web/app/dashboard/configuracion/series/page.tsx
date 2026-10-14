@@ -16,7 +16,7 @@ import { useConfiguracion } from '../contexto';
  * numero inicial (solo sin documentos). Sin borrar: una serie se desactiva.
  * Cada serie tiene su plantilla de PDF (GET /series/plantillas): la elegida o
  * la automática (la A en la serie A de una empresa española que repercute el
- * IEEPNR, la B en la serie B y la C en la serie C; si no, la estándar), y sus
+ * IEEPNR, la B en la serie B si vende cerámica y la C en la serie C; si no, la estándar), y sus
  * observaciones por defecto, que salen escritas en cada factura nueva.
  * Cambiarlas vale para lo que se cree o se guarde después: las facturas ya
  * emitidas conservan lo suyo. Toda empresa tiene la serie C (servicios).
