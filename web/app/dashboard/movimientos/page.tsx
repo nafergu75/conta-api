@@ -3,14 +3,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Plus, FunnelSimple, Info, X } from '@phosphor-icons/react';
-import { getToken } from '@/lib/auth';
+import { FunnelSimple, Info, X } from '@phosphor-icons/react';
+import { getToken, getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { apiFetch, companyPath } from '@/lib/api';
 import { mensajeSinAcceso, PantallaSinAcceso } from '@/components/dashboard/SinAcceso';
-import NewMovementModal, {
-  CATEGORIES,
-  STATUSES,
-} from '@/components/dashboard/NewMovementModal';
+import { CATEGORIES, STATUSES } from '@/lib/movimientos';
+
+/**
+ * Movimientos anotados a mano antes. «Nuevo movimiento» está retirado: aquí
+ * solo se consultan (el servidor ya no deja crearlos, cambiarlos ni borrarlos).
+ * Las ventas y los gastos se registran como facturas.
+ */
 
 interface Movement {
   id: string;
@@ -43,7 +46,12 @@ export default function MovimientosPage() {
   const [movements, setMovements] = useState<Movement[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showForm, setShowForm] = useState(false);
+  // Enlaces para registrar la venta o el gasto como factura, según su acceso (la sesión vive en el navegador).
+  const [altas, setAltas] = useState<{ venta: boolean; gasto: boolean }>({ venta: false, gasto: false });
+  useEffect(() => {
+    const u = getUser();
+    setAltas({ venta: tieneAlgunPermiso(u, ['ventas:write']), gasto: tieneAlgunPermiso(u, ['compras:write']) });
+  }, []);
   // Texto del 403 si su acceso no incluye movimientos (null = si lo incluye).
   const [sinAcceso, setSinAcceso] = useState<string | null>(null);
 
@@ -125,28 +133,38 @@ export default function MovimientosPage() {
       <header className="sticky top-0 z-40 h-16 bg-white border-b border-slate-200">
         <div className="max-w-6xl mx-auto px-4 md:px-8 h-full flex items-center justify-between">
           <h1 className="font-semibold text-slate-900">Movimientos</h1>
-          <button
-            onClick={() => setShowForm(true)}
-            className="inline-flex items-center gap-1.5 px-4 py-2 bg-accent-600 text-white text-sm font-semibold rounded-lg hover:bg-accent-700 active:scale-[0.98] transition-all"
-          >
-            <Plus size={16} weight="bold" /> Nuevo movimiento
-          </button>
         </div>
       </header>
 
       <main className="max-w-6xl mx-auto px-4 md:px-8 py-8 flex flex-col gap-6">
-        {/* El Resumen ya no lee estos movimientos: sale de las facturas y las nóminas. */}
-        <p role="note" className="flex items-start gap-2 rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
+        {/* Solo consulta: ya no se anotan movimientos a mano y el Resumen sale de las facturas y las nóminas. */}
+        <div role="note" className="flex items-start gap-2 rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
           <Info size={18} className="mt-0.5 shrink-0 text-slate-400" aria-hidden="true" />
-          <span>
-            Lo que anotes aquí no cuenta en el{' '}
-            <Link href="/dashboard" className="font-medium underline hover:no-underline">
-              Resumen
-            </Link>
-            , que sale de tus facturas de venta y de gasto y de las nóminas. Para que una venta o un gasto salga allí, regístralo como
-            factura.
-          </span>
-        </p>
+          <div className="min-w-0">
+            <p>
+              Aquí solo se consultan los movimientos que se anotaron a mano. Ya no se crean: registra la venta o el gasto como factura. Estos
+              movimientos tampoco cuentan en el{' '}
+              <Link href="/dashboard" className="font-medium underline hover:no-underline">
+                Resumen
+              </Link>
+              .
+            </p>
+            {(altas.venta || altas.gasto) && (
+              <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+                {altas.venta && (
+                  <Link href="/dashboard/facturas/nueva" className="inline-flex min-h-[44px] items-center font-medium text-accent-600 underline hover:no-underline sm:min-h-0">
+                    Nueva factura de venta
+                  </Link>
+                )}
+                {altas.gasto && (
+                  <Link href="/dashboard/compras/nueva" className="inline-flex min-h-[44px] items-center font-medium text-accent-600 underline hover:no-underline sm:min-h-0">
+                    Nueva factura de gasto
+                  </Link>
+                )}
+              </p>
+            )}
+          </div>
+        </div>
 
         {/* Barra de filtros */}
         <section className="rounded-xl bg-white border border-slate-200 p-4">
@@ -287,6 +305,10 @@ export default function MovimientosPage() {
 
           {loading ? (
             <div className="h-64 mx-6 mb-6 animate-pulse bg-slate-100 rounded-lg" />
+          ) : filtered.length === 0 && !hasFilters ? (
+            <div className="px-6 pb-10 pt-4 text-center">
+              <p className="text-slate-600 font-medium">No hay movimientos anotados a mano.</p>
+            </div>
           ) : filtered.length === 0 ? (
             <div className="px-6 pb-10 pt-4 text-center">
               <p className="text-slate-600 font-medium mb-1">
@@ -360,16 +382,6 @@ export default function MovimientosPage() {
           )}
         </section>
       </main>
-
-      {showForm && (
-        <NewMovementModal
-          onClose={() => setShowForm(false)}
-          onCreated={() => {
-            setShowForm(false);
-            loadData();
-          }}
-        />
-      )}
     </div>
   );
 }
