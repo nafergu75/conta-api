@@ -63,12 +63,16 @@ const campoBase =
 const etiqueta = 'mb-1 block text-sm font-medium text-slate-700';
 const ayuda = 'mt-1 text-xs text-slate-500';
 
-/** Líneas: tarjeta en estrecho; con 34rem de bloque, una fila (las clases van enteras para Tailwind). */
+/**
+ * Líneas: en estrecho, tarjeta con la descripción a lo ancho y debajo base, IVA y
+ * «Quitar»; con 34rem de bloque, todo en una fila. La cuenta, siempre debajo.
+ * (Las clases van enteras para que Tailwind las encuentre.)
+ */
 const L = {
   contenedor: 'flex flex-col gap-3 [container-name:cvlineas] [container-type:inline-size]',
-  fila: 'grid grid-cols-2 gap-3 rounded-lg border border-slate-200 p-3 [@container_cvlineas_(min-width:34rem)]:grid-cols-[minmax(0,1fr)_8.5rem_7.5rem_2.75rem] [@container_cvlineas_(min-width:34rem)]:items-end',
-  descripcion: 'col-span-2 [@container_cvlineas_(min-width:34rem)]:col-span-1',
-  quitar: 'col-span-2 flex justify-end [@container_cvlineas_(min-width:34rem)]:col-span-1',
+  fila: 'grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.75rem] items-end gap-3 rounded-lg border border-slate-200 p-3 [@container_cvlineas_(min-width:34rem)]:grid-cols-[minmax(0,1fr)_8.5rem_7.5rem_2.75rem]',
+  descripcion: 'col-span-3 [@container_cvlineas_(min-width:34rem)]:col-span-1',
+  quitar: 'flex justify-end',
   cuenta: 'col-span-full',
 };
 
@@ -162,7 +166,8 @@ export default function CorreccionVenta({
     onVolver();
   };
 
-  const hayMarcas = Object.values(marcas).some(Boolean);
+  // El aviso de las marcas, solo mientras quede algún dato marcado con el valor leído.
+  const hayMarcas = (Object.keys(marcas) as CampoForm[]).some((c) => !!marcaVigente(marcas, c, leido, e));
   const diferencia = q.diferencia;
 
   return (
