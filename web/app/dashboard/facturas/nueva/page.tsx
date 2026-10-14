@@ -613,6 +613,8 @@ function FormularioFactura() {
   // Borrador creado en esta pantalla al "Pasar a factura": si emitirlo falla, el
   // reintento lo modifica (PUT) en vez de crear otro.
   const [idCreado, setIdCreado] = useState<string | null>(null);
+  // Ese borrador, ya puesto en la dirección (?id=): la carga del borrador no se repite, porque ya está en pantalla.
+  const borradorCreadoAqui = useRef<string | null>(null);
 
   // Tipo de operacion de IVA.
   const [tipoOperacion, setTipoOperacion] = useState('');
@@ -677,6 +679,7 @@ function FormularioFactura() {
   const sinIeepnr: SinIeepnr = !envases || tipoIeepnr ? null : esRect && conOriginalApp ? 'original' : 'ajustes';
 
   useEffect(() => {
+    if (borradorId && borradorId === borradorCreadoAqui.current) return;
     (async () => {
       try {
         const [cli, ser, prod, ajustes] = await Promise.all([
@@ -1722,6 +1725,17 @@ function FormularioFactura() {
       ? `el primero de la serie ${opciones?.series.tickets.codigo ?? 'RT'}, que se crea ahora`
       : 'con el siguiente número de la serie de rectificativas';
 
+  /**
+   * Se creó el borrador pero no se ha pasado a factura (error de VERI*FACTU, del servidor o sin confirmar): queda
+   * en la dirección (?id=), como al editarlo. Así, si se recarga la página o se vuelve a ella, se sigue con ese
+   * borrador y no se crea otro igual.
+   */
+  const dejarEnDireccion = (id: string | null) => {
+    if (!id || borradorId || esProforma) return;
+    borradorCreadoAqui.current = id;
+    router.replace(`/dashboard/facturas/nueva?id=${encodeURIComponent(id)}`, { scroll: false });
+  };
+
   const guardar = async (emitir: boolean) => {
     const fallo = comprobar(emitir);
     setAvisoSimplificada(false);
@@ -1772,6 +1786,8 @@ function FormularioFactura() {
     setGuardando(true);
     setError('');
     setErrorVf(null);
+    // El borrador que se crea en este intento (si se crea).
+    let creadoAhora: string | null = null;
     try {
       let id = borradorId ?? idCreado;
       if (id) {
@@ -1797,6 +1813,7 @@ function FormularioFactura() {
         id = invoice.id;
         // Si pasarlo a factura falla, el siguiente intento modifica este borrador (no crea otro).
         setIdCreado(invoice.id);
+        creadoAhora = invoice.id;
         if (esRect) guardarAvisosVenta(invoice.id, invoice.avisosFiscales);
       }
       if (esRect) setModoGuardado(ticket ? 'ticket' : 'rectificativa');
@@ -1817,6 +1834,7 @@ function FormularioFactura() {
           // Sin confirmar: queda guardada como borrador.
           setGuardando(false);
           setError(`No se ha ${esRect ? 'emitido' : 'pasado a factura'}: queda guardada como borrador.`);
+          dejarEnDireccion(creadoAhora);
           return;
         }
         const { invoice } = emitida.r;
@@ -1839,6 +1857,7 @@ function FormularioFactura() {
       setCampoError(vf?.campo ?? campoDelError(e));
       setIntentoFallido((n) => n + 1);
       setGuardando(false);
+      dejarEnDireccion(creadoAhora);
     }
   };
 
