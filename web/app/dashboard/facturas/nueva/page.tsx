@@ -2026,7 +2026,7 @@ function FormularioFactura() {
               <p className={`mt-1 text-xs ${simplificadaExcedida ? 'text-red-700' : 'text-slate-500'}`}>
                 {simplificadaExcedida
                   ? `Esta factura suma ${fmtCuenta(totalSimplificada ?? 0)} con IVA: una simplificada solo llega a 3.000 €. Cámbiala a completa (F1).`
-                  : 'Hasta 3.000 € con IVA. En VERI*FACTU la simplificada no lleva los datos del cliente: si hay que identificarlo, usa la completa (F1).'}
+                  : 'En general, hasta 400 € con IVA; hasta 3.000 € solo en algunas actividades (comercio al por menor, hostelería, transporte de viajeros…). En VERI*FACTU la simplificada no lleva los datos del cliente: si hay que identificarlo, usa la completa (F1).'}
               </p>
             )}
             {esRect && (
