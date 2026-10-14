@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { EVENTO_SESION, getUser, tieneAlgunPermiso, type Areas, type SessionUser } from './auth';
+import type { MotivoPlantilla } from './plantillasFactura';
 
 /**
  * Piezas comunes de Configuracion (/dashboard/configuracion): quien puede
@@ -102,8 +103,17 @@ export interface SerieConfig {
   plantilla?: string;
   /** La elegida en Configuración > Series; null = automática. */
   plantillaElegida?: string | null;
+  /** Por qué usa esa plantilla (elegida, por su código o por una casilla de Facturación). Un servidor anterior no lo manda. */
+  motivoPlantilla?: MotivoPlantilla;
   /** Observaciones que se proponen en cada factura nueva de la serie; null = ninguna. Un servidor anterior no las manda. */
   observacionesDefecto?: string | null;
+}
+
+/** La serie B de cerámica, tal como la describe el servidor al leer o guardar Configuración > Facturación. */
+export interface SerieCeramica {
+  codigo: string;
+  estado: 'creada' | 'activa' | 'pendiente' | 'desactivada' | 'otroTipo' | 'otraPlantilla';
+  aviso: string | null;
 }
 
 export interface CuentaParaFactura {
@@ -138,6 +148,12 @@ export interface AjustesFacturacion {
   vendeCeramica?: boolean;
   /** Plantilla B: por qué la cuenta del cargo de palets ya no vale (desactivada o fuera del plan); null si vale. */
   cuentaPaletsProblema?: string | null;
+  /**
+   * Plantilla B: cómo está la serie B si la empresa vende cerámica (null si no).
+   * Tras guardar, 'creada' si se acaba de crear; `aviso`, si hay que hacer algo
+   * en Configuración > Series. Un servidor anterior no lo manda.
+   */
+  serieCeramica?: SerieCeramica | null;
   guardado: boolean;
   empresaEspanola: boolean;
   monedaCuenta: string;

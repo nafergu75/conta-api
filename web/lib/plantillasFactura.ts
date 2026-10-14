@@ -17,7 +17,8 @@
  * Sin plantilla elegida: la serie A usa la A si la empresa repercute el IEEPNR
  * y la B, la B si la empresa vende cerámica (las dos casillas, en
  * Configuración > Facturación); la C, la C; el resto, la estándar. La A y la
- * B, solo en empresas españolas. Lo dice el servidor (seriesAutomaticas).
+ * B, solo en empresas españolas. Lo dice el servidor (seriesAutomaticas), y
+ * cada serie trae por qué usa la suya (motivoPlantilla).
  */
 import { useEffect, useState } from 'react';
 import { apiFetch, companyPath, errorMessage } from './api';
@@ -48,6 +49,67 @@ export interface PlantillaCatalogo {
   automaticaSerieA?: boolean;
   /** Las series A, B o C que la usan sin elegirla (las demás, la estándar). */
   seriesAutomaticas?: string[];
+}
+
+/**
+ * Por qué una serie usa su plantilla (GET /series, `motivoPlantilla`; un
+ * servidor anterior no lo manda). Copia de motivoPlantillaSerie del servidor:
+ *  - 'elegida': elegida en Configuración > Series;
+ *  - 'ieepnr' / 'ceramica': la A o la B, solas en la serie A o B, porque su casilla está marcada;
+ *  - 'serieC': la C, sola en la serie C;
+ *  - 'sinIeepnr' / 'sinCeramica': la estándar en la serie A o B, porque su casilla está sin marcar;
+ *  - 'soloEspana': la estándar, porque la A y la B solo valen en empresas españolas;
+ *  - 'estandar': la estándar en las demás series.
+ */
+export type MotivoPlantilla = 'elegida' | 'ieepnr' | 'ceramica' | 'serieC' | 'sinIeepnr' | 'sinCeramica' | 'soloEspana' | 'estandar';
+
+/** Las casillas de Configuración > Facturación que deciden la plantilla de las series A y B (mismo texto que la pantalla). */
+export const CASILLA_IEEPNR = 'Repercuto el IEEPNR en mis facturas';
+export const CASILLA_CERAMICA = 'Vendo cerámica y materiales de construcción';
+
+/** Columnas propias de la plantilla A y de la B, para explicar en pantalla qué cambia. */
+export const COLUMNAS_PLANTILLA_A = 'Packs, Uds, KG plástico, IEEPNR, Precio/uds y Total';
+export const COLUMNAS_PLANTILLA_B = 'palets, cajas, m², piezas, formato, calidad, peso y precio por m² o por pieza';
+
+/** Ruta de Configuración > Facturación, donde están las dos casillas. */
+export const RUTA_AJUSTES_FACTURACION = '/dashboard/configuracion/facturacion';
+
+/**
+ * Por qué usa la serie su plantilla, en pocas palabras (va entre paréntesis
+ * tras el nombre). Sin el dato (servidor anterior): «automática» o «elegida».
+ */
+export function textoMotivoPlantilla(motivo: MotivoPlantilla | undefined, elegida: boolean): string {
+  switch (motivo) {
+    case 'elegida':
+      return 'elegida en la serie';
+    case 'ieepnr':
+      return `automática: tienes marcada «${CASILLA_IEEPNR}»`;
+    case 'ceramica':
+      return `automática: tienes marcada «${CASILLA_CERAMICA}»`;
+    case 'serieC':
+      return 'automática de la serie C';
+    case 'sinIeepnr':
+      return `automática: «${CASILLA_IEEPNR}» está sin marcar`;
+    case 'sinCeramica':
+      return `automática: «${CASILLA_CERAMICA}» está sin marcar`;
+    case 'soloEspana':
+      return 'la A y la B solo valen en empresas españolas';
+    case 'estandar':
+      return 'automática';
+    default:
+      return elegida ? 'elegida en la serie' : 'automática';
+  }
+}
+
+/**
+ * La serie usa la estándar porque una casilla de Configuración > Facturación
+ * está sin marcar: qué plantilla tendría, qué casilla la activa y sus columnas.
+ * null si no es el caso.
+ */
+export function plantillaPorCasilla(motivo: MotivoPlantilla | string | undefined): { plantilla: 'A' | 'B'; casilla: string; que: string; columnas: string } | null {
+  if (motivo === 'sinIeepnr') return { plantilla: 'A', casilla: CASILLA_IEEPNR, que: 'envases e IEEPNR', columnas: COLUMNAS_PLANTILLA_A };
+  if (motivo === 'sinCeramica') return { plantilla: 'B', casilla: CASILLA_CERAMICA, que: 'cerámica', columnas: COLUMNAS_PLANTILLA_B };
+  return null;
 }
 
 /** Nombre corto para las listas, por si el servidor no manda el catálogo. */
