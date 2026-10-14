@@ -36,7 +36,8 @@ import {
 /**
  * Contabilidad > Movimientos: los apuntes de los asientos, es decir, cada cargo
  * y abono de la contabilidad (los asientos aprobados y los que están en
- * borrador, marcados). Antes leía solo los movimientos anotados a mano (tabla
+ * borrador, marcados; la regularización y el cierre del ejercicio, solo si se
+ * piden, como en el libro diario). Antes leía solo los movimientos anotados a mano (tabla
  * Movement), que ya no se crean, y salía vacía: esos siguen en «Movimientos
  * antiguos» si la empresa tiene alguno.
  */
@@ -59,7 +60,7 @@ const miles = (n: number) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 
 /** Filtros puestos aparte del año y el periodo (para el botón «Más filtros» del móvil). */
 const filtrosActivos = (f: FiltrosApuntes) =>
-  [f.desde || f.hasta, f.cuenta, f.tercero, f.texto.trim(), f.estado !== 'todos', f.importeMin.trim() || f.importeMax.trim()].filter(Boolean).length;
+  [f.desde || f.hasta, f.cuenta, f.tercero, f.texto.trim(), f.estado !== 'todos', f.importeMin.trim() || f.importeMax.trim(), f.incluirCierre].filter(Boolean).length;
 
 function Movimientos() {
   const sp = useSearchParams();
@@ -94,6 +95,13 @@ function Movimientos() {
     apiFetch<RespuestaApuntes>(companyPath(`/informes-contables/apuntes?${p}`))
       .then((r) => {
         if (n !== peticion.current) return;
+        // Página que ya no existe (p. ej. al volver tras aprobar borradores): a la última que haya.
+        if (!r.apuntes.length && r.totales.apuntes > 0 && r.pagina > r.paginas) {
+          peticion.current++;
+          setPagina(r.paginas);
+          ponerEnUrl({ pagina: r.paginas > 1 ? String(r.paginas) : null });
+          return;
+        }
         setDatos(r);
         setSinAcceso(null);
       })
@@ -137,7 +145,7 @@ function Movimientos() {
   };
 
   const quitarFiltros = () =>
-    aplicar({ ...form, desde: '', hasta: '', cuenta: '', tercero: null, texto: '', estado: 'todos', importeMin: '', importeMax: '' });
+    aplicar({ ...form, desde: '', hasta: '', cuenta: '', tercero: null, texto: '', estado: 'todos', importeMin: '', importeMax: '', incluirCierre: false });
 
   const descargar = async (formato: 'pdf' | 'xlsx') => {
     // Lo que se está viendo: los filtros aplicados, todas las páginas.
@@ -166,6 +174,9 @@ function Movimientos() {
   const leido = datos?.filtro.tercero;
   const terceroVisto = form.tercero && !form.tercero.nombre && leido?.id === form.tercero.id ? leido : form.tercero;
   const antiguos = datos?.movimientosAntiguos ?? 0;
+  // Apuntes de la regularización y el cierre: fuera por defecto (se avisa y se pueden incluir) o dentro, marcados.
+  const deCierre = datos?.totales.deCierre ?? 0;
+  const conCierre = !!datos?.filtro.incluirCierre;
   const desdeN = datos ? (datos.pagina - 1) * datos.porPagina + 1 : 0;
   const hastaN = datos ? Math.min(datos.pagina * datos.porPagina, datos.totales.apuntes) : 0;
 
@@ -175,7 +186,7 @@ function Movimientos() {
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold text-slate-900 sm:text-3xl">Movimientos</h1>
-            <Tooltip text="Cada cargo y abono de los asientos, por fecha. Salen los asientos aprobados y los que están en borrador (marcados); los anulados no salen. Los asientos se crean al contabilizar facturas, cobros, pagos o nóminas." />
+            <Tooltip text="Cada cargo y abono de los asientos, por fecha. Salen los asientos aprobados y los que están en borrador (marcados); los anulados no salen. La regularización y el cierre del ejercicio solo salen si los incluyes, como en el libro diario. Los asientos se crean al contabilizar facturas, cobros, pagos o nóminas." />
           </div>
           <p className="mt-2 text-slate-600">Apuntes de los asientos: cada cargo y abono de la contabilidad, con filtros y descarga.</p>
           {antiguos > 0 && (
@@ -257,10 +268,15 @@ function Movimientos() {
                 </select>
               </div>
               <div className="col-span-2">
-                <label htmlFor="mov-tercero" className={ETIQUETA}>
+                <label htmlFor={terceroVisto ? undefined : 'mov-tercero'} className={ETIQUETA}>
                   Cliente o proveedor
                 </label>
                 <BuscadorTercero id="mov-tercero" elegido={terceroVisto} onElegir={(t) => cambiarYAplicar({ tercero: t })} />
+                {terceroVisto && (
+                  <p className="mt-1 text-xs text-slate-500">
+                    Salen los apuntes de su cuenta: sus facturas y lo cobrado o pagado. Las líneas de ventas, compras o IVA de sus facturas no salen.
+                  </p>
+                )}
               </div>
               <div className="col-span-2">
                 <label htmlFor="mov-texto" className={ETIQUETA}>
@@ -321,6 +337,22 @@ function Movimientos() {
                   </p>
                 )}
               </div>
+              <div className="col-span-2 lg:col-span-4 xl:col-span-6">
+                <label htmlFor="mov-cierre" className="inline-flex min-h-[44px] cursor-pointer items-center gap-2 text-sm text-slate-700 lg:min-h-0">
+                  <input
+                    id="mov-cierre"
+                    type="checkbox"
+                    checked={form.incluirCierre}
+                    onChange={(e) => cambiarYAplicar({ incluirCierre: e.target.checked })}
+                    aria-describedby="mov-cierre-ayuda"
+                    className="h-4 w-4 rounded border-slate-300"
+                  />
+                  Incluir la regularización y el cierre del ejercicio
+                </label>
+                <p id="mov-cierre-ayuda" className="text-xs text-slate-500">
+                  Dejan las cuentas a cero el 31 de diciembre. Sin ellos, como en el libro diario, la diferencia de una cuenta o de un cliente es su saldo.
+                </p>
+              </div>
             </div>
           </div>
           <button
@@ -348,7 +380,7 @@ function Movimientos() {
                 <X size={14} aria-hidden /> Quitar filtros
               </button>
             )}
-            <p className="text-xs text-slate-500 lg:flex-1">El año, el periodo, el estado y el cliente o proveedor se aplican al elegirlos; lo escrito, al pulsar Buscar.</p>
+            <p className="text-xs text-slate-500 lg:flex-1">El año, el periodo, el estado, el cliente o proveedor y la casilla del cierre se aplican al elegirlos; lo escrito, al pulsar Buscar.</p>
             <div className="grid grid-cols-2 gap-2 lg:flex">
               <button
                 type="button"
@@ -385,6 +417,24 @@ function Movimientos() {
               className="inline-flex min-h-[44px] items-center justify-center gap-1.5 self-start rounded-lg border border-red-200 bg-white px-3 py-1.5 font-medium text-red-700 hover:bg-red-50 lg:min-h-0"
             >
               <ArrowClockwise size={14} aria-hidden /> Reintentar
+            </button>
+          </div>
+        )}
+
+        {/* La regularización y el cierre: cuántos se han dejado fuera, o que salen y la diferencia ya no es el saldo. */}
+        {datos && hayApuntes && deCierre > 0 && (
+          <div className="flex flex-col gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900 sm:flex-row sm:items-center sm:justify-between">
+            <p>
+              {conCierre
+                ? `Incluye ${deCierre === 1 ? 'un apunte' : `${miles(deCierre)} apuntes`} de la regularización y el cierre del ejercicio, ${deCierre === 1 ? 'marcado' : 'marcados'}. Dejan las cuentas a cero, así que la diferencia ya no es el saldo.`
+                : `${deCierre === 1 ? 'No sale un apunte' : `No salen ${miles(deCierre)} apuntes`} de la regularización y el cierre del ejercicio, como en el libro diario: dejan las cuentas a cero el 31 de diciembre.`}
+            </p>
+            <button
+              type="button"
+              onClick={() => cambiarYAplicar({ incluirCierre: !conCierre })}
+              className="inline-flex min-h-[44px] shrink-0 items-center self-start font-semibold text-blue-700 underline hover:text-blue-800 sm:self-auto lg:min-h-0"
+            >
+              {conCierre ? 'Quitarlos' : 'Incluirlos'}
             </button>
           </div>
         )}
@@ -436,7 +486,13 @@ function Movimientos() {
               ))}
             </div>
           ) : datos && !hayApuntes ? (
-            <EstadoVacio filtros={aplicados} conFiltros={conFiltros} onQuitar={quitarFiltros} />
+            <EstadoVacio
+              filtros={aplicados}
+              conFiltros={conFiltros}
+              onQuitar={quitarFiltros}
+              deCierre={conCierre ? 0 : deCierre}
+              onIncluirCierre={() => cambiarYAplicar({ incluirCierre: true })}
+            />
           ) : datos ? (
             <>
               <TablaApuntes apuntes={datos.apuntes} atenuada={cargando} />
@@ -476,7 +532,33 @@ function Movimientos() {
   );
 }
 
-function EstadoVacio({ filtros, conFiltros, onQuitar }: { filtros: FiltrosApuntes; conFiltros: boolean; onQuitar: () => void }) {
+function EstadoVacio({
+  filtros,
+  conFiltros,
+  onQuitar,
+  deCierre,
+  onIncluirCierre,
+}: {
+  filtros: FiltrosApuntes;
+  conFiltros: boolean;
+  onQuitar: () => void;
+  /** Apuntes de la regularización y el cierre que se han dejado fuera. */
+  deCierre: number;
+  onIncluirCierre: () => void;
+}) {
+  if (deCierre > 0) {
+    return (
+      <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center">
+        <p className="font-medium text-slate-700">
+          En {textoPeriodo(filtros.ejercicio, filtros.periodo)} solo {deCierre === 1 ? 'hay un apunte' : `hay ${miles(deCierre)} apuntes`} de la regularización y el cierre del ejercicio.
+        </p>
+        <p className="mt-1 text-sm text-slate-500">No salen salvo que los incluyas, como en el libro diario: dejan las cuentas a cero el 31 de diciembre.</p>
+        <button type="button" onClick={onIncluirCierre} className="mt-3 inline-flex min-h-[44px] items-center text-sm font-semibold text-accent-600 hover:text-accent-700">
+          Incluirlos
+        </button>
+      </div>
+    );
+  }
   if (conFiltros) {
     return (
       <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center">
@@ -502,6 +584,16 @@ function Borrador() {
   return <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">Borrador</span>;
 }
 
+/** Insignia de un apunte de la regularización o del cierre del ejercicio (solo salen si se piden). */
+function TipoCierre({ a }: { a: Apunte }) {
+  if (a.tipoAsiento !== 'REGULARIZACION' && a.tipoAsiento !== 'CIERRE') return null;
+  return (
+    <span className="inline-flex items-center rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
+      {a.tipoAsiento === 'REGULARIZACION' ? 'Regularización' : 'Cierre'}
+    </span>
+  );
+}
+
 /** Documento de origen (con su enlace si lo tiene) y cliente o proveedor. */
 function OrigenApunte({ a }: { a: Apunte }) {
   if (!a.documento && !a.tercero) return null;
@@ -522,7 +614,7 @@ function OrigenApunte({ a }: { a: Apunte }) {
 }
 
 const enlaceAsiento = (a: Apunte) => (
-  <Link href={a.enlaceAsiento} className="whitespace-nowrap font-mono text-blue-600 hover:underline" aria-label={`Ver el asiento ${a.asiento}${a.estado === 'BORRADOR' ? ' (en borrador)' : ''}`}>
+  <Link href={a.enlaceAsiento} className="whitespace-nowrap font-mono text-blue-600 hover:underline" aria-label={`Ver el asiento ${a.asiento}${a.estado === 'BORRADOR' ? ' (en borrador)' : ''}${a.tipoAsiento === 'REGULARIZACION' ? ' (regularización)' : a.tipoAsiento === 'CIERRE' ? ' (cierre)' : ''}`}>
     {a.asiento}
   </Link>
 );
@@ -551,6 +643,7 @@ function TablaApuntes({ apuntes, atenuada }: { apuntes: Apunte[]; atenuada: bool
                 <div className="flex flex-col items-start gap-1">
                   {enlaceAsiento(a)}
                   {a.estado === 'BORRADOR' && <Borrador />}
+                  <TipoCierre a={a} />
                 </div>
               </td>
               <td className="max-w-[220px] px-3 py-2">
@@ -582,6 +675,7 @@ function ListaApuntes({ apuntes, atenuada }: { apuntes: Apunte[]; atenuada: bool
             <span aria-hidden className="text-slate-400">·</span>
             {enlaceAsiento(a)}
             {a.estado === 'BORRADOR' && <Borrador />}
+            <TipoCierre a={a} />
           </div>
           <div className="mt-1.5 flex items-start justify-between gap-3">
             <div className="min-w-0">
