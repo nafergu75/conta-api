@@ -95,6 +95,13 @@ export interface SerieConfig {
   ultimoNumero: number;
   numeroSiguiente: number;
   documentos: number;
+  /**
+   * Plantilla del PDF que usa la serie ('default', 'A', 'B' o 'C'): la elegida
+   * o, si no hay, la automática. Un servidor anterior no la manda.
+   */
+  plantilla?: string;
+  /** La elegida en Configuración > Series; null = automática. */
+  plantillaElegida?: string | null;
 }
 
 export interface CuentaParaFactura {

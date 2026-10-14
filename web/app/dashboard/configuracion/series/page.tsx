@@ -5,6 +5,7 @@ import { ListNumbers, PencilSimple, Plus, Star } from '@phosphor-icons/react';
 import { apiFetch, campoDelError, companyPath, errorMessage } from '@/lib/api';
 import { servidorConRectificativasNuevas } from '@/lib/rectificativasVenta';
 import { claseBoton, claseBotonSecundario, claseCampo, puedeEditar, puedeVer, QUIEN_EDITA, type SerieConfig } from '@/lib/configuracion';
+import { NOMBRE_PLANTILLA, normalizarPlantilla, type PlantillaCatalogo, useCatalogoPlantillas } from '@/lib/plantillasFactura';
 import { AvisoSoloLectura, CabeceraBloque, Etiqueta, Mensaje, SinAcceso, type MensajeConfig } from '../componentes';
 import { useConfiguracion } from '../contexto';
 
@@ -13,8 +14,23 @@ import { useConfiguracion } from '../contexto';
  * (RECTIFICATIVA_SIMPLIFICADA, R5) y proformas: crear, cambiar
  * la descripcion, activar o desactivar, marcar la predeterminada y fijar el
  * numero inicial (solo sin documentos). Sin borrar: una serie se desactiva.
+ * Cada serie tiene su plantilla de PDF (GET /series/plantillas): la elegida o
+ * la automática (la A en la serie A de una empresa española; si no, la
+ * estándar). Cambiarla vale para lo que se cree o se guarde después: las
+ * facturas ya emitidas conservan la suya.
  * Ver: ventas:read o contabilidad:read; cambiar: ventas:write.
  */
+
+/** Plantilla automática de una serie (como el servidor): la A en la serie A si la empresa puede usarla. */
+function plantillaAutomatica(codigo: string, catalogo: PlantillaCatalogo[] | null): string {
+  const a = catalogo?.find((p) => p.id === 'A');
+  return codigo.trim().toUpperCase() === 'A' && a?.disponible ? 'A' : 'default';
+}
+
+const nombrePlantilla = (id: string | null | undefined, catalogo: PlantillaCatalogo[] | null) => {
+  const n = normalizarPlantilla(id);
+  return catalogo?.find((p) => p.id === n)?.nombre ?? NOMBRE_PLANTILLA[n];
+};
 
 const TIPOS: Array<{ tipo: string; titulo: string; ayuda: string }> = [
   { tipo: 'FACTURA', titulo: 'Facturas', ayuda: 'Las facturas nuevas usan la predeterminada.' },
@@ -30,7 +46,7 @@ const TIPOS: Array<{ tipo: string; titulo: string; ayuda: string }> = [
 const CODIGO_RE = /^[A-Z0-9-]{1,10}$/;
 const NUMERO_MAX = 999_999_999;
 
-type Errores = Partial<Record<'codigo' | 'descripcion' | 'tipoDocumento' | 'numeroInicial' | 'activa' | 'porDefecto', string>>;
+type Errores = Partial<Record<'codigo' | 'descripcion' | 'tipoDocumento' | 'numeroInicial' | 'activa' | 'porDefecto' | 'plantilla', string>>;
 
 /** Numero inicial escrito a mano: entero de 1 a 999.999.999, o null si esta vacio. */
 function leerNumero(texto: string): number | null | 'mal' {
@@ -51,6 +67,8 @@ export default function SeriesPage() {
   const [ocupado, setOcupado] = useState('');
   const [editando, setEditando] = useState<string | null>(null);
   const [creando, setCreando] = useState<string | null>(null);
+  // Plantillas de factura (null mientras carga o con un servidor anterior: no se ofrece elegirla).
+  const { catalogo } = useCatalogoPlantillas(listo && ver);
 
   const cargar = useCallback(async () => {
     setSeries(await apiFetch<SerieConfig[]>(companyPath('/series')));
@@ -134,6 +152,7 @@ export default function SeriesPage() {
                   {creando === tipo && (
                     <FormularioSerie
                       tipo={tipo}
+                      catalogo={catalogo}
                       onCancelar={() => setCreando(null)}
                       onGuardada={async (codigo) => {
                         setCreando(null);
@@ -157,6 +176,7 @@ export default function SeriesPage() {
                             <FormularioSerie
                               tipo={tipo}
                               serie={s}
+                              catalogo={catalogo}
                               onCancelar={() => setEditando(null)}
                               onGuardada={async () => {
                                 setEditando(null);
@@ -181,6 +201,12 @@ export default function SeriesPage() {
                               <p className="mt-0.5 text-xs text-slate-500">
                                 Próximo número: <span className="font-mono">{s.codigo}-{s.numeroSiguiente}</span> ·{' '}
                                 {s.documentos === 0 ? 'Sin documentos' : `${s.documentos} ${s.documentos === 1 ? 'documento' : 'documentos'}`}
+                                {s.plantilla !== undefined && (
+                                  <>
+                                    {' '}· Plantilla: <span className="font-medium text-slate-700">{nombrePlantilla(s.plantilla, catalogo)}</span>
+                                    {!s.plantillaElegida && ' (automática)'}
+                                  </>
+                                )}
                               </p>
                             </div>
                             {editar && (
@@ -244,11 +270,14 @@ export default function SeriesPage() {
 function FormularioSerie({
   tipo,
   serie,
+  catalogo,
   onCancelar,
   onGuardada,
 }: {
   tipo: string;
   serie?: SerieConfig;
+  /** Plantillas de factura; null: el servidor no las tiene (no se ofrece elegirla). */
+  catalogo: PlantillaCatalogo[] | null;
   onCancelar: () => void;
   onGuardada: (codigo: string) => void | Promise<void>;
 }) {
@@ -256,6 +285,11 @@ function FormularioSerie({
   const [codigo, setCodigo] = useState(serie?.codigo ?? '');
   const [descripcion, setDescripcion] = useState(serie?.descripcion ?? '');
   const [numero, setNumero] = useState(serie ? String(serie.numeroSiguiente) : '');
+  // '' = automática. Solo se ofrece si el servidor tiene plantillas (y la serie las trae, al editar).
+  const [plantilla, setPlantilla] = useState(serie?.plantillaElegida ?? '');
+  const conPlantilla = !!catalogo && catalogo.length > 0 && (nueva || serie.plantilla !== undefined);
+  const automatica = plantillaAutomatica(nueva ? codigo : serie.codigo, catalogo);
+  const deRectificativas = tipo === 'RECTIFICATIVA' || tipo === 'RECTIFICATIVA_SIMPLIFICADA';
   const [errores, setErrores] = useState<Errores>({});
   const [error, setError] = useState('');
   const [guardando, setGuardando] = useState(false);
@@ -279,8 +313,11 @@ function FormularioSerie({
       cuerpo.codigo = cod;
       cuerpo.tipoDocumento = tipo;
       if (n !== null) cuerpo.numeroInicial = n;
-    } else if (numeroEditable && n !== null && n !== serie.numeroSiguiente) {
-      cuerpo.numeroInicial = n;
+      if (conPlantilla && plantilla) cuerpo.plantilla = plantilla;
+    } else {
+      if (numeroEditable && n !== null && n !== serie.numeroSiguiente) cuerpo.numeroInicial = n;
+      // null: vuelve a la automática.
+      if (conPlantilla && plantilla !== (serie.plantillaElegida ?? '')) cuerpo.plantilla = plantilla || null;
     }
     setGuardando(true);
     try {
@@ -291,7 +328,7 @@ function FormularioSerie({
       await onGuardada(nueva ? cod : serie.codigo);
     } catch (ex) {
       const campo = campoDelError(ex) as keyof Errores | undefined;
-      if (campo && ['codigo', 'descripcion', 'numeroInicial'].includes(campo)) setErrores({ [campo]: errorMessage(ex) });
+      if (campo && ['codigo', 'descripcion', 'numeroInicial', 'plantilla'].includes(campo)) setErrores({ [campo]: errorMessage(ex) });
       else setError(errorMessage(ex));
     } finally {
       setGuardando(false);
@@ -365,6 +402,41 @@ function FormularioSerie({
           ? 'El número inicial sirve para seguir la numeración que traías de otro programa. Cuando emitas el primer documento de la serie ya no se podrá cambiar.'
           : 'Esta serie ya tiene documentos: su numeración sigue desde el último y no se puede cambiar.'}
       </p>
+      {conPlantilla && (
+        <div className="max-w-md">
+          <label htmlFor={`${id}-plantilla`} className="block text-sm font-medium text-slate-700">
+            Plantilla del PDF
+          </label>
+          <select
+            id={`${id}-plantilla`}
+            value={plantilla}
+            onChange={(e) => setPlantilla(e.target.value)}
+            disabled={guardando}
+            aria-invalid={errores.plantilla ? true : undefined}
+            aria-describedby={`${id}-plantilla-ayuda${errores.plantilla ? ` ${id}-plantilla-error` : ''}`}
+            className={claseCampo}
+          >
+            <option value="">Automática ({nombrePlantilla(automatica, catalogo)})</option>
+            {catalogo.map((p) => (
+              <option key={p.id} value={p.id} disabled={!p.disponible && p.id !== plantilla}>
+                {p.nombre}
+                {p.disponible ? '' : ' (solo empresas españolas)'}
+              </option>
+            ))}
+          </select>
+          {ayudaError('plantilla')}
+          <p id={`${id}-plantilla-ayuda`} className="mt-1 text-xs text-slate-600">
+            {[
+              catalogo.find((p) => p.id === normalizarPlantilla(plantilla || automatica))?.descripcion?.replace(/\.$/, ''),
+              deRectificativas
+                ? 'Las rectificativas de una factura de la app salen con la plantilla de esa factura; esta solo vale para las demás'
+                : 'Vale para lo que crees o guardes después: las facturas ya emitidas no cambian',
+            ]
+              .filter(Boolean)
+              .join('. ') + '.'}
+          </p>
+        </div>
+      )}
       {error && (
         <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-sm text-amber-900">
           {error}
