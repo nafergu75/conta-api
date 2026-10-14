@@ -60,7 +60,7 @@ export default function AvisoPlantillaSerie({ codigo, motivo }: { codigo: string
         type="button"
         onClick={ocultar}
         aria-label={`No mostrar más este aviso en la serie ${codigo}`}
-        className="ml-6 shrink-0 rounded px-1 text-xs font-medium underline hover:bg-black/5 sm:ml-0"
+        className="ml-6 shrink-0 rounded px-1.5 py-1 text-xs font-medium underline hover:bg-black/5 sm:-my-1 sm:ml-0"
       >
         No mostrar más
       </button>

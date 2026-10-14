@@ -131,7 +131,7 @@ function AvisoSerieB({ texto, anunciar = false }: { texto: string; anunciar?: bo
       <p className="min-w-0">
         {texto}{' '}
         <Link href={RUTA_SERIES} className="whitespace-nowrap font-medium underline">
-          Ir a Configuración &gt; Series
+          Abrir las series
         </Link>
       </p>
     </div>

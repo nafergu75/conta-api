@@ -83,9 +83,9 @@ export function textoMotivoPlantilla(motivo: MotivoPlantilla | undefined, elegid
     case 'elegida':
       return 'elegida en la serie';
     case 'ieepnr':
-      return `automática: tienes marcada «${CASILLA_IEEPNR}»`;
+      return 'automática: repercutes el IEEPNR';
     case 'ceramica':
-      return `automática: tienes marcada «${CASILLA_CERAMICA}»`;
+      return 'automática: vendes cerámica';
     case 'serieC':
       return 'automática de la serie C';
     case 'sinIeepnr':
