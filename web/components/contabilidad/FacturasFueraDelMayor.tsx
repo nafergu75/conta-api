@@ -41,9 +41,12 @@ const enlaceSeguro = (e: string) => (e.startsWith('/dashboard/') ? e : null);
 
 interface Props {
   facturas: FacturaFueraDelMayor[];
-  /** Más pequeño, para el bloque «Contabilidad» de la ficha. */
+  /**
+   * Más pequeño, para el bloque «Contabilidad» de la ficha: allí habla del saldo
+   * contable («no sale en el saldo»), no del mayor.
+   */
   compacto?: boolean;
-  /** Símbolo detrás de los importes (el mayor los da sin él). */
+  /** Símbolo detrás de los importes (vacío: sin símbolo, como el saldo de la ficha). */
   simbolo?: string;
 }
 
@@ -56,7 +59,8 @@ export function FacturasFueraDelMayor({ facturas, compacto = false, simbolo = '�
     sin ? (sin === 1 ? 'la que no tiene asiento se contabiliza desde la factura' : 'las que no tienen asiento se contabilizan desde la factura') : '',
     borrador ? (borrador === 1 ? 'la que lo tiene en borrador se aprueba en el Motor contable' : 'las que lo tienen en borrador se aprueban en el Motor contable') : '',
   ].filter(Boolean);
-  const explicacion = `El mayor solo cuenta los asientos aprobados: ${que.join(' y ')}.`;
+  const donde = compacto ? 'en el saldo contable' : 'en este mayor';
+  const explicacion = `${compacto ? 'El saldo' : 'El mayor'} solo cuenta los asientos aprobados: ${que.join(' y ')}.`;
 
   return (
     <section
@@ -65,7 +69,7 @@ export function FacturasFueraDelMayor({ facturas, compacto = false, simbolo = '�
     >
       <p className="flex items-start gap-2 font-semibold">
         <WarningCircle size={compacto ? 16 : 18} weight="fill" className="mt-0.5 shrink-0" aria-hidden="true" />
-        <span>{una ? 'Una factura no sale en este mayor' : `${facturas.length} facturas no salen en este mayor`}</span>
+        <span>{una ? `Una factura no sale ${donde}` : `${facturas.length} facturas no salen ${donde}`}</span>
       </p>
       <p className={compacto ? 'mt-0.5 pl-6' : 'mt-1 pl-[26px]'}>{explicacion}</p>
       <ul className={`mt-2 divide-y divide-amber-200 ${compacto ? 'pl-6' : 'pl-[26px]'}`}>
@@ -82,7 +86,8 @@ export function FacturasFueraDelMayor({ facturas, compacto = false, simbolo = '�
               </span>
               <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span className="whitespace-nowrap font-mono tabular-nums">
-                  {importe(f.totalFactura)} {simbolo}
+                  {importe(f.totalFactura)}
+                  {simbolo ? ` ${simbolo}` : ''}
                 </span>
                 {enlace && (
                   <Link href={enlace} className="inline-flex min-h-[44px] items-center font-semibold underline hover:no-underline sm:min-h-0">

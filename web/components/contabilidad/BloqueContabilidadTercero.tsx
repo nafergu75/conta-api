@@ -7,13 +7,16 @@ import { apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { enlaceLibroMayor, enlaceMayorTerceros, type TipoFicha } from '@/lib/subcuentas';
 import { importe } from '@/app/dashboard/informes/TablaInforme';
+import { FacturasFueraDelMayor, type FacturaFueraDelMayor } from '@/components/contabilidad/FacturasFueraDelMayor';
 import { hoyIso } from '@/lib/anios';
 
 /**
  * Bloque «Contabilidad» de la ficha de un cliente o proveedor: su subcuenta
  * propia (430 del cliente; 400 y 410 del proveedor), su saldo contable a hoy y
  * los enlaces a su mayor. El saldo y los enlaces solo con permiso de
- * contabilidad (el plan contable y los informes lo exigen).
+ * contabilidad (el plan contable y los informes lo exigen). Si alguna de sus
+ * facturas no tiene asiento o lo tiene en borrador, el saldo no la cuenta: se
+ * avisa con la lista y el enlace para contabilizarla o aprobarla.
  */
 
 interface Props {
@@ -30,6 +33,8 @@ interface Props {
 interface Detalle {
   tercero: { saldoFinal: number; debe: number; haber: number };
   totalPendiente: number;
+  /** Sus facturas sin asiento o con el asiento en borrador (un servidor anterior no lo manda). */
+  facturasFueraDelMayor?: FacturaFueraDelMayor[];
 }
 
 
@@ -63,6 +68,8 @@ export function BloqueContabilidadTercero({ tipo, id, subcuentas, subcuentasEnPl
   const saldo = detalle?.tercero.saldoFinal ?? 0;
   // El saldo contable y lo pendiente segun facturas no cuadran (mas de un centimo): se explica por que puede ser.
   const noCoinciden = !!detalle && Math.abs(Math.round(saldo * 100) - Math.round(detalle.totalPendiente * 100)) > 1;
+  // Las facturas que el saldo no cuenta: con ellas ya se ve por qué no coinciden.
+  const fuera = detalle?.facturasFueraDelMayor ?? [];
   const lectura =
     saldo === 0
       ? 'sin saldo'
@@ -114,7 +121,7 @@ export function BloqueContabilidadTercero({ tipo, id, subcuentas, subcuentasEnPl
                   <span className="block text-xs text-slate-500">
                     Según facturas, pendiente de {tipo === 'cliente' ? 'cobro' : 'pago'}: <span className="font-mono">{importe(detalle.totalPendiente)}</span>
                   </span>
-                  {noCoinciden && (
+                  {noCoinciden && fuera.length === 0 && (
                     <span className="mt-1 block text-xs text-amber-800">
                       No coinciden: puede haber asientos en borrador, que no cuentan hasta que los apruebas en el{' '}
                       <Link href="/dashboard/motor-contable" className="font-medium underline">
@@ -129,6 +136,12 @@ export function BloqueContabilidadTercero({ tipo, id, subcuentas, subcuentasEnPl
           </div>
         )}
       </dl>
+
+      {veContabilidad && fuera.length > 0 && (
+        <div className="mt-3">
+          <FacturasFueraDelMayor facturas={fuera} compacto simbolo="" />
+        </div>
+      )}
 
       {veContabilidad ? (
         <div className="mt-4 flex flex-col gap-2 text-sm sm:flex-row sm:flex-wrap sm:gap-x-5">
