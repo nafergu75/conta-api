@@ -879,7 +879,7 @@ export default function LectorIngresosPage() {
               )}
 
               {/* Rectificativa o abono: que factura rectifica, motivo, signo y forma (con lo corregido, si lo hay). */}
-              <RectificativaVentaLector rv={rv} ingreso={ingresoEf ?? ingreso} clienteLeidoId={clienteLeido?.id ?? null} disabled={guardando} />
+              <RectificativaVentaLector rv={rv} ingreso={ingresoEf ?? ingreso} clienteLeidoId={clienteLeido?.id ?? null} paisLeido={tercero?.pais ?? null} disabled={guardando} />
 
               {/* Cliente sin dar de alta: «Dar de alta este cliente» o «Es uno que ya tengo». */}
               {(!existente || clienteResuelto) && !rv.clienteOriginal && (

@@ -18,7 +18,7 @@ function claseEstado(estado: string): string {
   if (estado === 'Vencida') return 'bg-rose-50 text-rose-700 border-rose-200';
   if (estado === 'Rectificativa' || estado === 'Abono') return 'bg-violet-50 text-violet-700 border-violet-200';
   if (estado.startsWith('Pendiente') || estado === 'Pagada en parte' || estado === 'Cobrada en parte') return 'bg-amber-50 text-amber-700 border-amber-200';
-  // «Sustituida» (la original de una rectificativa por sustitución) y cualquier otro: neutro.
+  // «Sustituida» (la original de una rectificativa por sustitución), «Anulada» y cualquier otro: neutro.
   return 'bg-slate-100 text-slate-700 border-slate-300';
 }
 

@@ -95,6 +95,8 @@ body {
 .dark .zona-app .border-amber-100, .dark .zona-app .border-amber-200 { border-color: rgba(245,158,11,.35); }
 .dark .zona-app .text-amber-700, .dark .zona-app .text-amber-800, .dark .zona-app .text-amber-900 { color: #fcd34d; }
 .dark .zona-app .text-amber-600 { color: #fbbf24; }
+/* Al pasar el ratón por un botón ámbar: de noche, fondo ámbar tenue (con el crema de día el texto ámbar no se leía). */
+.dark .zona-app .hover\:bg-amber-100:hover { background-color: rgba(245,158,11,.2); }
 .dark .zona-app .bg-yellow-50 { background-color: rgba(234,179,8,.12); }
 .dark .zona-app .bg-yellow-100 { background-color: rgba(234,179,8,.2); }
 .dark .zona-app .border-yellow-100, .dark .zona-app .border-yellow-200 { border-color: rgba(234,179,8,.35); }
