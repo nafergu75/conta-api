@@ -1,387 +1,614 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { FunnelSimple, Info, X } from '@phosphor-icons/react';
-import { getToken, getUser, tieneAlgunPermiso } from '@/lib/auth';
-import { apiFetch, companyPath } from '@/lib/api';
+import { useSearchParams } from 'next/navigation';
+import { ArrowClockwise, CaretLeft, CaretRight, FilePdf, FileXls, FunnelSimple, MagnifyingGlass, X } from '@phosphor-icons/react';
+import MargenPagina from '@/components/MargenPagina';
+import SelectorAnio from '@/components/SelectorAnio';
+import { Tooltip } from '@/app/dashboard/components/Tooltip';
+import { BuscadorCuenta } from '@/components/contabilidad/BuscadorCuenta';
+import { BuscadorTercero } from '@/components/contabilidad/BuscadorTercero';
 import { mensajeSinAcceso, PantallaSinAcceso } from '@/components/dashboard/SinAcceso';
-import { CATEGORIES, STATUSES } from '@/lib/movimientos';
+import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
+import { anioDeTexto, anioEspana } from '@/lib/anios';
+import { useAniosEmpresa } from '@/lib/useAniosEmpresa';
+import { ponerEnUrl } from '@/lib/urlEstado';
+import { motivoDescarga, nombreDescarga } from '@/lib/descargaInforme';
+import { fecha, importe } from '@/app/dashboard/informes/TablaInforme';
+import {
+  filtrosDeUrl,
+  filtrosParaUrl,
+  hayFiltros,
+  importeNormalizado,
+  parametrosApuntes,
+  partesNombreDescarga,
+  PERIODOS,
+  POR_PAGINA,
+  rangoPeriodo,
+  textoPeriodo,
+  type Apunte,
+  type EstadoFiltro,
+  type FiltrosApuntes,
+  type RespuestaApuntes,
+} from '@/lib/apuntes';
 
 /**
- * Movimientos anotados a mano antes. «Nuevo movimiento» está retirado: aquí
- * solo se consultan (el servidor ya no deja crearlos, cambiarlos ni borrarlos).
- * Las ventas y los gastos se registran como facturas.
+ * Contabilidad > Movimientos: los apuntes de los asientos, es decir, cada cargo
+ * y abono de la contabilidad (los asientos aprobados y los que están en
+ * borrador, marcados). Antes leía solo los movimientos anotados a mano (tabla
+ * Movement), que ya no se crean, y salía vacía: esos siguen en «Movimientos
+ * antiguos» si la empresa tiene alguno.
  */
 
-interface Movement {
-  id: string;
-  type: 'income' | 'expense';
-  amount: string;
-  category: string;
-  description: string;
-  date: string;
-  referenceDocument?: string;
-  status: string;
+export default function MovimientosPage() {
+  // useSearchParams necesita un Suspense para generar la página.
+  return (
+    <Suspense fallback={<p className="p-6 text-slate-500">Cargando…</p>}>
+      <Movimientos />
+    </Suspense>
+  );
 }
 
-const eur = (n: number) =>
-  n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
+const CAMPO = 'mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900';
+const ETIQUETA = 'block text-xs font-medium text-slate-600';
 
-const statusStyles: Record<string, string> = {
-  approved: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  reconciled: 'bg-slate-100 text-slate-700 border-slate-300',
-  draft: 'bg-amber-50 text-amber-700 border-amber-200',
-};
+/** Importe con su moneda, sin partirse en dos líneas. */
+const euros = (n: number) => `${importe(n)}\u00a0€`;
+const miles = (n: number) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 
-const statusLabels: Record<string, string> = {
-  approved: 'Aprobado',
-  reconciled: 'Conciliado',
-  draft: 'Borrador',
-};
+/** Filtros puestos aparte del año y el periodo (para el botón «Más filtros» del móvil). */
+const filtrosActivos = (f: FiltrosApuntes) =>
+  [f.desde || f.hasta, f.cuenta, f.tercero, f.texto.trim(), f.estado !== 'todos', f.importeMin.trim() || f.importeMax.trim()].filter(Boolean).length;
 
-export default function MovimientosPage() {
-  const router = useRouter();
-  const [movements, setMovements] = useState<Movement[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  // Enlaces para registrar la venta o el gasto como factura, según su acceso (la sesión vive en el navegador).
-  const [altas, setAltas] = useState<{ venta: boolean; gasto: boolean }>({ venta: false, gasto: false });
-  useEffect(() => {
-    const u = getUser();
-    setAltas({ venta: tieneAlgunPermiso(u, ['ventas:write']), gasto: tieneAlgunPermiso(u, ['compras:write']) });
-  }, []);
-  // Texto del 403 si su acceso no incluye movimientos (null = si lo incluye).
+function Movimientos() {
+  const sp = useSearchParams();
+  const anios = useAniosEmpresa();
+  // Año de la URL (al volver de un asiento o una factura) o el año en curso en España.
+  const inicial = useRef(filtrosDeUrl(sp, anioDeTexto(sp?.get('ejercicio')) ?? anioEspana()));
+  const [form, setForm] = useState<FiltrosApuntes>(inicial.current.filtros);
+  const [aplicados, setAplicados] = useState<FiltrosApuntes>(inicial.current.filtros);
+  const [pagina, setPagina] = useState(inicial.current.pagina);
+  const [datos, setDatos] = useState<RespuestaApuntes | null>(null);
+  const [cargando, setCargando] = useState(true);
+  const [error, setError] = useState('');
   const [sinAcceso, setSinAcceso] = useState<string | null>(null);
+  const [descargando, setDescargando] = useState<'' | 'pdf' | 'xlsx'>('');
+  const [errorDescarga, setErrorDescarga] = useState('');
+  /** Importes mal escritos: el campo se marca y no se busca hasta corregirlo. */
+  const [errorImporte, setErrorImporte] = useState<{ min?: string; max?: string }>({});
+  const [reintento, setReintento] = useState(0);
+  // En el móvil y la tableta, los filtros aparte del año y el periodo se abren con «Más filtros» (abiertos si la URL ya trae alguno).
+  const [masFiltros, setMasFiltros] = useState(() => hayFiltros(inicial.current.filtros));
+  const resultados = useRef<HTMLElement>(null);
 
-  // Filtros servidor (la API los soporta como query params)
-  const [type, setType] = useState('');
-  const [category, setCategory] = useState('');
-  // Filtros cliente
-  const [status, setStatus] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
-
-  const loadData = useCallback(async () => {
-    const token = getToken();
-    if (!token) {
-      router.replace('/login');
-      return;
-    }
-    setLoading(true);
-    try {
-      const params = new URLSearchParams({ limit: '100' });
-      if (type) params.set('type', type);
-      if (category) params.set('category', category);
-
-      // apiFetch: un 401 lleva al login y la contraseña provisional, a cambiarla.
-      const d = await apiFetch<Movement[]>(companyPath(`/movements?${params}`));
-      setMovements(Array.isArray(d) ? d : []);
-      setError(null);
-      setSinAcceso(null);
-    } catch (e) {
-      const sinPermiso = mensajeSinAcceso(e);
-      if (sinPermiso) setSinAcceso(sinPermiso);
-      else setError(e instanceof Error ? e.message : 'Error desconocido');
-    } finally {
-      setLoading(false);
-    }
-  }, [router, type, category]);
-
+  // Se pide la página de los filtros aplicados; una respuesta que llega tarde (otro filtro ya pedido) no se pinta.
+  const peticion = useRef(0);
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    const n = ++peticion.current;
+    const p = parametrosApuntes(aplicados);
+    p.set('pagina', String(pagina));
+    p.set('porPagina', String(POR_PAGINA));
+    setCargando(true);
+    setError('');
+    apiFetch<RespuestaApuntes>(companyPath(`/informes-contables/apuntes?${p}`))
+      .then((r) => {
+        if (n !== peticion.current) return;
+        setDatos(r);
+        setSinAcceso(null);
+      })
+      .catch((e) => {
+        if (n !== peticion.current) return;
+        const sinPermiso = mensajeSinAcceso(e);
+        if (sinPermiso) setSinAcceso(sinPermiso);
+        else setError(errorMessage(e));
+        // Lo de antes no se deja a la vista: no es de los filtros pedidos.
+        setDatos(null);
+      })
+      .finally(() => n === peticion.current && setCargando(false));
+  }, [aplicados, pagina, reintento]);
 
-  const filtered = useMemo(() => {
-    return movements.filter((m) => {
-      if (status && m.status !== status) return false;
-      const d = m.date.slice(0, 10);
-      if (dateFrom && d < dateFrom) return false;
-      if (dateTo && d > dateTo) return false;
-      return true;
-    });
-  }, [movements, status, dateFrom, dateTo]);
+  /** Busca con estos filtros desde la primera página y los deja en la URL. */
+  const aplicar = useCallback((f: FiltrosApuntes) => {
+    const min = importeNormalizado(f.importeMin);
+    const max = importeNormalizado(f.importeMax);
+    const errores = {
+      ...(min === null ? { min: 'Escribe un importe, por ejemplo 1250,50.' } : {}),
+      ...(max === null ? { max: 'Escribe un importe, por ejemplo 1250,50.' } : {}),
+    };
+    if (!errores.min && !errores.max && min && max && Number(min) > Number(max)) errores.min = 'El mínimo es mayor que el máximo.';
+    setErrorImporte(errores);
+    setForm(f);
+    if (errores.min || errores.max) return;
+    setAplicados(f);
+    setPagina(1);
+    setErrorDescarga('');
+    ponerEnUrl(filtrosParaUrl(f, 1));
+  }, []);
 
-  const totals = useMemo(() => {
-    let income = 0;
-    let expense = 0;
-    for (const m of filtered) {
-      if (m.type === 'income') income += Number(m.amount);
-      else expense += Number(m.amount);
+  /** Cambios que se aplican al momento (año, periodo, estado, cliente o proveedor). */
+  const cambiarYAplicar = (cambios: Partial<FiltrosApuntes>) => aplicar({ ...form, ...cambios });
+
+  const irAPagina = (n: number) => {
+    setPagina(n);
+    ponerEnUrl({ pagina: n > 1 ? String(n) : null });
+    // Al cambiar de página, al principio de la lista.
+    resultados.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const quitarFiltros = () =>
+    aplicar({ ...form, desde: '', hasta: '', cuenta: '', tercero: null, texto: '', estado: 'todos', importeMin: '', importeMax: '' });
+
+  const descargar = async (formato: 'pdf' | 'xlsx') => {
+    // Lo que se está viendo: los filtros aplicados, todas las páginas.
+    const p = parametrosApuntes(aplicados);
+    p.set('formato', formato);
+    const nombre = nombreDescarga(partesNombreDescarga(aplicados, datos?.filtro.tercero?.nombre ?? ''), formato);
+    setDescargando(formato);
+    setErrorDescarga('');
+    try {
+      await apiDownload(companyPath(`/informes-contables/apuntes?${p}`), nombre);
+    } catch (e) {
+      setErrorDescarga(motivoDescarga(e, formato));
+    } finally {
+      setDescargando('');
     }
-    return { income, expense, net: income - expense };
-  }, [filtered]);
-
-  const hasFilters = type || category || status || dateFrom || dateTo;
-
-  function clearFilters() {
-    setType('');
-    setCategory('');
-    setStatus('');
-    setDateFrom('');
-    setDateTo('');
-  }
-
-  const selectClass =
-    'rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-accent-600 focus:border-accent-600';
+  };
 
   if (sinAcceso) return <PantallaSinAcceso titulo="Movimientos" mensaje={sinAcceso} />;
 
+  const rango = rangoPeriodo(form.ejercicio, form.periodo);
+  const totales = datos?.totales;
+  const hayApuntes = !!totales && totales.apuntes > 0;
+  const conFiltros = hayFiltros(aplicados);
+  const puedeDescargar = !!datos && !cargando && !descargando && hayApuntes;
+  // Abierto con un enlace (?tercero=): el nombre del cliente o proveedor llega con la respuesta.
+  const leido = datos?.filtro.tercero;
+  const terceroVisto = form.tercero && !form.tercero.nombre && leido?.id === form.tercero.id ? leido : form.tercero;
+  const antiguos = datos?.movimientosAntiguos ?? 0;
+  const desdeN = datos ? (datos.pagina - 1) * datos.porPagina + 1 : 0;
+  const hastaN = datos ? Math.min(datos.pagina * datos.porPagina, datos.totales.apuntes) : 0;
+
   return (
-    <div>
-      <header className="sticky top-0 z-40 h-16 bg-white border-b border-slate-200">
-        <div className="max-w-6xl mx-auto px-4 md:px-8 h-full flex items-center justify-between">
-          <h1 className="font-semibold text-slate-900">Movimientos</h1>
-        </div>
-      </header>
-
-      <main className="max-w-6xl mx-auto px-4 md:px-8 py-8 flex flex-col gap-6">
-        {/* Solo consulta: ya no se anotan movimientos a mano y el Resumen sale de las facturas y las nóminas. */}
-        <div role="note" className="flex items-start gap-2 rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
-          <Info size={18} className="mt-0.5 shrink-0 text-slate-400" aria-hidden="true" />
-          <div className="min-w-0">
-            <p>
-              Aquí solo se consultan los movimientos que se anotaron a mano. Ya no se crean: registra la venta o el gasto como factura. Estos
-              movimientos tampoco cuentan en el{' '}
-              <Link href="/dashboard" className="font-medium underline hover:no-underline">
-                Resumen
-              </Link>
-              .
-            </p>
-            {(altas.venta || altas.gasto) && (
-              <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
-                {altas.venta && (
-                  <Link href="/dashboard/facturas/nueva" className="inline-flex min-h-[44px] items-center font-medium text-accent-600 underline hover:no-underline sm:min-h-0">
-                    Nueva factura de venta
-                  </Link>
-                )}
-                {altas.gasto && (
-                  <Link href="/dashboard/compras/nueva" className="inline-flex min-h-[44px] items-center font-medium text-accent-600 underline hover:no-underline sm:min-h-0">
-                    Nueva factura de gasto
-                  </Link>
-                )}
-              </p>
-            )}
+    <MargenPagina>
+      <div className="space-y-6">
+        <div>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold text-slate-900 sm:text-3xl">Movimientos</h1>
+            <Tooltip text="Cada cargo y abono de los asientos, por fecha. Salen los asientos aprobados y los que están en borrador (marcados); los anulados no salen. Los asientos se crean al contabilizar facturas, cobros, pagos o nóminas." />
           </div>
+          <p className="mt-2 text-slate-600">Apuntes de los asientos: cada cargo y abono de la contabilidad, con filtros y descarga.</p>
+          {antiguos > 0 && (
+            <p className="mt-1 text-sm text-slate-500">
+              <Link href="/dashboard/movimientos/antiguos" className="inline-flex min-h-[44px] items-center underline hover:text-slate-700 lg:min-h-0">
+                Movimientos antiguos ({antiguos === 1 ? '1 anotado a mano' : `${miles(antiguos)} anotados a mano`})
+              </Link>
+            </p>
+          )}
         </div>
 
-        {/* Barra de filtros */}
-        <section className="rounded-xl bg-white border border-slate-200 p-4">
-          <div className="flex items-center gap-2 mb-3 text-sm font-semibold text-slate-900">
-            <FunnelSimple size={18} className="text-accent-600" />
-            Filtros
-            {hasFilters && (
+        {/* Filtros */}
+        <form
+          role="search"
+          aria-label="Filtros de los apuntes"
+          onSubmit={(e) => {
+            e.preventDefault();
+            aplicar(form);
+          }}
+          className="space-y-3 rounded-lg border border-slate-200 bg-white p-4"
+        >
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 xl:grid-cols-6">
+            <SelectorAnio
+              id="mov-anio"
+              etiqueta="Año"
+              valor={form.ejercicio}
+              anios={anios.anios([form.ejercicio])}
+              onChange={(a) => {
+                // Al cambiar de año, unas fechas del otro año ya no valen.
+                if (a !== null) cambiarYAplicar({ ejercicio: a, desde: '', hasta: '' });
+              }}
+              className={CAMPO}
+              claseEtiqueta={ETIQUETA}
+            />
+            <div>
+              <label htmlFor="mov-periodo" className={ETIQUETA}>
+                Periodo
+              </label>
+              <select id="mov-periodo" value={form.periodo} onChange={(e) => cambiarYAplicar({ periodo: e.target.value, desde: '', hasta: '' })} className={CAMPO}>
+                <option value="">Todo el año</option>
+                {PERIODOS.map((g) => (
+                  <optgroup key={g.grupo} label={g.grupo}>
+                    {g.opciones.map((o) => (
+                      <option key={o.valor} value={o.valor}>
+                        {o.texto}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+            </div>
+            <div id="mov-mas-filtros" className={masFiltros ? 'contents' : 'hidden lg:contents'}>
+              <div>
+                <label htmlFor="mov-desde" className={ETIQUETA}>
+                  Desde
+                </label>
+                <input id="mov-desde" type="date" min={rango.desde} max={rango.hasta} value={form.desde} onChange={(e) => setForm({ ...form, desde: e.target.value })} className={CAMPO} />
+              </div>
+              <div>
+                <label htmlFor="mov-hasta" className={ETIQUETA}>
+                  Hasta
+                </label>
+                <input id="mov-hasta" type="date" min={form.desde || rango.desde} max={rango.hasta} value={form.hasta} onChange={(e) => setForm({ ...form, hasta: e.target.value })} className={CAMPO} />
+              </div>
+              <div>
+                <label htmlFor="mov-cuenta" className={ETIQUETA}>
+                  Cuenta
+                </label>
+                <BuscadorCuenta id="mov-cuenta" valor={form.cuenta} onCambiar={(v) => setForm((f) => ({ ...f, cuenta: v }))} placeholder="572 o banco" />
+              </div>
+              <div>
+                <label htmlFor="mov-estado" className={ETIQUETA}>
+                  Estado
+                </label>
+                <select id="mov-estado" value={form.estado} onChange={(e) => cambiarYAplicar({ estado: e.target.value as EstadoFiltro })} className={CAMPO}>
+                  <option value="todos">Todos</option>
+                  <option value="aprobados">Solo aprobados</option>
+                  <option value="borradores">Solo borradores</option>
+                </select>
+              </div>
+              <div className="col-span-2">
+                <label htmlFor="mov-tercero" className={ETIQUETA}>
+                  Cliente o proveedor
+                </label>
+                <BuscadorTercero id="mov-tercero" elegido={terceroVisto} onElegir={(t) => cambiarYAplicar({ tercero: t })} />
+              </div>
+              <div className="col-span-2">
+                <label htmlFor="mov-texto" className={ETIQUETA}>
+                  Texto
+                </label>
+                <div className="relative">
+                  <MagnifyingGlass size={16} className="pointer-events-none absolute left-3 top-1/2 mt-0.5 -translate-y-1/2 text-slate-400" aria-hidden />
+                  <input
+                    id="mov-texto"
+                    type="search"
+                    value={form.texto}
+                    maxLength={100}
+                    onChange={(e) => setForm({ ...form, texto: e.target.value })}
+                    placeholder="Concepto, asiento o factura"
+                    className={`${CAMPO} pl-9`}
+                  />
+                </div>
+              </div>
+              <div>
+                <label htmlFor="mov-min" className={ETIQUETA}>
+                  Importe desde
+                </label>
+                <input
+                  id="mov-min"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  value={form.importeMin}
+                  onChange={(e) => setForm({ ...form, importeMin: e.target.value })}
+                  placeholder="0,00"
+                  aria-invalid={!!errorImporte.min}
+                  aria-describedby={errorImporte.min ? 'mov-min-error' : undefined}
+                  className={`${CAMPO} text-right font-mono ${errorImporte.min ? 'border-red-500 bg-red-50' : ''}`}
+                />
+                {errorImporte.min && (
+                  <p id="mov-min-error" className="mt-1 text-xs text-red-700">
+                    {errorImporte.min}
+                  </p>
+                )}
+              </div>
+              <div>
+                <label htmlFor="mov-max" className={ETIQUETA}>
+                  Importe hasta
+                </label>
+                <input
+                  id="mov-max"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  value={form.importeMax}
+                  onChange={(e) => setForm({ ...form, importeMax: e.target.value })}
+                  placeholder="Sin límite"
+                  aria-invalid={!!errorImporte.max}
+                  aria-describedby={errorImporte.max ? 'mov-max-error' : undefined}
+                  className={`${CAMPO} text-right font-mono ${errorImporte.max ? 'border-red-500 bg-red-50' : ''}`}
+                />
+                {errorImporte.max && (
+                  <p id="mov-max-error" className="mt-1 text-xs text-red-700">
+                    {errorImporte.max}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            aria-expanded={masFiltros}
+            aria-controls="mov-mas-filtros"
+            onClick={() => setMasFiltros((v) => !v)}
+            className="flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 lg:hidden"
+          >
+            <FunnelSimple size={16} aria-hidden />
+            {masFiltros ? 'Menos filtros' : 'Más filtros'}
+            {!masFiltros && filtrosActivos(form) > 0 && <span className="text-slate-500">({filtrosActivos(form)} puesto{filtrosActivos(form) === 1 ? '' : 's'})</span>}
+          </button>
+
+          <div className="flex flex-col gap-2 border-t border-slate-100 pt-3 lg:flex-row lg:flex-wrap lg:items-center">
+            <button type="submit" className="flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-accent-600 px-4 py-2 text-sm font-medium text-white hover:bg-accent-700 lg:min-h-0">
+              <MagnifyingGlass size={16} aria-hidden /> Buscar
+            </button>
+            {hayFiltros(form) && (
               <button
-                onClick={clearFilters}
-                className="ml-auto inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-900 transition-colors"
+                type="button"
+                onClick={quitarFiltros}
+                className="flex min-h-[44px] items-center justify-center gap-1.5 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 lg:min-h-0"
               >
-                <X size={13} /> Limpiar filtros
+                <X size={14} aria-hidden /> Quitar filtros
               </button>
             )}
-          </div>
-
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="f-type" className="text-xs font-medium text-slate-500">
-                Tipo
-              </label>
-              <select
-                id="f-type"
-                value={type}
-                onChange={(e) => setType(e.target.value)}
-                className={selectClass}
+            <p className="text-xs text-slate-500 lg:flex-1">El año, el periodo, el estado y el cliente o proveedor se aplican al elegirlos; lo escrito, al pulsar Buscar.</p>
+            <div className="grid grid-cols-2 gap-2 lg:flex">
+              <button
+                type="button"
+                disabled={!puedeDescargar}
+                onClick={() => descargar('pdf')}
+                className="flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 lg:min-h-0"
               >
-                <option value="">Todos</option>
-                <option value="income">Ingresos</option>
-                <option value="expense">Gastos</option>
-              </select>
-            </div>
-
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="f-cat" className="text-xs font-medium text-slate-500">
-                Categoría
-              </label>
-              <select
-                id="f-cat"
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                className={selectClass}
+                <FilePdf size={16} aria-hidden /> {descargando === 'pdf' ? 'Preparando…' : 'PDF'}
+              </button>
+              <button
+                type="button"
+                disabled={!puedeDescargar}
+                onClick={() => descargar('xlsx')}
+                className="flex min-h-[44px] items-center justify-center gap-2 rounded-lg border border-emerald-600 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 lg:min-h-0"
               >
-                <option value="">Todas</option>
-                {CATEGORIES.map((c) => (
-                  <option key={c.value} value={c.value}>
-                    {c.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="f-status" className="text-xs font-medium text-slate-500">
-                Estado
-              </label>
-              <select
-                id="f-status"
-                value={status}
-                onChange={(e) => setStatus(e.target.value)}
-                className={selectClass}
-              >
-                <option value="">Todos</option>
-                {STATUSES.map((s) => (
-                  <option key={s.value} value={s.value}>
-                    {s.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="f-from" className="text-xs font-medium text-slate-500">
-                Desde
-              </label>
-              <input
-                id="f-from"
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className={selectClass}
-              />
-            </div>
-
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="f-to" className="text-xs font-medium text-slate-500">
-                Hasta
-              </label>
-              <input
-                id="f-to"
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className={selectClass}
-              />
+                <FileXls size={16} aria-hidden /> {descargando === 'xlsx' ? 'Preparando…' : 'Excel'}
+              </button>
             </div>
           </div>
-        </section>
+        </form>
+
+        {errorDescarga && (
+          <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            {errorDescarga}
+          </p>
+        )}
 
         {error && (
-          <div className="rounded-xl border border-rose-200 bg-rose-50 text-rose-700 p-4 text-sm">
-            {error}
+          <div role="alert" className="flex flex-col gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 sm:flex-row sm:items-center sm:justify-between">
+            <span>No se han podido cargar los apuntes: {error}</span>
+            <button
+              type="button"
+              onClick={() => setReintento((n) => n + 1)}
+              className="inline-flex min-h-[44px] items-center justify-center gap-1.5 self-start rounded-lg border border-red-200 bg-white px-3 py-1.5 font-medium text-red-700 hover:bg-red-50 lg:min-h-0"
+            >
+              <ArrowClockwise size={14} aria-hidden /> Reintentar
+            </button>
           </div>
         )}
 
-        {/* Totales del filtro */}
-        <section className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="rounded-xl bg-white border border-slate-200 p-4">
-            <p className="text-sm text-slate-500 mb-1">Ingresos filtrados</p>
-            <p className="text-xl font-semibold font-mono text-emerald-700">
-              {eur(totals.income)}
-            </p>
-          </div>
-          <div className="rounded-xl bg-white border border-slate-200 p-4">
-            <p className="text-sm text-slate-500 mb-1">Gastos filtrados</p>
-            <p className="text-xl font-semibold font-mono text-rose-600">
-              {eur(totals.expense)}
-            </p>
-          </div>
-          <div className="rounded-xl bg-white border border-emerald-300 p-4">
-            <p className="text-sm text-slate-500 mb-1">Neto</p>
-            <p className="text-xl font-semibold font-mono text-slate-900">
-              {eur(totals.net)}
-            </p>
-          </div>
-        </section>
+        {/* Totales del filtro (de todas las páginas) */}
+        {totales && hayApuntes && (
+          <section aria-label="Totales del filtro">
+            {/* En el móvil y la tableta, una fila por total (etiqueta a la izquierda, cifra a la derecha); desde 1024 px, tres tarjetas. */}
+            <dl className="grid grid-cols-1 gap-2 lg:grid-cols-3 lg:gap-3">
+              <div className="flex items-baseline justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 lg:block lg:p-4">
+                <dt className="text-sm text-slate-500">Debe</dt>
+                <dd className="font-mono text-lg font-semibold tabular-nums text-slate-900 lg:text-xl">{euros(totales.debe)}</dd>
+              </div>
+              <div className="flex items-baseline justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 lg:block lg:p-4">
+                <dt className="text-sm text-slate-500">Haber</dt>
+                <dd className="font-mono text-lg font-semibold tabular-nums text-slate-900 lg:text-xl">{euros(totales.haber)}</dd>
+              </div>
+              <div className="flex items-baseline justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 lg:block lg:p-4">
+                <dt className="text-sm text-slate-600">Diferencia (Debe − Haber)</dt>
+                <dd className="text-right lg:text-left">
+                  <span className="block font-mono text-lg font-semibold tabular-nums text-slate-900 lg:text-xl">{euros(totales.diferencia)}</span>
+                  <span className="block text-xs text-slate-600">
+                    {totales.diferencia > 0 ? 'Saldo deudor' : totales.diferencia < 0 ? 'Saldo acreedor' : conFiltros ? 'Sin saldo' : 'Cuadra'}
+                  </span>
+                </dd>
+              </div>
+            </dl>
+          </section>
+        )}
 
-        {/* Tabla */}
-        <section className="rounded-xl bg-white border border-slate-200 overflow-hidden">
-          <div className="flex items-center justify-between px-6 pt-5 pb-3">
-            <h2 className="text-base font-semibold text-slate-900">
-              Resultados
+        <section ref={resultados} aria-labelledby="mov-resultados" aria-busy={cargando} className={`scroll-mt-4 space-y-3 ${error && !datos && !cargando ? 'hidden' : ''}`}>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 id="mov-resultados" className="text-lg font-semibold text-slate-900">
+              Apuntes
             </h2>
-            <span className="text-sm text-slate-500">
-              {loading ? 'Cargando...' : `${filtered.length} movimientos`}
-            </span>
+            <p aria-live="polite" className="text-sm text-slate-500">
+              {cargando && !datos
+                ? 'Cargando apuntes…'
+                : totales && hayApuntes
+                  ? `${miles(desdeN)}-${miles(hastaN)} de ${miles(totales.apuntes)} ${totales.apuntes === 1 ? 'apunte' : 'apuntes'}${totales.enBorrador ? ` · ${miles(totales.enBorrador)} en borrador` : ''}${cargando ? ' · actualizando…' : ''}`
+                  : ''}
+            </p>
           </div>
 
-          {loading ? (
-            <div className="h-64 mx-6 mb-6 animate-pulse bg-slate-100 rounded-lg" />
-          ) : filtered.length === 0 && !hasFilters ? (
-            <div className="px-6 pb-10 pt-4 text-center">
-              <p className="text-slate-600 font-medium">No hay movimientos anotados a mano.</p>
+          {cargando && !datos ? (
+            <div className="space-y-2" aria-hidden>
+              {[0, 1, 2, 3, 4].map((i) => (
+                <div key={i} className="h-12 animate-pulse rounded-lg bg-slate-100" />
+              ))}
             </div>
-          ) : filtered.length === 0 ? (
-            <div className="px-6 pb-10 pt-4 text-center">
-              <p className="text-slate-600 font-medium mb-1">
-                Sin resultados con estos filtros
+          ) : datos && !hayApuntes ? (
+            <EstadoVacio filtros={aplicados} conFiltros={conFiltros} onQuitar={quitarFiltros} />
+          ) : datos ? (
+            <>
+              <TablaApuntes apuntes={datos.apuntes} atenuada={cargando} />
+              <ListaApuntes apuntes={datos.apuntes} atenuada={cargando} />
+              {datos.paginas > 1 && (
+                <nav aria-label="Páginas de apuntes" className="flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    disabled={datos.pagina <= 1 || cargando}
+                    onClick={() => irAPagina(datos.pagina - 1)}
+                    className="flex min-h-[44px] items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    <CaretLeft size={14} aria-hidden /> Anterior
+                  </button>
+                  <span className="text-sm text-slate-600">
+                    Página {miles(datos.pagina)} de {miles(datos.paginas)}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={datos.pagina >= datos.paginas || cargando}
+                    onClick={() => irAPagina(datos.pagina + 1)}
+                    className="flex min-h-[44px] items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    Siguiente <CaretRight size={14} aria-hidden />
+                  </button>
+                </nav>
+              )}
+              <p className="text-xs text-slate-500">
+                Por fecha de asiento. Los asientos en borrador aún no cuentan en el mayor ni en los informes: se aprueban en el Motor contable. Pulsa el número de
+                asiento para verlo y el documento para abrir la factura, el cobro o la nómina.
               </p>
-              <p className="text-sm text-slate-500 mb-4">
-                Prueba a ampliar el rango de fechas o quitar algún filtro.
-              </p>
-              <button
-                onClick={clearFilters}
-                className="text-sm font-semibold text-accent-600 hover:text-accent-700"
-              >
-                Limpiar filtros
-              </button>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-xs uppercase tracking-wide text-slate-500 border-y border-slate-200 bg-slate-50">
-                    <th className="px-6 py-3 font-medium">Fecha</th>
-                    <th className="px-6 py-3 font-medium">Descripción</th>
-                    <th className="px-6 py-3 font-medium">Categoría</th>
-                    <th className="px-6 py-3 font-medium">Documento</th>
-                    <th className="px-6 py-3 font-medium">Estado</th>
-                    <th className="px-6 py-3 font-medium text-right">Importe</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((m) => (
-                    <tr
-                      key={m.id}
-                      className="border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors"
-                    >
-                      <td className="px-6 py-3 text-slate-600 whitespace-nowrap">
-                        {new Date(m.date).toLocaleDateString('es-ES')}
-                      </td>
-                      <td className="px-6 py-3 text-slate-900 font-medium">
-                        {m.description}
-                      </td>
-                      <td className="px-6 py-3 text-slate-600 capitalize">
-                        {m.category}
-                      </td>
-                      <td className="px-6 py-3 font-mono text-slate-500">
-                        {m.referenceDocument ?? '-'}
-                      </td>
-                      <td className="px-6 py-3">
-                        <span
-                          className={`inline-block text-xs font-medium border rounded-full px-2.5 py-0.5 ${
-                            statusStyles[m.status] ?? statusStyles.draft
-                          }`}
-                        >
-                          {statusLabels[m.status] ?? m.status}
-                        </span>
-                      </td>
-                      <td
-                        className={`px-6 py-3 text-right font-mono font-medium whitespace-nowrap ${
-                          m.type === 'income'
-                            ? 'text-emerald-700'
-                            : 'text-rose-600'
-                        }`}
-                      >
-                        {m.type === 'income' ? '+' : '-'}
-                        {eur(Number(m.amount))}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+            </>
+          ) : null}
         </section>
-      </main>
+      </div>
+    </MargenPagina>
+  );
+}
+
+function EstadoVacio({ filtros, conFiltros, onQuitar }: { filtros: FiltrosApuntes; conFiltros: boolean; onQuitar: () => void }) {
+  if (conFiltros) {
+    return (
+      <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center">
+        <p className="font-medium text-slate-700">Ningún apunte coincide con estos filtros en {textoPeriodo(filtros.ejercicio, filtros.periodo)}.</p>
+        <p className="mt-1 text-sm text-slate-500">Prueba con otra cuenta, otro texto o un periodo más amplio.</p>
+        <button type="button" onClick={onQuitar} className="mt-3 inline-flex min-h-[44px] items-center text-sm font-semibold text-accent-600 hover:text-accent-700">
+          Quitar filtros
+        </button>
+      </div>
+    );
+  }
+  const cuando = filtros.periodo ? textoPeriodo(filtros.ejercicio, filtros.periodo) : String(filtros.ejercicio);
+  return (
+    <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center">
+      <p className="font-medium text-slate-700">Todavía no hay asientos en {cuando}.</p>
+      <p className="mt-1 text-sm text-slate-500">Se crean al contabilizar facturas, cobros o nóminas.</p>
     </div>
+  );
+}
+
+/** Insignia de un asiento que aún no está aprobado. */
+function Borrador() {
+  return <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">Borrador</span>;
+}
+
+/** Documento de origen (con su enlace si lo tiene) y cliente o proveedor. */
+function OrigenApunte({ a }: { a: Apunte }) {
+  if (!a.documento && !a.tercero) return null;
+  return (
+    <span className="text-xs text-slate-500">
+      {a.documento &&
+        (a.documento.enlace ? (
+          <Link href={a.documento.enlace} className="font-medium text-blue-600 hover:underline">
+            {a.documento.texto}
+          </Link>
+        ) : (
+          a.documento.texto
+        ))}
+      {a.documento && a.tercero && ' · '}
+      {a.tercero && <span>{a.tercero.nombre || (a.tercero.tipo === 'cliente' ? 'Cliente' : 'Proveedor')}</span>}
+    </span>
+  );
+}
+
+const enlaceAsiento = (a: Apunte) => (
+  <Link href={a.enlaceAsiento} className="whitespace-nowrap font-mono text-blue-600 hover:underline" aria-label={`Ver el asiento ${a.asiento}${a.estado === 'BORRADOR' ? ' (en borrador)' : ''}`}>
+    {a.asiento}
+  </Link>
+);
+
+/** Escritorio (1024 px o más): tabla. */
+function TablaApuntes({ apuntes, atenuada }: { apuntes: Apunte[]; atenuada: boolean }) {
+  return (
+    <div className={`hidden overflow-x-auto rounded-lg border border-slate-200 bg-white lg:block ${atenuada ? 'opacity-60' : ''}`}>
+      <table className="w-full min-w-[760px] text-sm">
+        <caption className="sr-only">Apuntes de los asientos: fecha, asiento, cuenta, concepto con su documento y su cliente o proveedor, Debe y Haber.</caption>
+        <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+          <tr>
+            <th scope="col" className="px-3 py-3 font-medium">Fecha</th>
+            <th scope="col" className="px-3 py-3 font-medium">Asiento</th>
+            <th scope="col" className="px-3 py-3 font-medium">Cuenta</th>
+            <th scope="col" className="px-3 py-3 font-medium">Concepto</th>
+            <th scope="col" className="px-3 py-3 text-right font-medium">Debe</th>
+            <th scope="col" className="px-3 py-3 text-right font-medium">Haber</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {apuntes.map((a) => (
+            <tr key={a.id} className={`align-top ${a.estado === 'BORRADOR' ? 'bg-amber-50' : ''}`}>
+              <td className="whitespace-nowrap px-3 py-2 tabular-nums text-slate-600">{fecha(a.fecha)}</td>
+              <td className="px-3 py-2">
+                <div className="flex flex-col items-start gap-1">
+                  {enlaceAsiento(a)}
+                  {a.estado === 'BORRADOR' && <Borrador />}
+                </div>
+              </td>
+              <td className="max-w-[220px] px-3 py-2">
+                <div className="font-mono text-slate-900">{a.cuenta}</div>
+                {a.nombreCuenta && <div className="truncate text-xs text-slate-500" title={a.nombreCuenta}>{a.nombreCuenta}</div>}
+              </td>
+              <td className="px-3 py-2">
+                <div className="text-slate-900">{a.concepto}</div>
+                <OrigenApunte a={a} />
+              </td>
+              <td className="whitespace-nowrap px-3 py-2 text-right font-mono tabular-nums text-slate-900">{a.debe ? importe(a.debe) : ''}</td>
+              <td className="whitespace-nowrap px-3 py-2 text-right font-mono tabular-nums text-slate-900">{a.haber ? importe(a.haber) : ''}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** Móvil y tableta: una tarjeta por apunte. */
+function ListaApuntes({ apuntes, atenuada }: { apuntes: Apunte[]; atenuada: boolean }) {
+  return (
+    <ul className={`space-y-2 lg:hidden ${atenuada ? 'opacity-60' : ''}`}>
+      {apuntes.map((a) => (
+        <li key={a.id} className={`rounded-lg border p-3 ${a.estado === 'BORRADOR' ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-white'}`}>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+            <span className="tabular-nums text-slate-600">{fecha(a.fecha)}</span>
+            <span aria-hidden className="text-slate-400">·</span>
+            {enlaceAsiento(a)}
+            {a.estado === 'BORRADOR' && <Borrador />}
+          </div>
+          <div className="mt-1.5 flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-sm text-slate-900">
+                <span className="font-mono">{a.cuenta}</span>
+                {a.nombreCuenta && <span className="text-slate-600"> · {a.nombreCuenta}</span>}
+              </div>
+              <div className="mt-0.5 break-words text-sm text-slate-700">{a.concepto}</div>
+              <OrigenApunte a={a} />
+            </div>
+            <dl className="shrink-0 text-right">
+              {a.debe !== 0 && (
+                <div>
+                  <dt className="text-xs text-slate-500">Debe</dt>
+                  <dd className="font-mono text-base font-semibold tabular-nums text-slate-900">{importe(a.debe)}</dd>
+                </div>
+              )}
+              {a.haber !== 0 && (
+                <div>
+                  <dt className="text-xs text-slate-500">Haber</dt>
+                  <dd className="font-mono text-base font-semibold tabular-nums text-slate-900">{importe(a.haber)}</dd>
+                </div>
+              )}
+            </dl>
+          </div>
+        </li>
+      ))}
+    </ul>
   );
 }
