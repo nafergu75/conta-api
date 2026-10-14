@@ -1160,8 +1160,8 @@ function LineasCeramicaFicha({
                 </td>
                 <td className="px-3 py-2 text-right">{l.calidad || '—'}</td>
                 <td className="px-3 py-2 text-right tabular-nums">{n(l.pesoKg, 3)}</td>
-                <td className="px-3 py-2 text-right font-mono tabular-nums">{precio(l)}</td>
-                {conIva && <td className="px-3 py-2 text-right tabular-nums">{etiquetaIva(l.tipoIva)}</td>}
+                <td className="whitespace-nowrap px-3 py-2 text-right font-mono tabular-nums">{precio(l)}</td>
+                {conIva && <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{etiquetaIva(l.tipoIva)}</td>}
                 <td className="px-4 py-2 text-right font-mono tabular-nums">{fmt(l.baseLineDoc ?? l.baseLine)}</td>
               </tr>
             ))}
