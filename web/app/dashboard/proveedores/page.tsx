@@ -247,9 +247,9 @@ export default function ProveedoresPage() {
                     </p>
                   )}
                   {proveedor.web && (
-                    // Por encima del enlace de la tarjeta: abre la web, no la ficha.
-                    <p className="relative z-10 min-w-0">
-                      <EnlaceWeb web={proveedor.web} className="text-sm" />
+                    // Solo el enlace, por encima del de la tarjeta: abre la web; el hueco de su derecha sigue abriendo la ficha.
+                    <p className="min-w-0">
+                      <EnlaceWeb web={proveedor.web} className="relative z-10 text-sm" />
                     </p>
                   )}
                   {(proveedor.municipio || proveedor.provincia) && (
