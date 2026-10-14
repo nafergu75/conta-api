@@ -5,6 +5,10 @@
  * van por su devengo (la fecha de la operación si la tienen; si no, la de la
  * factura) y una sustitución cuenta su diferencia; los gastos, por la fecha de
  * la factura. Importes sin IVA y en la moneda de cuenta.
+ *
+ * Las compras de inmovilizado (líneas de la cuenta 2xx, todo el grupo 2) no
+ * cuentan como gasto: van aparte (`inmovilizado`). Su IVA sí está en el IVA
+ * soportado del bloque «IVA y retenciones».
  */
 import { nombreTrimestre } from './anios';
 import { PATRON_TRIMESTRE } from './quarters';
@@ -35,15 +39,23 @@ export interface ResumenPanel {
   periodo: PeriodoPanel;
   monedaCuenta: string;
   facturasVenta: number;
+  /** Facturas de gasto que cuentan (sin las que son solo compras de inmovilizado). */
   facturasGasto: number;
-  /** Base de las facturas de gasto (los abonos restan). */
+  /** Base de las facturas de gasto (los abonos restan), sin las compras de inmovilizado. */
   gastoFacturas: number;
+  /**
+   * Compras de inmovilizado (base de las líneas 2xx): no cuentan como gasto. Su IVA sí está en
+   * el IVA soportado. Un servidor anterior no lo manda.
+   */
+  inmovilizado?: number;
+  /** Facturas de gasto con alguna línea de inmovilizado. */
+  facturasInmovilizado?: number;
   /** Coste de las nóminas para la empresa (0 si no se incluyen). */
   gastoPersonal: number;
   nominas: number;
   /** false: quien mira no tiene permiso para ver las nóminas y los gastos van sin ellas. */
   nominasIncluidas: boolean;
-  /** Movimientos de «Nuevo movimiento» de la empresa (de cualquier año): ya no cuentan. */
+  /** Movimientos anotados a mano antes en la empresa (de cualquier año; ya no se crean): no cuentan. */
   movimientosManuales: number;
 }
 
@@ -99,6 +111,7 @@ export interface UltimaFacturaPanel {
   tercero: string;
   terceroId: string;
   description: string;
+  /** «Ventas», el tipo de gasto o «Inmovilizado» (un gasto que es solo compra de inmovilizado). */
   category: string;
   /** Base en la moneda de cuenta (negativa en rectificativas y abonos). */
   base: number;
@@ -130,7 +143,8 @@ export interface ResumenFiscalPanel {
   /** false: empresa no establecida en España (sin IVA ni modelos de la AEAT). */
   empresaEspanola: boolean;
   ventas: TotalesFacturas;
-  gastos: TotalesFacturas;
+  /** Todos los gastos (base e IVA con el inmovilizado) y, aparte, la base del inmovilizado (un servidor anterior no la manda). */
+  gastos: TotalesFacturas & { baseInmovilizado?: number };
   /** Repercutido − soportado (orientativo). */
   ivaResultado: number;
   /** Las que la empresa practica en sus gastos (111/115). */
