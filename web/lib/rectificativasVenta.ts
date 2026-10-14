@@ -161,8 +161,14 @@ export interface LineaOriginalVenta {
   tipoRetencion: number;
   productoServicioId: string | null;
   cuenta: string | null;
+  /** Lleva el IEEPNR (plantilla A): es la base imponible de la línea. */
   baseLine: number;
   ivaImporte: number;
+  /** Plantilla A (un servidor anterior no los manda): packs, kg de plástico, IEEPNR y texto adicional. */
+  packs?: number | null;
+  kgPlastico?: number | null;
+  ieepnrImporte?: number;
+  textoAdicional?: string | null;
 }
 
 /** GET /:id/rectificar. */
@@ -182,6 +188,10 @@ export interface DatosParaRectificarVenta {
     tipoOperacion: string | null;
     causaExencion: string | null;
     referenciaLegal: string | null;
+    /** Plantilla de la factura: la rectificativa sale con la misma (un servidor anterior no la manda). */
+    plantillaId?: string;
+    /** IEEPNR por kg que aplicó (null: sin IEEPNR). La rectificativa usa el mismo. */
+    ieepnrPorKg?: number | null;
     baseTotal: number;
     ivaTotal: number;
     retencionTotal: number;
@@ -536,6 +546,10 @@ export interface LineaPropuesta {
   tipoRetencion: number;
   productoServicioId?: string;
   cuenta?: string;
+  /** Plantilla A: packs y kg de plástico con el signo de la cantidad, y el texto adicional. */
+  packs?: number | null;
+  kgPlastico?: number | null;
+  textoAdicional?: string | null;
   /** Factura de la que sale (para el reparto entre varias). */
   originalId: string;
 }
@@ -545,25 +559,31 @@ export interface LineaPropuesta {
  *  - por diferencias (I): las mismas con la cantidad en negativo (se dejan las
  *    que cambian; un rappel puede ser «1 × -500»);
  *  - por sustitucion (S): la original en positivo, para corregirla.
- * Cada linea lleva la cuenta de la linea original. Una original sustituida
- * propone las de su sustituta (`lineasDe`). Una anulada por completo, en
- * positivo: lo único que admite es deshacer la anulación (otra rectificativa en
- * positivo).
+ * Cada linea lleva la cuenta de la linea original y, en la plantilla A, sus
+ * packs y sus kg de plástico (con el mismo signo que la cantidad) y su texto
+ * adicional. Una original sustituida propone las de su sustituta (`lineasDe`).
+ * Una anulada por completo, en positivo: lo único que admite es deshacer la
+ * anulación (otra rectificativa en positivo).
  */
 export function lineasPropuestas(datos: DatosParaRectificarVenta[], forma: FormaRectificacion): LineaPropuesta[] {
-  return datos.flatMap((d) =>
-    d.lineas.map((l) => ({
+  return datos.flatMap((d) => {
+    const signo = forma === 'I' && !anuladaEntera(d) ? -1 : 1;
+    const conSigno = (n: number | null | undefined) => (n === null || n === undefined ? n : n === 0 ? 0 : signo * n);
+    return d.lineas.map((l) => ({
       descripcion: l.descripcion,
-      cantidad: forma === 'I' && !anuladaEntera(d) ? -l.cantidad : l.cantidad,
+      cantidad: signo * l.cantidad,
       precioUnitario: l.precioUnitario,
       descuentoPorcentaje: l.descuentoPorcentaje ?? 0,
       tipoIva: l.tipoIva,
       tipoRetencion: l.tipoRetencion ?? 0,
       ...(l.productoServicioId ? { productoServicioId: l.productoServicioId } : {}),
       ...(l.cuenta ? { cuenta: l.cuenta } : {}),
+      ...(l.packs !== undefined && l.packs !== null ? { packs: conSigno(l.packs) } : {}),
+      ...(l.kgPlastico !== undefined && l.kgPlastico !== null ? { kgPlastico: conSigno(l.kgPlastico) } : {}),
+      ...(l.textoAdicional ? { textoAdicional: l.textoAdicional } : {}),
       originalId: d.original.id,
-    })),
-  );
+    }));
+  });
 }
 
 const cent = (n: number) => Math.round(n * 100);
@@ -578,15 +598,17 @@ export interface DiferenciaTipo {
 /**
  * Por sustitucion: lo que se registra es la factura corregida menos la
  * original, por tipo de IVA (el asiento, el libro y los modelos toman esto).
+ * `cuotaPorTipo`: el IVA de la plantilla A (el de la original y el de la corregida).
  */
 export function diferenciaSustitucion(
   corregida: LineaCalculo[],
   original: LineaCalculo[],
+  { cuotaPorTipo = false }: { cuotaPorTipo?: boolean } = {},
 ): { porTipo: DiferenciaTipo[]; base: number; cuota: number; retencion: number; total: number } {
   const suma = new Map<number, { base: number; cuota: number }>();
   let ret = 0;
   const anadir = (lineas: LineaCalculo[], signo: 1 | -1) => {
-    lineasDoc(lineas, { simetrico: true }).forEach((imp, i) => {
+    lineasDoc(lineas, { simetrico: true, cuotaPorTipo }).forEach((imp, i) => {
       const t = lineas[i].tipoIva;
       const v = suma.get(t) ?? { base: 0, cuota: 0 };
       suma.set(t, { base: v.base + signo * cent(imp.baseLine), cuota: v.cuota + signo * cent(imp.ivaImporte) });
@@ -604,7 +626,7 @@ export function diferenciaSustitucion(
   return { porTipo, base: deCent(base), cuota: deCent(cuota), retencion: deCent(ret), total: deCent(base + cuota - ret) };
 }
 
-/** Lineas de la original de la app, para calcular la diferencia de una sustitucion. */
+/** Lineas de la original de la app, para calcular la diferencia de una sustitucion (con su IEEPNR, plantilla A). */
 export const lineasCalculoDe = (d: DatosParaRectificarVenta): LineaCalculo[] =>
   d.lineas.map((l) => ({
     cantidad: l.cantidad,
@@ -612,6 +634,7 @@ export const lineasCalculoDe = (d: DatosParaRectificarVenta): LineaCalculo[] =>
     descuentoPorcentaje: l.descuentoPorcentaje ?? 0,
     tipoIva: l.tipoIva,
     tipoRetencion: l.tipoRetencion ?? 0,
+    ...(l.ieepnrImporte ? { ieepnr: l.ieepnrImporte } : {}),
   }));
 
 export interface ParteReparto {
@@ -623,12 +646,16 @@ export interface ParteReparto {
 /**
  * Reparto que sale de las lineas: la parte de cada original es la suma de las
  * lineas que se propusieron desde ella. Las lineas anadidas a mano no son de
- * ninguna: `sinOriginal` dice si hay alguna.
+ * ninguna: `sinOriginal` dice si hay alguna. `cuotaPorTipo`: el IVA de la
+ * plantilla A, para que las partes sumen lo mismo que la rectificativa.
  */
-export function repartoDeLineas(lineas: Array<LineaCalculo & { originalId?: string }>): { porOriginal: Record<string, ParteReparto>; sinOriginal: boolean } {
+export function repartoDeLineas(
+  lineas: Array<LineaCalculo & { originalId?: string }>,
+  { cuotaPorTipo = false }: { cuotaPorTipo?: boolean } = {},
+): { porOriginal: Record<string, ParteReparto>; sinOriginal: boolean } {
   const acc: Record<string, { base: number; cuota: number; retencion: number }> = {};
   let sinOriginal = false;
-  lineasDoc(lineas, { simetrico: true }).forEach((imp, i) => {
+  lineasDoc(lineas, { simetrico: true, cuotaPorTipo }).forEach((imp, i) => {
     const id = lineas[i].originalId;
     if (!id) {
       sinOriginal = true;
