@@ -58,8 +58,8 @@ export interface PlantillaCatalogo {
  *  - 'ieepnr' / 'ceramica': la A o la B, solas en la serie A o B, porque su casilla está marcada;
  *  - 'serieC': la C, sola en la serie C;
  *  - 'sinIeepnr' / 'sinCeramica': la estándar en la serie A o B, porque su casilla está sin marcar;
- *  - 'soloEspana': la estándar, porque la A y la B solo valen en empresas españolas;
- *  - 'estandar': la estándar en las demás series.
+ *  - 'soloEspana': la estándar, porque la A o la B elegida en la serie solo vale en empresas españolas;
+ *  - 'estandar': la estándar en las demás series (en una empresa extranjera, también la A y la B).
  */
 export type MotivoPlantilla = 'elegida' | 'ieepnr' | 'ceramica' | 'serieC' | 'sinIeepnr' | 'sinCeramica' | 'soloEspana' | 'estandar';
 
@@ -93,7 +93,7 @@ export function textoMotivoPlantilla(motivo: MotivoPlantilla | undefined, elegid
       // La casilla que falta se explica aparte (plantillaPorCasilla), con su enlace.
       return 'automática';
     case 'soloEspana':
-      return 'la A y la B solo valen en empresas españolas';
+      return elegida ? 'la A y la B solo valen en empresas españolas' : 'automática';
     case 'estandar':
       return 'automática';
     default:
@@ -103,12 +103,13 @@ export function textoMotivoPlantilla(motivo: MotivoPlantilla | undefined, elegid
 
 /**
  * La serie usa la estándar porque una casilla de Configuración > Facturación
- * está sin marcar: qué plantilla tendría, qué casilla la activa y sus columnas.
- * null si no es el caso.
+ * está sin marcar: qué plantilla tendría, qué casilla la activa y cuándo hay
+ * que marcarla (`cuando`: la casilla dice algo de la empresa, no solo cambia
+ * las columnas). null si no es el caso.
  */
-export function plantillaPorCasilla(motivo: MotivoPlantilla | string | undefined): { plantilla: 'A' | 'B'; casilla: string; que: string; columnas: string } | null {
-  if (motivo === 'sinIeepnr') return { plantilla: 'A', casilla: CASILLA_IEEPNR, que: 'envases e IEEPNR', columnas: COLUMNAS_PLANTILLA_A };
-  if (motivo === 'sinCeramica') return { plantilla: 'B', casilla: CASILLA_CERAMICA, que: 'cerámica', columnas: COLUMNAS_PLANTILLA_B };
+export function plantillaPorCasilla(motivo: MotivoPlantilla | string | undefined): { plantilla: 'A' | 'B'; casilla: string; que: string; cuando: string } | null {
+  if (motivo === 'sinIeepnr') return { plantilla: 'A', casilla: CASILLA_IEEPNR, que: 'envases e IEEPNR', cuando: 'cobras el IEEPNR en tus facturas' };
+  if (motivo === 'sinCeramica') return { plantilla: 'B', casilla: CASILLA_CERAMICA, que: 'cerámica', cuando: 'vendes cerámica o materiales de construcción' };
   return null;
 }
 
