@@ -11,14 +11,15 @@ function EnOtraPestana({ href, children }: { href: string; children: ReactNode }
     <>
       <a href={href} target="_blank" rel="noopener noreferrer" className="font-medium underline underline-offset-2">
         {children}
+        <span className="sr-only"> (se abre en otra pestaña)</span>
       </a>{' '}
-      (en otra pestaña)
+      <span aria-hidden="true">(en otra pestaña)</span>
     </>
   );
 }
 
 const boton =
-  'inline-flex items-center rounded-lg border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-800 hover:bg-red-50 disabled:opacity-50';
+  'inline-flex items-center rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-800 hover:bg-red-50 disabled:opacity-50';
 
 interface Props {
   error: ErrorVerifactu;
@@ -87,7 +88,18 @@ export default function AvisoErrorVerifactu({
         )}
         {error.arreglo === 'serie' && (
           <p>
-            Elige otra serie en la factura o <EnOtraPestana href="/dashboard/configuracion/series">crea una en Configuración &gt; Series</EnOtraPestana>.
+            {/* En la ficha del borrador no hay serie que elegir: se cambia al editarlo. */}
+            {!onSimplificada && hrefEditar ? (
+              <>
+                <Link href={hrefEditar} className="font-medium underline underline-offset-2">
+                  Edita el borrador
+                </Link>{' '}
+                y elige otra serie
+              </>
+            ) : (
+              'Elige otra serie en la factura'
+            )}{' '}
+            o <EnOtraPestana href="/dashboard/configuracion/series">crea una en Configuración &gt; Series</EnOtraPestana>.
           </p>
         )}
         {error.arreglo === 'reintentar' && onReintentar && (
