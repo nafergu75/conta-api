@@ -134,6 +134,10 @@ export interface AjustesFacturacion {
    */
   cuentaPalets?: string | null;
   imagenesPlantillaB?: { marca: boolean; sello: boolean };
+  /** Plantilla B: la empresa vende cerámica, así que su serie B usa sola la plantilla B. Un servidor anterior no lo manda. */
+  vendeCeramica?: boolean;
+  /** Plantilla B: por qué la cuenta del cargo de palets ya no vale (desactivada o fuera del plan); null si vale. */
+  cuentaPaletsProblema?: string | null;
   guardado: boolean;
   empresaEspanola: boolean;
   monedaCuenta: string;

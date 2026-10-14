@@ -28,8 +28,9 @@ import ImagenPlantilla from '@/components/configuracion/ImagenPlantilla';
  * españolas): si se repercute, a cuánto el kg y, solo si la empresa fuera
  * contribuyente, la cuenta a la que va. Cada factura guarda el tipo con que se
  * hizo: cambiarlo no cambia las emitidas.
- * Plantilla B (cerámica; solo empresas españolas): la cuenta de ingresos del
- * cargo de palets de madera, el logo de la marca y el sello de la empresa.
+ * Plantilla B (cerámica; solo empresas españolas): si la empresa vende
+ * cerámica (entonces su serie B usa sola la plantilla B), la cuenta de
+ * ingresos del cargo de palets de madera, el logo de la marca y el sello.
  * Ver: ventas:read o contabilidad:read; cambiar: ventas:write.
  */
 
@@ -48,6 +49,7 @@ interface Formulario {
   ieepnrPorKg: string;
   ieepnrCuenta: string; // '' = la de ingresos de cada linea
   cuentaPalets: string; // '' = la de ventas
+  vendeCeramica: boolean;
 }
 
 type Campo = keyof Formulario;
@@ -63,6 +65,7 @@ const aFormulario = (a: AjustesFacturacion): Formulario => ({
   ieepnrPorKg: String(a.ieepnrPorKg ?? 0.45).replace('.', ','),
   ieepnrCuenta: a.ieepnrCuenta ?? '',
   cuentaPalets: a.cuentaPalets ?? '',
+  vendeCeramica: a.vendeCeramica === true,
 });
 
 /** € por kg escrito a mano ('0,45' o '0.45'): NaN si no es un número con 4 decimales como mucho. */
@@ -89,6 +92,8 @@ export default function FacturacionPage() {
   const conIeepnr = !!ajustes?.empresaEspanola && ajustes.ieepnrRepercute !== undefined;
   // Plantilla B (cerámica): también solo en España y con un servidor que la tenga.
   const conPlantillaB = !!ajustes?.empresaEspanola && ajustes.imagenesPlantillaB !== undefined;
+  // La casilla «Vendo cerámica», solo si el servidor la conoce (si no, rechazaría el cambio entero).
+  const conVendeCeramica = conPlantillaB && ajustes?.vendeCeramica !== undefined;
 
   useEffect(() => {
     if (!listo || !ver) return;
@@ -143,6 +148,7 @@ export default function FacturacionPage() {
           // Solo si el servidor los conoce (si no, rechazaría el cambio entero).
           ...(conIeepnr ? { ieepnrRepercute: form.ieepnrRepercute, ieepnrPorKg: tipoIeepnr, ieepnrCuenta: cuentaIeepnr || null } : {}),
           ...(conPlantillaB ? { cuentaPalets: cuentaPalets || null } : {}),
+          ...(conVendeCeramica ? { vendeCeramica: form.vendeCeramica } : {}),
         }),
       });
       setAjustes(a);
@@ -455,9 +461,30 @@ export default function FacturacionPage() {
                   Plantilla B (cerámica)
                 </h2>
                 <p className="mt-1 text-sm text-slate-600">
-                  Solo en las series con la plantilla B. La serie B la usa sola, salvo que le hayas elegido otra en Configuración &gt; Series.
+                  {conVendeCeramica
+                    ? 'La factura de cerámica, como la NZ013_2026. La cuenta de los palets, el logo de la marca y el sello solo cuentan en las series con la plantilla B.'
+                    : 'Solo en las series con la plantilla B. La serie B la usa sola, salvo que le hayas elegido otra en Configuración > Series.'}
                 </p>
               </div>
+              {conVendeCeramica && (
+                <label className="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    checked={form.vendeCeramica}
+                    onChange={(e) => cambiar('vendeCeramica', e.target.checked)}
+                    disabled={off}
+                    aria-describedby="vendeCeramica-ayuda"
+                    className="mt-1 h-4 w-4 accent-emerald-600"
+                  />
+                  <span className="text-sm">
+                    <span className="font-medium text-slate-900">Vendo cerámica y materiales de construcción</span>
+                    <span id="vendeCeramica-ayuda" className="block text-slate-600">
+                      Si lo marcas, la serie B pasa a usar la plantilla B (cerámica), salvo que le hayas elegido otra en Configuración &gt; Series. Si no lo marcas, la
+                      serie B sigue con la estándar: descuento por línea, el IVA de siempre y el PDF de siempre. En cualquier serie puedes elegir la plantilla B a mano.
+                    </span>
+                  </span>
+                </label>
+              )}
               <div className="max-w-xs">
                 <label htmlFor="cuentaPalets" className="block text-sm font-medium text-slate-700">
                   Cuenta del cargo de palets
@@ -478,6 +505,11 @@ export default function FacturacionPage() {
                 {errores.cuentaPalets ??
                   'La cuenta de ingresos de los palets de madera que se cobran en la factura, por ejemplo la 704 (ventas de envases y embalajes). Vacía, van a la de ventas. Se pone en la línea del cargo al guardar la factura, y en cada factura se puede cambiar.'}
               </p>
+              {!errores.cuentaPalets && ajustes.cuentaPaletsProblema && ajustes.cuentaPalets && form.cuentaPalets.replace(/[\s.]/g, '') === ajustes.cuentaPalets && (
+                <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  {ajustes.cuentaPaletsProblema} Mientras no la cambies (o la vuelvas a activar en el plan contable), el cargo de palets va a la cuenta de ventas de siempre.
+                </p>
+              )}
               <ImagenPlantilla
                 tipo="marca"
                 titulo="Logo de la marca"
