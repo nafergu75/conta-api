@@ -42,6 +42,8 @@ import {
   ingresoEfectivo,
   lineaVacia,
   marcasDeLaLectura,
+  noSeRellenaAMano,
+  sinArregloAlCorregir,
   validacionesDe,
   validacionesVigentes,
   valoresCorregidos,
@@ -539,7 +541,9 @@ export default function LectorIngresosPage() {
       else setErrorGuardar('No se ha registrado. La lectura sigue aquí: puedes revisarla y volver a intentarlo.');
     } catch (err) {
       setErrorGuardar(errorMessage(err));
-      const campoErr = campoDelError(err);
+      // Un periodo cerrado o bloqueado (o un año de la gestoría) con la fecha corregida: el error va junto a la fecha.
+      const motivoErr = err instanceof ApiError && err.detalles && typeof err.detalles === 'object' ? String((err.detalles as { motivo?: unknown }).motivo ?? '') : '';
+      const campoErr = campoDelError(err) ?? (corr && cambios(corr.leido, corr.estado).fechaEmision && /^(periodo_|ejercicio_|llevanza_)/.test(motivoErr) ? 'correcciones.fechaEmision' : undefined);
       // Lo que el servidor ve en lo corregido: cada validación en su dato y el error junto a su campo.
       const validaciones = validacionesDe(err instanceof ApiError ? err.detalles : undefined);
       if (validaciones.length) setValidacionesServidor({ lista: validaciones, enviado });
@@ -602,6 +606,8 @@ export default function LectorIngresosPage() {
     corr && infoBase ? Object.fromEntries(Object.entries(valoresCorregidos(infoBase, corr.leido, corr.estado)).filter(([id]) => !conAvisoServidor.has(id))) : {};
   const faltaRevision = !!infoPanel?.requiereRevision && !revisado;
   const muyIncompleta = !!info && !aMano && esMuyIncompleta(info);
+  // Con un error que no se corrige aquí o con un QR VERI*FACTU, no se empieza de cero (el servidor tampoco lo deja).
+  const puedeEmpezarDeCero = muyIncompleta && !!info && !noSeRellenaAMano(info);
   const anuncio = leyendo
     ? segundos < 10
       ? 'Leyendo la factura. Tarda unos segundos.'
@@ -840,6 +846,7 @@ export default function LectorIngresosPage() {
                 onRevisado={setRevisado}
                 conCasilla={!bloqueada}
                 editable={!!corr}
+                sinArreglo={corr ? sinArregloAlCorregir(infoPanel ?? info) : []}
                 corregidos={corregidos}
               />
 
@@ -847,19 +854,22 @@ export default function LectorIngresosPage() {
               {muyIncompleta && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
                   <p>
-                    La lectura ha salido muy incompleta. Completa abajo lo que falta o, si te resulta más fácil, empieza de cero y escribe tú todos los datos mirando el
-                    archivo.
+                    {puedeEmpezarDeCero
+                      ? 'La lectura ha salido muy incompleta. Completa abajo lo que falta o, si te resulta más fácil, empieza de cero y escribe tú todos los datos mirando el archivo.'
+                      : 'La lectura ha salido muy incompleta: completa abajo lo que falta.'}
                   </p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (window.confirm('Se quita todo lo leído y se abre el formulario vacío, con el archivo que has subido. ¿Seguir?')) void pasarAMano(info.lecturaId);
-                    }}
-                    disabled={pasandoAMano || guardando}
-                    className="mt-2 inline-flex min-h-[44px] items-center gap-1.5 font-semibold text-amber-900 underline hover:no-underline disabled:opacity-60 sm:min-h-0"
-                  >
-                    <PencilSimple size={16} aria-hidden="true" /> {pasandoAMano ? 'Abriendo…' : 'Rellenarla a mano'}
-                  </button>
+                  {puedeEmpezarDeCero && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (window.confirm('Se quita todo lo leído y se abre el formulario vacío, con el archivo que has subido. ¿Seguir?')) void pasarAMano(info.lecturaId);
+                      }}
+                      disabled={pasandoAMano || guardando}
+                      className="mt-2 inline-flex min-h-[44px] items-center gap-1.5 font-semibold text-amber-900 underline hover:no-underline disabled:opacity-60 sm:min-h-0"
+                    >
+                      <PencilSimple size={16} aria-hidden="true" /> {pasandoAMano ? 'Abriendo…' : 'Rellenarla a mano'}
+                    </button>
+                  )}
                   {errorAMano && (
                     <p role="alert" className="mt-1 font-medium text-rose-700">
                       {errorAMano}
