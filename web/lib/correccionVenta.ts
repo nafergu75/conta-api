@@ -319,6 +319,35 @@ export function esCorregido(id: string, c: Cambios): boolean {
 export const esCorregible = (id: string) => /^(numero|fechaEmision|fechaVencimiento|concepto|desglose\.\d+\.\w+|retencion\.\w+|totales\.\w+)$/.test(id);
 
 /**
+ * Datos con un error que «Corregir los datos» no arregla (el emisor, la
+ * moneda, el tipo de documento...): su tarjeta dice «No se puede registrar»,
+ * como el recuadro rojo que lleva a Nueva factura. El NIF del cliente no, que
+ * se arregla eligiéndolo o dándolo de alta, salvo que la factura sea de la
+ * propia empresa (EMPRESA).
+ */
+export function sinArregloAlCorregir(info: InfoLectura): string[] {
+  return Object.entries(info.campos)
+    .filter(([id, c]) => !!c && c.estado === 'error' && !esCorregible(id) && (!id.startsWith('receptor.') || !!c.codigos?.includes('EMPRESA')))
+    .map(([id]) => id);
+}
+
+/** Errores de una venta leída que el servidor no deja saltar con «Rellenarla a mano». */
+const NO_A_MANO = ['EMPRESA', 'MONEDA', 'NIF_EMISOR'];
+
+/**
+ * La venta leída no se puede rellenar a mano (el servidor da 409
+ * NO_SE_RELLENA_A_MANO): trae un error que no se corrige en el lector (no es
+ * una venta de la empresa, va en otra moneda, el NIF del emisor) o un QR
+ * VERI*FACTU con datos, que manda sobre lo escrito y con la lectura vacía ya
+ * no se cotejaría.
+ */
+export function noSeRellenaAMano(info: InfoLectura): boolean {
+  if (info.origen === 'MANUAL') return false;
+  const qrConDatos = info.qr.estado === 'COINCIDE' || (info.qr.estado === 'NO_COINCIDE' && !info.qr.pruebas);
+  return qrConDatos || Object.values(info.campos).some((c) => !!c && c.estado === 'error' && (c.codigos ?? []).some((k) => NO_A_MANO.includes(k)));
+}
+
+/**
  * Lo que dice cada tarjeta de un dato corregido: «Corregido a mano: 1.210,00 €».
  * Solo los datos marcados (los que salen en «Comprueba estos datos»).
  */
