@@ -21,7 +21,8 @@ import {
   type TipoRectificativaVenta,
 } from '@/lib/rectificativasVenta';
 import { ModalRectificativaAnterior } from '@/components/ventas/RectificativaServidorAnterior';
-import { admiteEnvases, formatoCantidad, formatoPrecio, resumenEnvases, type ResumenEnvases } from '@/lib/plantillasFactura';
+import { admiteCeramica, admiteEnvases, formatoCantidad, formatoPrecio, resumenEnvases, type ResumenEnvases } from '@/lib/plantillasFactura';
+import { NOMBRE_UNIDAD_PRECIO, resumenCeramica, type ResumenCeramica, type UnidadPrecio } from '@/lib/ceramica';
 
 interface Linea {
   id: string;
@@ -43,6 +44,16 @@ interface Linea {
   kgPlastico?: number | null;
   ieepnrImporte?: number;
   textoAdicional?: string | null;
+  /** Plantilla B: palets, cajas, m², piezas, formato, calidad, peso, unidad del precio y cargo de palets. */
+  palets?: number | null;
+  cajas?: number | null;
+  metros2?: number | null;
+  piezas?: number | null;
+  formato?: string | null;
+  calidad?: string | null;
+  pesoKg?: number | null;
+  unidadPrecio?: string | null;
+  cargoPalets?: boolean;
 }
 
 interface Factura {
@@ -121,6 +132,10 @@ interface Factura {
   pesoBrutoKg?: number | null;
   ieepnrPorKg?: number | null;
   resumenEnvases?: ResumenEnvases | null;
+  /** Plantilla B: obra, peso neto escrito a mano y totales del pie. */
+  obra?: string | null;
+  pesoNetoKg?: number | null;
+  resumenCeramica?: ResumenCeramica | null;
 }
 
 interface Cliente {
@@ -308,6 +323,12 @@ export default function FacturaDetallePage() {
   // Plantilla A (envases): columnas de packs, uds, kg e IEEPNR y el resumen con el peso bruto. El resumen
   // lo manda el servidor; si no (servidor anterior), se suma aquí de las líneas.
   const envases = admiteEnvases(factura.plantillaId);
+  // Plantilla B (cerámica): columnas de palets, cajas, m², piezas, formato, calidad y peso, la obra, los
+  // totales y los pesos neto y bruto. Los totales los manda el servidor; si no, se suman aquí.
+  const ceramica = admiteCeramica(factura.plantillaId);
+  const resumenB =
+    factura.resumenCeramica ??
+    resumenCeramica(factura.lineas.map((l) => ({ ...l, cantidad: l.cantidad, baseLine: l.baseLineDoc ?? l.baseLine })));
   const resumen =
     factura.resumenEnvases ??
     resumenEnvases(factura.lineas.map((l) => ({ cantidad: l.cantidad, packs: l.packs, kgPlastico: l.kgPlastico, ieepnrImporte: l.ieepnrImporte })));
@@ -683,6 +704,11 @@ export default function FacturaDetallePage() {
           <LineasEnvasesFicha lineas={factura.lineas} fmt={fmtDoc} moneda={moneda} conIva={!sinIva} etiquetaIva={etiquetaIva} />
           <ResumenEnvasesFicha resumen={resumen} pesoBrutoKg={factura.pesoBrutoKg ?? null} ieepnrPorKg={factura.ieepnrPorKg ?? null} fmt={fmtDoc} />
         </>
+      ) : ceramica ? (
+        <>
+          <LineasCeramicaFicha lineas={factura.lineas} obra={factura.obra ?? null} fmt={fmtDoc} moneda={moneda} conIva={!sinIva} etiquetaIva={etiquetaIva} />
+          <ResumenCeramicaFicha resumen={resumenB} pesoNetoKg={factura.pesoNetoKg ?? null} pesoBrutoKg={factura.pesoBrutoKg ?? null} />
+        </>
       ) : (
       <section className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
         <table className="w-full min-w-[640px] text-sm">
@@ -732,7 +758,17 @@ export default function FacturaDetallePage() {
                 />
               </>
             )}
-            <Fila etiqueta={envases ? 'Subtotal (base imponible)' : 'Base imponible'} valor={fmtDoc(factura.baseTotalDoc ?? factura.baseTotal)} />
+            {/* Plantilla B: el total bruto (la base) lleva los palets de madera. */}
+            {ceramica && resumenB.cargoPalets.importe !== 0 && (
+              <>
+                <Fila etiqueta="Materiales" valor={fmtDoc((Math.round((factura.baseTotalDoc ?? factura.baseTotal) * 100) - Math.round(resumenB.cargoPalets.importe * 100)) / 100)} />
+                <Fila etiqueta="Palets de madera" valor={fmtDoc(resumenB.cargoPalets.importe)} />
+              </>
+            )}
+            <Fila
+              etiqueta={envases ? 'Subtotal (base imponible)' : ceramica ? 'Total bruto (base imponible)' : 'Base imponible'}
+              valor={fmtDoc(factura.baseTotalDoc ?? factura.baseTotal)}
+            />
             {!sinIva && <Fila etiqueta="IVA" valor={fmtDoc(factura.ivaTotalDoc ?? factura.ivaTotal)} />}
             {factura.retencionTotal !== 0 && (
               <Fila etiqueta="Retención IRPF" valor={fmtDoc(-(factura.retencionTotalDoc ?? factura.retencionTotal))} />
@@ -1060,6 +1096,145 @@ function ResumenEnvasesFicha({
     </section>
   );
 }
+
+/**
+ * Líneas de una factura con la plantilla B (cerámica), como su PDF: Palets,
+ * Cajas, M², Piezas, Formato, Descripción (con el texto adicional), Calidad,
+ * Peso, Precio (por m², pieza o unidad) e Importe. El cargo de palets de madera
+ * va aparte, debajo. Tabla desde la tableta; en el móvil, una tarjeta por línea.
+ */
+function LineasCeramicaFicha({
+  lineas,
+  obra,
+  fmt,
+  moneda,
+  conIva,
+  etiquetaIva,
+}: {
+  lineas: Linea[];
+  obra: string | null;
+  fmt: (n: number) => string;
+  moneda: string;
+  conIva: boolean;
+  etiquetaIva: (t: number) => string;
+}) {
+  const tabla = lineas.filter((l) => !l.cargoPalets);
+  const cargos = lineas.filter((l) => l.cargoPalets);
+  const n = (v: number | null | undefined, decimales: number) => (v === null || v === undefined ? '—' : formatoCantidad(v, decimales));
+  const unidad = (l: Linea) => NOMBRE_UNIDAD_PRECIO[(l.unidadPrecio as UnidadPrecio) ?? 'UNIDAD'] ?? 'unidad';
+  const precio = (l: Linea) => `${formatoPrecio(l.precioUnitarioDoc ?? l.precioUnitario, moneda)}/${unidad(l)}`;
+  const texto = (l: Linea) => (l.textoAdicional ? <p className="mt-0.5 whitespace-pre-line text-xs text-slate-500">{l.textoAdicional}</p> : null);
+  return (
+    <section aria-label="Líneas" className="rounded-xl border border-slate-200 bg-white">
+      <p className="border-b border-slate-100 px-4 py-3 text-sm">
+        <span className="font-semibold text-slate-700">Obra:</span> <span className="text-slate-900">{obra || '—'}</span>
+      </p>
+      <div className="hidden overflow-x-auto md:block">
+        <table className="w-full min-w-[860px] text-sm">
+          <thead className="bg-slate-50 text-left text-slate-600">
+            <tr>
+              <th className="px-3 py-2 text-right font-medium">Palets</th>
+              <th className="px-3 py-2 text-right font-medium">Cajas</th>
+              <th className="px-3 py-2 text-right font-medium">M²</th>
+              <th className="px-3 py-2 text-right font-medium">Piezas</th>
+              <th className="px-3 py-2 font-medium">Formato</th>
+              <th className="px-3 py-2 font-medium">Descripción</th>
+              <th className="px-3 py-2 text-right font-medium">Cal.</th>
+              <th className="px-3 py-2 text-right font-medium">Peso (kg)</th>
+              <th className="px-3 py-2 text-right font-medium">Precio{moneda !== 'EUR' ? ` (${moneda})` : ''}</th>
+              {conIva && <th className="px-3 py-2 text-right font-medium">IVA</th>}
+              <th className="px-4 py-2 text-right font-medium">Importe</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {tabla.map((l) => (
+              <tr key={l.id} className="align-top">
+                <td className="px-3 py-2 text-right tabular-nums">{n(l.palets, 0)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{n(l.cajas, 0)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{n(l.metros2, 3)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{n(l.piezas, 3)}</td>
+                <td className="px-3 py-2">{l.formato || '—'}</td>
+                <td className="px-3 py-2 text-slate-900">
+                  {l.descripcion}
+                  {texto(l)}
+                </td>
+                <td className="px-3 py-2 text-right">{l.calidad || '—'}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{n(l.pesoKg, 3)}</td>
+                <td className="px-3 py-2 text-right font-mono tabular-nums">{precio(l)}</td>
+                {conIva && <td className="px-3 py-2 text-right tabular-nums">{etiquetaIva(l.tipoIva)}</td>}
+                <td className="px-4 py-2 text-right font-mono tabular-nums">{fmt(l.baseLineDoc ?? l.baseLine)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <ul className="divide-y divide-slate-100 md:hidden">
+        {tabla.map((l) => (
+          <li key={l.id} className="px-4 py-3 text-sm">
+            <p className="font-medium text-slate-900">{l.descripcion}</p>
+            {texto(l)}
+            <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1">
+              <DatoLinea etiqueta="Palets" valor={n(l.palets, 0)} />
+              <DatoLinea etiqueta="Cajas" valor={n(l.cajas, 0)} />
+              <DatoLinea etiqueta="M²" valor={n(l.metros2, 3)} />
+              <DatoLinea etiqueta="Piezas" valor={n(l.piezas, 3)} />
+              <DatoLinea etiqueta="Formato" valor={l.formato || '—'} />
+              <DatoLinea etiqueta="Calidad" valor={l.calidad || '—'} />
+              <DatoLinea etiqueta="Peso (kg)" valor={n(l.pesoKg, 3)} />
+              <DatoLinea etiqueta="Precio" valor={precio(l)} />
+              {conIva && <DatoLinea etiqueta="IVA" valor={etiquetaIva(l.tipoIva)} />}
+              <DatoLinea etiqueta="Importe" valor={fmt(l.baseLineDoc ?? l.baseLine)} fuerte />
+            </dl>
+          </li>
+        ))}
+      </ul>
+      {cargos.length > 0 && (
+        <div className="border-t border-slate-200 bg-slate-50 px-4 py-3">
+          <p className="text-sm font-semibold text-slate-700">Palets de madera</p>
+          <ul className="mt-1 space-y-1 text-sm">
+            {cargos.map((l) => (
+              <li key={l.id} className="flex flex-wrap justify-between gap-2">
+                <span className="text-slate-800">
+                  {l.descripcion}: {formatoCantidad(l.cantidad, 3)} × {formatoPrecio(l.precioUnitarioDoc ?? l.precioUnitario, moneda)}
+                  {conIva ? ` · IVA ${etiquetaIva(l.tipoIva)}` : ''}
+                </span>
+                <span className="font-mono tabular-nums text-slate-900">{fmt(l.baseLineDoc ?? l.baseLine)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** Totales de la plantilla B (palets, cajas, m² y piezas de las líneas) y los pesos neto y bruto escritos a mano. */
+function ResumenCeramicaFicha({ resumen, pesoNetoKg, pesoBrutoKg }: { resumen: ResumenCeramica; pesoNetoKg: number | null; pesoBrutoKg: number | null }) {
+  const datos: Array<[string, string]> = [
+    ['Palets', formatoCantidad(resumen.palets, 0)],
+    ['Cajas', formatoCantidad(resumen.cajas, 0)],
+    ['M²', formatoCantidad(resumen.metros2, 3)],
+    ['Piezas', formatoCantidad(resumen.piezas, 3)],
+    ['Peso neto (kg)', pesoNetoKg === null ? '—' : formatoCantidad(pesoNetoKg, 3)],
+    ['Peso bruto (kg)', pesoBrutoKg === null ? '—' : formatoCantidad(pesoBrutoKg, 3)],
+  ];
+  return (
+    <section aria-labelledby="ficha-ceramica" className="rounded-xl border border-slate-200 bg-white p-4 md:p-5">
+      <h2 id="ficha-ceramica" className="mb-3 font-semibold text-slate-900">
+        Totales y pesos
+      </h2>
+      <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        {datos.map(([t, v]) => (
+          <div key={t} className="rounded-lg bg-slate-50 px-3 py-2">
+            <dt className="text-xs font-medium text-slate-600">{t}</dt>
+            <dd className="mt-0.5 font-mono text-base tabular-nums text-slate-900">{v}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
 
 function Dato({ etiqueta, valor }: { etiqueta: string; valor: string }) {
   return (
