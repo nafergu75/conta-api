@@ -7,7 +7,8 @@
  * unidad de su precio: el importe es la cantidad de esa unidad por el precio
  * (5,04 m² × 12,25 = 61,74; 20 piezas × 26,50 = 530,00). Con M2, la cantidad
  * son los m²; con PIEZA o UNIDAD, las piezas (que en el PDF salen en su
- * columna).
+ * columna). Las de una línea cobrada por unidad son sus unidades (12 sacos de
+ * cemento, 1 transporte): no suman en el total de piezas.
  *
  * El cargo de palets de madera («PALETS DE MADERA TRATADA», 1 × 9,00) es una
  * línea más, marcada como cargo, con su cuenta y su IVA: suma en la base, va en
@@ -53,6 +54,8 @@ export interface LineaCeramica {
   metros2?: number | null;
   piezas?: number | null;
   pesoKg?: number | null;
+  /** M2, PIEZA o UNIDAD: con UNIDAD, sus piezas no suman en el total. */
+  unidadPrecio?: string | null;
   cargoPalets?: boolean;
   /** Base de la línea (para el importe del cargo de palets). */
   baseLine?: number | null;
@@ -68,7 +71,7 @@ export interface ResumenCeramica {
   cargoPalets: { cantidad: number; importe: number };
 }
 
-/** Totales del pie, en enteros (como el servidor): el cargo de palets aparte. */
+/** Totales del pie, en enteros (como el servidor): el cargo de palets aparte y las piezas sin las de las líneas cobradas por unidad. */
 export function resumenCeramica(lineas: LineaCeramica[]): ResumenCeramica {
   let palets = 0;
   let cajas = 0;
@@ -86,7 +89,7 @@ export function resumenCeramica(lineas: LineaCeramica[]): ResumenCeramica {
     palets += Math.trunc(Number(l.palets ?? 0)) || 0;
     cajas += Math.trunc(Number(l.cajas ?? 0)) || 0;
     m2 += aEntero(Number(l.metros2 ?? 0), 3);
-    piezas += aEntero(Number(l.piezas ?? 0), 3);
+    if (l.unidadPrecio !== 'UNIDAD') piezas += aEntero(Number(l.piezas ?? 0), 3);
     peso += aEntero(Number(l.pesoKg ?? 0), 3);
   }
   return {

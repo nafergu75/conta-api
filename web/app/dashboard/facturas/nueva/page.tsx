@@ -1236,6 +1236,7 @@ function FormularioFactura() {
       metros2: finito(leerCantidad(l.metros2)),
       piezas: finito(leerCantidad(l.piezas)),
       pesoKg: finito(leerCantidad(l.pesoKg)),
+      unidadPrecio: l.unidadPrecio,
       cargoPalets: l.cargoPalets,
       baseLine: totalesArticulo[i],
     })),
