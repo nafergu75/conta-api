@@ -75,6 +75,7 @@ body {
 .dark .zona-app .border-emerald-100, .dark .zona-app .border-emerald-200 { border-color: rgba(16,185,129,.35); }
 .dark .zona-app .text-emerald-700, .dark .zona-app .text-emerald-800, .dark .zona-app .text-emerald-900 { color: #6ee7b7; }
 .dark .zona-app .text-emerald-600 { color: #34d399; }
+.dark .zona-app .hover\:bg-emerald-50:hover { background-color: rgba(16,185,129,.12); }
 .dark .zona-app .bg-green-50 { background-color: rgba(34,197,94,.12); }
 .dark .zona-app .bg-green-100 { background-color: rgba(34,197,94,.2); }
 .dark .zona-app .border-green-100, .dark .zona-app .border-green-200 { border-color: rgba(34,197,94,.35); }

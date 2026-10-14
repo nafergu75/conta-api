@@ -163,10 +163,11 @@ export const NAV_GROUPS: NavGroup[] = [
       {
         label: 'Movimientos',
         slug: 'movimientos',
-        description: 'Consulta de los movimientos anotados a mano (ya no se crean). No cuentan en el Resumen, que sale de las facturas.',
+        description: 'Apuntes de los asientos: cada cargo y abono de la contabilidad, con filtros y descarga.',
         implemented: true,
-        endpoints: ['GET /companies/:id/movements'],
-        requiredRoles: ['contabilidad:read', 'tesoreria:read'],
+        endpoints: ['GET /companies/:id/informes-contables/apuntes'],
+        // Mismo permiso que el libro diario. Los movimientos antiguos (a mano) se abren desde la propia pantalla.
+        requiredRoles: ['contabilidad:read'],
       },
       {
         label: 'Plan contable',
