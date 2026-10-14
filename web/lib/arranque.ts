@@ -67,6 +67,7 @@ export const NOMBRE_CAMPO: Record<string, string> = {
   pais: 'País',
   email: 'Correo',
   telefono: 'Teléfono',
+  web: 'Web',
   coste: 'Coste del bien',
   amortAcumulada: 'Amortización acumulada',
   coeficiente: '% de amortización anual',

@@ -19,8 +19,8 @@ function seguridad(h: HojaAnalizada): string | null {
 /** Datos que puede llevar cada tipo de listado (para elegir columnas a mano). */
 const CAMPOS_TIPO: Record<string, string[]> = {
   PLAN: ['cuenta', 'nombre', 'nif'],
-  TERCEROS_CLIENTES: ['nif', 'nombre', 'cuenta', 'direccion', 'cp', 'municipio', 'provincia', 'pais', 'email', 'telefono'],
-  TERCEROS_PROVEEDORES: ['nif', 'nombre', 'cuenta', 'direccion', 'cp', 'municipio', 'provincia', 'pais', 'email', 'telefono'],
+  TERCEROS_CLIENTES: ['nif', 'nombre', 'cuenta', 'direccion', 'cp', 'municipio', 'provincia', 'pais', 'email', 'telefono', 'web'],
+  TERCEROS_PROVEEDORES: ['nif', 'nombre', 'cuenta', 'direccion', 'cp', 'municipio', 'provincia', 'pais', 'email', 'telefono', 'web'],
   SUMAS_Y_SALDOS: ['cuenta', 'nombre', 'saldo', 'saldoDeudor', 'saldoAcreedor', 'debe', 'haber'],
   DIARIO: ['fecha', 'asiento', 'cuenta', 'nombre', 'concepto', 'debe', 'haber', 'importe', 'signo'],
   CARTERA: ['cuenta', 'nif', 'nombre', 'documento', 'fecha', 'vencimiento', 'importeOriginal', 'pendiente', 'moneda'],

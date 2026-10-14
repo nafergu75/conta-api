@@ -5,10 +5,11 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Plus, MagnifyingGlass, X, Trash } from '@phosphor-icons/react';
 import { getToken } from '@/lib/auth';
-import { apiFetch, companyPath } from '@/lib/api';
+import { apiFetch, campoDelError, companyPath } from '@/lib/api';
 import { mensajeSinAcceso, PantallaSinAcceso } from '@/components/dashboard/SinAcceso';
 import { nombreNumeroFiscal, nombrePais, PAISES, PAISES_UE, pareceNifIvaUe } from '@/lib/fiscal';
 import { useAvisoPlanAnterior } from '@/components/contabilidad/AvisoPlanAnterior';
+import { CampoWeb, EnlaceWeb } from '@/components/terceros/Web';
 
 interface Cliente {
   id: string;
@@ -16,6 +17,8 @@ interface Cliente {
   nifCif: string;
   email?: string;
   telefono?: string;
+  /** Con https:// delante (el servidor se lo pone). */
+  web?: string;
   direccion?: string;
   provincia?: string;
   pais?: string;
@@ -199,6 +202,11 @@ export default function ClientesPage() {
                   {cliente.telefono && (
                     <p className="text-slate-600">📞 {cliente.telefono}</p>
                   )}
+                  {cliente.web && (
+                    <p className="min-w-0">
+                      <EnlaceWeb web={cliente.web} />
+                    </p>
+                  )}
                   {cliente.provincia && (
                     <p className="text-slate-500">📍 {cliente.provincia}</p>
                   )}
@@ -237,6 +245,7 @@ function NuevoClienteModal({
   const [nif, setNif] = useState('');
   const [email, setEmail] = useState('');
   const [telefono, setTelefono] = useState('');
+  const [web, setWeb] = useState('');
   const [provincia, setProvincia] = useState('');
   const [pais, setPais] = useState('ES');
   const [direccion, setDireccion] = useState('');
@@ -246,11 +255,14 @@ function NuevoClienteModal({
   const ue = pais !== 'ES' && PAISES_UE.has(pais);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Campo del error (details.campo): el de la web sale junto a su casilla.
+  const [campo, setCampo] = useState<string | undefined>();
   const avisoPlan = useAvisoPlanAnterior();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setCampo(undefined);
     setSaving(true);
     try {
       const cuerpo = {
@@ -258,6 +270,7 @@ function NuevoClienteModal({
         nifCif: nif,
         email: email || undefined,
         telefono: telefono || undefined,
+        web: web.trim() || undefined,
         provincia: provincia || undefined,
         pais,
         direccion: direccion || undefined,
@@ -274,7 +287,10 @@ function NuevoClienteModal({
       onCreated();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al guardar');
+      const c = campoDelError(err);
+      setCampo(c);
       setSaving(false);
+      if (c === 'web') requestAnimationFrame(() => document.getElementById('nc-web')?.focus());
     }
   }
 
@@ -406,6 +422,17 @@ function NuevoClienteModal({
           </div>
 
           <div className="flex flex-col gap-2">
+            <CampoWeb
+              id="nc-web"
+              value={web}
+              onChange={(e) => setWeb(e.target.value)}
+              error={campo === 'web' ? error : null}
+              claseEtiqueta="text-sm font-medium text-slate-700"
+              claseCampo={`${inputClass} aria-[invalid=true]:border-red-500 aria-[invalid=true]:bg-red-50`}
+            />
+          </div>
+
+          <div className="flex flex-col gap-2">
             <label htmlFor="prov" className="text-sm font-medium text-slate-700">
               {pais === 'ES' ? 'Provincia' : 'Región o estado'}
             </label>
@@ -430,7 +457,7 @@ function NuevoClienteModal({
             <p className="text-xs text-slate-500">Se propone al hacerle una factura; se puede cambiar en cada una.</p>
           </div>
 
-          {error && (
+          {error && campo !== 'web' && (
             <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
               {error}
             </p>
