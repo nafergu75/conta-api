@@ -13,6 +13,18 @@ export interface LineaCalculo {
   descuentoPorcentaje: number;
   tipoIva: number;
   tipoRetencion: number;
+  /** Plantilla A: IEEPNR de la línea, ya calculado (lib/plantillasFactura). Va dentro de la base. */
+  ieepnr?: number;
+}
+
+/**
+ * Opciones del cálculo: `simetrico`, solo en las rectificativas; `cuotaPorTipo`
+ * (plantilla A), la cuota de cada tipo de IVA sobre la suma de sus bases,
+ * repartida entre sus líneas.
+ */
+export interface OpcionesCalculo {
+  simetrico?: boolean;
+  cuotaPorTipo?: boolean;
 }
 
 export interface Importes {
@@ -45,13 +57,31 @@ const sumar = (valores: number[]): number => sinCeroNegativo(valores.reduce((a, 
  */
 const round2Simetrico = (n: number): number => sinCeroNegativo(Math.sign(n) * round2(Math.abs(n)));
 
-/** Lado documento: por linea, como el servidor. `simetrico`: solo en rectificativas. */
-export function lineasDoc(lineas: LineaCalculo[], { simetrico = false }: { simetrico?: boolean } = {}): Importes[] {
+/**
+ * Cuota de IVA de una base (cuotaPorTipo) en enteros, como el servidor:
+ * céntimos de la base por el tipo en centésimas, al céntimo con la mitad hacia
+ * arriba (con `simetrico`, el negativo como su valor absoluto).
+ */
+export function cuotaDeBase(base: number, tipo: number, simetrico = false): number {
+  const producto = cent(base) * Math.round(tipo * 100);
+  const r = simetrico && producto < 0 ? -Math.floor((-producto + 5000) / 10000) : Math.floor((producto + 5000) / 10000);
+  return sinCeroNegativo(r / 100);
+}
+
+/**
+ * Lado documento, como el servidor: por línea; con `cuotaPorTipo` (plantilla
+ * A), la cuota de cada tipo sobre la suma de sus bases, repartida entre sus
+ * líneas. El IEEPNR de la línea (plantilla A) va dentro de su base.
+ * `simetrico`: solo en rectificativas.
+ */
+export function lineasDoc(lineas: LineaCalculo[], { simetrico = false, cuotaPorTipo = false }: OpcionesCalculo = {}): Importes[] {
   const r = simetrico ? round2Simetrico : round2;
-  return lineas.map((l) => {
+  const out = lineas.map((l) => {
     const pvp = r(l.cantidad * l.precioUnitario);
     const descuentoImporte = r((pvp * l.descuentoPorcentaje) / 100);
-    const baseLine = r(pvp - descuentoImporte);
+    const baseArticulo = r(pvp - descuentoImporte);
+    const ieepnr = Number(l.ieepnr ?? 0);
+    const baseLine = ieepnr ? r(baseArticulo + r(ieepnr)) : baseArticulo;
     return {
       precioUnitario: l.precioUnitario,
       baseLine,
@@ -60,6 +90,14 @@ export function lineasDoc(lineas: LineaCalculo[], { simetrico = false }: { simet
       retencionImporte: r((baseLine * l.tipoRetencion) / 100),
     };
   });
+  if (cuotaPorTipo) {
+    for (const [t, idx] of Array.from(agrupar(lineas.map((l) => l.tipoIva)))) {
+      const objetivo = cuotaDeBase(sumar(idx.map((i) => out[i].baseLine)), t, simetrico);
+      const cuotas = repartirCentimos(objetivo, idx.map((i) => (out[i].baseLine * t) / 100));
+      idx.forEach((i, k) => (out[i].ivaImporte = cuotas[k]));
+    }
+  }
+  return out;
 }
 
 /** Reparto al centimo en proporcion a los brutos (determinista). */
@@ -135,13 +173,13 @@ export function totales(lineas: LineaCalculo[], importes: Importes[]): Totales {
 /**
  * Totales en la moneda de la factura y, si hay tipo y la moneda no es la de la
  * contabilidad, su contravalor (null si aun no hay tipo). `simetrico`: el
- * redondeo de las rectificativas (lineasDoc).
+ * redondeo de las rectificativas; `cuotaPorTipo`: el IVA de la plantilla A (lineasDoc).
  */
 export function calcularFactura(
   lineas: LineaCalculo[],
-  { tipoCambio, mismaMoneda, simetrico = false }: { tipoCambio: number | null; mismaMoneda: boolean; simetrico?: boolean },
+  { tipoCambio, mismaMoneda, simetrico = false, cuotaPorTipo = false }: { tipoCambio: number | null; mismaMoneda: boolean } & OpcionesCalculo,
 ): { doc: Totales; cuenta: Totales | null } {
-  const doc = lineasDoc(lineas, { simetrico });
+  const doc = lineasDoc(lineas, { simetrico, cuotaPorTipo });
   const totDoc = totales(lineas, doc);
   if (mismaMoneda) return { doc: totDoc, cuenta: totDoc };
   if (!tipoCambio || !(tipoCambio > 0)) return { doc: totDoc, cuenta: null };
