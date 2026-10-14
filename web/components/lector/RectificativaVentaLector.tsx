@@ -46,8 +46,10 @@ import {
  *    registro de auditoría del servidor).
  *
  * Con una original de la app, el cliente es el suyo y cada línea propone su
- * cuenta (cuentaPorTipoIva). El servidor registra con lo que leyó: del cuerpo
- * solo toma la cuenta de cada línea, el signo y el bloque `rectificativa`.
+ * cuenta (cuentaPorTipoIva). El servidor registra con lo que leyó más lo
+ * corregido a mano («Corregir los datos»): del cuerpo toma la cuenta de cada
+ * línea, las correcciones, el signo y el bloque `rectificativa`. Con importes
+ * corregidos, el signo y los importes de la original siguen a lo corregido.
  *
  * useRectificativaLector guarda el estado (se reinicia con cada lectura) y da a
  * la página lo que necesita: cliente, cuentas por defecto, signo de las líneas,
@@ -125,6 +127,21 @@ function tiposDe(lineas: IngresoExtraido['lineas']): number[] {
   return Array.from(new Set((lineas ?? []).map((l) => l.tipoIva))).sort((a, b) => b - a);
 }
 
+/**
+ * Las filas de los importes de la original con las líneas de ahora (quizá
+ * corregidas a mano): un tipo nuevo de las líneas tiene su fila, y el que ya no
+ * llevan se puede quitar (como uno añadido a mano).
+ */
+function filasConLasLineas(filas: ImporteOriginalForm[], lineas: IngresoExtraido['lineas']): ImporteOriginalForm[] {
+  const tipos = tiposDe(lineas);
+  const nuevas = tipos.filter((t) => !filas.some((f) => f.tipoIva === t)).map((tipoIva) => ({ tipoIva, base: '' }));
+  return [...filas.map((f) => (tipos.includes(f.tipoIva) || f.anadido ? f : { ...f, anadido: true })), ...nuevas].sort((a, b) => b.tipoIva - a.tipoIva);
+}
+
+/** Algún importe en negativo (líneas, base o total): un abono. */
+const conNegativos = (i: IngresoExtraido | null) =>
+  !!i && [...(i.lineas ?? []).map((l) => l.base), i.base, i.total].some((x) => typeof x === 'number' && Math.round(x * 100) < 0);
+
 function estadoInicial(leida: RectificativaVentaLeida | null, lineas: IngresoExtraido['lineas']): EstadoLectorRect {
   const rect = estadoVacio();
   if (leida) {
@@ -191,6 +208,12 @@ export interface RectificativaLector {
   clienteDistinto: boolean;
   /** -1 si los importes leídos en positivo se registran en negativo. */
   signo: 1 | -1;
+  /** Hay que preguntar si los importes (en positivo) restan, suman o son la factura corregida entera. */
+  pideSigno: boolean;
+  /** Los importes de ahora (leídos o corregidos) van en negativo: es un abono. */
+  importesNegativos: boolean;
+  /** Las filas de los importes de la original, con los tipos de IVA de las líneas de ahora. */
+  importesOriginales: ImporteOriginalForm[];
   /** Lo que se registra, con su signo. */
   totales: { base: number; iva: number; retencion: number; total: number };
   resta: boolean;
@@ -223,6 +246,11 @@ export interface RectificativaLector {
 /** id del aviso de error de la página (lo leen los campos marcados con aria-describedby). */
 export const ID_ERROR_LECTOR = 'lv-error';
 
+/**
+ * `ingreso`: la venta tal como se registrará (con lo corregido a mano, si lo
+ * hay: ver lib/correccionVenta, ingresoEfectivo). El estado va ligado al
+ * documento: corregir los datos o cambiar de dónde es el cliente no lo reinicia.
+ */
 export function useRectificativaLector(ingreso: IngresoExtraido | null): RectificativaLector {
   const leida = ingreso?.rectificativa ?? null;
   const doc = ingreso?.documentId ?? null;
@@ -247,7 +275,10 @@ export function useRectificativaLector(ingreso: IngresoExtraido | null): Rectifi
 
   const info = infoMotivo(opciones, r.motivo);
   const ticket = idsApp.some((id) => datos[id]?.ticket);
-  const pideSigno = activa && !!leida?.pideSigno;
+  // Con los importes de ahora: una rectificativa en positivo pregunta el signo; en negativo, ya resta.
+  const importesNegativos = conNegativos(ingreso);
+  const pideSigno = activa && !!(leida?.esRectificativaLeida ?? leida?.pideSigno) && !importesNegativos;
+  const filasOriginales = filasConLasLineas(estado.importesOriginales, ingreso?.lineas);
   const signo: 1 | -1 = pideSigno && r.forma === 'I' && estado.signo === 'resta' ? -1 : 1;
 
   // Cliente: el de la primera original de la app (todas son del mismo).
@@ -356,7 +387,7 @@ export function useRectificativaLector(ingreso: IngresoExtraido | null): Rectifi
 
   // El IVA de cada tipo es el que sale de la base (el que registra el servidor), no uno escrito aparte.
   const importesOriginales = () =>
-    estado.importesOriginales.map((f) => {
+    filasOriginales.map((f) => {
       const b = parseImporte(f.base);
       return { tipoIva: f.tipoIva, base: b, cuota: cuotaDe(b, f.tipoIva) };
     });
@@ -438,6 +469,9 @@ export function useRectificativaLector(ingreso: IngresoExtraido | null): Rectifi
     clienteOriginal,
     clienteDistinto,
     signo,
+    pideSigno,
+    importesNegativos,
+    importesOriginales: filasOriginales,
     totales,
     resta,
     originalSustituida,
@@ -545,7 +579,7 @@ export default function RectificativaVentaLector({ rv, ingreso, clienteLeidoId, 
   const deFueraSustituida = r.forma === 'S' && !rv.originalSustituida && r.originales.length === 1 && r.originales[0].origen === 'fuera';
 
   // Por sustitución sin original en la app: la diferencia con lo escrito (el IVA de cada tipo sale de su base).
-  const imp = estado.importesOriginales.map((f) => {
+  const imp = rv.importesOriginales.map((f) => {
     const b = parseImporte(f.base);
     return { base: b, cuota: cuotaDe(b, f.tipoIva) };
   });
@@ -556,11 +590,11 @@ export default function RectificativaVentaLector({ rv, ingreso, clienteLeidoId, 
   /** Con el error de los importes de la original, se marca cada campo vacío o que no es un número. */
   const mal = (v: string) => (error?.campo.startsWith(CAMPO_IMPORTES) && !Number.isFinite(parseImporte(v)) ? rv.marca(error.campo) : {});
   // La original puede tener tipos de IVA que la corregida ya no lleva (p. ej., iba al 10 % y se corrige al 21 %).
-  const tiposLibres = TIPOS_IVA.filter((t) => !estado.importesOriginales.some((f) => f.tipoIva === t));
+  const tiposLibres = TIPOS_IVA.filter((t) => !rv.importesOriginales.some((f) => f.tipoIva === t));
   // Con algún tipo añadido, todas las filas dejan sitio a «Quitar» (así los campos quedan alineados).
-  const conQuitar = estado.importesOriginales.some((f) => f.anadido);
+  const conQuitar = rv.importesOriginales.some((f) => f.anadido);
   const anadirTipo = (t: number) =>
-    cambiar({ importesOriginales: [...estado.importesOriginales, { tipoIva: t, base: '', anadido: true }].sort((a, b) => b.tipoIva - a.tipoIva) });
+    cambiar({ importesOriginales: [...rv.importesOriginales, { tipoIva: t, base: '', anadido: true }].sort((a, b) => b.tipoIva - a.tipoIva) });
 
   const t = rv.totales;
   const textoReparto = `Escribe cuánto le toca a cada factura${rv.resta ? ' (sin signo: se restan, como el abono)' : ''}. Entre todas tienen que sumar lo mismo que la rectificativa: base ${euros(
@@ -582,7 +616,7 @@ export default function RectificativaVentaLector({ rv, ingreso, clienteLeidoId, 
           <>
             <p>{queRectifica}</p>
             {leida.motivoLeido && <p>Motivo que trae la factura: «{leida.motivoLeido}».</p>}
-            {leida.importesNegativos && <p>Los importes vienen en negativo: se registra por diferencias y resta de la factura que rectifica.</p>}
+            {rv.importesNegativos && <p>Los importes vienen en negativo: se registra por diferencias y resta de la factura que rectifica.</p>}
             {rv.clienteOriginal && (
               <p>
                 Cliente: <span className="font-semibold">{quienEs(rv.clienteOriginal.nombre, rv.clienteOriginal.nif)}</span>, el de la factura que rectifica. No se puede cambiar.
@@ -600,7 +634,7 @@ export default function RectificativaVentaLector({ rv, ingreso, clienteLeidoId, 
         ) : (
           <p>Has indicado que no es una rectificativa. Queda anotado al registrarla.</p>
         )}
-        {!leida.importesNegativos && (
+        {(!rv.importesNegativos || estado.noEs) && (
           <label className="flex items-start gap-2 pt-1">
             <input type="checkbox" className="mt-0.5" checked={estado.noEs} disabled={disabled} onChange={(e) => cambiar({ noEs: e.target.checked })} />
             <span>No es una rectificativa: registrarla como una factura normal</span>
@@ -609,7 +643,7 @@ export default function RectificativaVentaLector({ rv, ingreso, clienteLeidoId, 
         {mensaje('rectificativa', 'clienteId')}
       </section>
 
-      {rv.activa && leida.pideSigno && (
+      {rv.activa && rv.pideSigno && (
         <div id="rvl-signo" tabIndex={-1} className={recuadro}>
           <fieldset {...rv.marca(CAMPO_SIGNO, 'lineas', 'rectificativa.forma')}>
             <legend className="font-semibold text-slate-900">Los importes vienen en positivo. ¿Qué son?</legend>
@@ -678,7 +712,7 @@ export default function RectificativaVentaLector({ rv, ingreso, clienteLeidoId, 
           numeroLeido={leida.numeroRectificada}
           sustitucionDeFuera
           error={error}
-          sinForma={leida.pideSigno || leida.importesNegativos}
+          sinForma={rv.pideSigno || rv.importesNegativos}
           buscarEnTodas
           textoReparto={textoReparto}
           repartoSinSigno
@@ -705,7 +739,7 @@ export default function RectificativaVentaLector({ rv, ingreso, clienteLeidoId, 
               {valor(ingreso.retencion) !== 0 && ' La original se toma con el mismo porcentaje de retención de IRPF que la factura corregida.'}
             </p>
             <div className="mt-3 space-y-3">
-              {estado.importesOriginales.map((f, i) => (
+              {rv.importesOriginales.map((f, i) => (
                 <div key={f.tipoIva} className={`grid items-end gap-3 sm:max-w-lg ${conQuitar ? 'grid-cols-[1fr_1fr_4.5rem]' : 'grid-cols-2'}`}>
                   <div>
                     <label htmlFor={`rvl-importe-${i}-base`} className="mb-1 block text-xs font-medium text-slate-600">
@@ -719,7 +753,7 @@ export default function RectificativaVentaLector({ rv, ingreso, clienteLeidoId, 
                       value={f.base}
                       disabled={disabled}
                       {...mal(f.base)}
-                      onChange={(e) => cambiar({ importesOriginales: estado.importesOriginales.map((x, j) => (j === i ? { ...x, base: e.target.value } : x)) })}
+                      onChange={(e) => cambiar({ importesOriginales: rv.importesOriginales.map((x, j) => (j === i ? { ...x, base: e.target.value } : x)) })}
                     />
                   </div>
                   {f.tipoIva !== 0 ? (
@@ -734,7 +768,7 @@ export default function RectificativaVentaLector({ rv, ingreso, clienteLeidoId, 
                     <button
                       type="button"
                       disabled={disabled}
-                      onClick={() => cambiar({ importesOriginales: estado.importesOriginales.filter((_, j) => j !== i) })}
+                      onClick={() => cambiar({ importesOriginales: rv.importesOriginales.filter((_, j) => j !== i) })}
                       className="rounded-lg px-2 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
                     >
                       Quitar<span className="sr-only"> {f.tipoIva === 0 ? 'la base exenta' : `el ${porcentaje(f.tipoIva)}`}</span>
