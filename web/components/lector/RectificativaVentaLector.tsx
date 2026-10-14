@@ -275,9 +275,11 @@ export function useRectificativaLector(ingreso: IngresoExtraido | null): Rectifi
 
   const info = infoMotivo(opciones, r.motivo);
   const ticket = idsApp.some((id) => datos[id]?.ticket);
-  // Con los importes de ahora: una rectificativa en positivo pregunta el signo; en negativo, ya resta.
+  // Con los importes de ahora: una rectificativa en positivo pregunta el signo; en negativo, ya resta. Es el
+  // criterio del servidor (por diferencias y sin importes en negativo pide cambiarSigno): tambien un abono leido
+  // en negativo y corregido a positivo, aunque no se leyera como rectificativa.
   const importesNegativos = conNegativos(ingreso);
-  const pideSigno = activa && !!(leida?.esRectificativaLeida ?? leida?.pideSigno) && !importesNegativos;
+  const pideSigno = activa && !importesNegativos;
   const filasOriginales = filasConLasLineas(estado.importesOriginales, ingreso?.lineas);
   const signo: 1 | -1 = pideSigno && r.forma === 'I' && estado.signo === 'resta' ? -1 : 1;
 
