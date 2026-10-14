@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { Receipt } from '@phosphor-icons/react';
+import { Receipt, WarningCircle } from '@phosphor-icons/react';
 import { apiFetch, campoDelError, companyPath, errorMessage } from '@/lib/api';
 import { tieneAlgunPermiso } from '@/lib/auth';
 import {
@@ -14,7 +14,9 @@ import {
   puedeVer,
   QUIEN_EDITA,
   type AjustesFacturacion,
+  type SerieConfig,
 } from '@/lib/configuracion';
+import { CASILLA_CERAMICA, CASILLA_IEEPNR, COLUMNAS_PLANTILLA_A, COLUMNAS_PLANTILLA_B, NOMBRE_PLANTILLA, normalizarPlantilla } from '@/lib/plantillasFactura';
 import { AvisoSoloLectura, CabeceraBloque, Mensaje, SinAcceso, type MensajeConfig } from '../componentes';
 import { useConfiguracion } from '../contexto';
 import ImagenPlantilla from '@/components/configuracion/ImagenPlantilla';
@@ -31,6 +33,10 @@ import ImagenPlantilla from '@/components/configuracion/ImagenPlantilla';
  * Plantilla B (cerámica; solo empresas españolas): si la empresa vende
  * cerámica (entonces su serie B usa sola la plantilla B), la cuenta de
  * ingresos del cargo de palets de madera, el logo de la marca y el sello.
+ * Al guardar con «Vendo cerámica» marcada, el servidor crea la serie B si no
+ * existe; si existe y no puede usar la B, lo avisa (serieCeramica.aviso).
+ * Bajo cada casilla se explica qué cambia, y tras guardar se dice cómo han
+ * quedado las series A y B (GET /series).
  * Ver: ventas:read o contabilidad:read; cambiar: ventas:write.
  */
 
@@ -78,6 +84,89 @@ function leerTipoIeepnr(texto: string): number {
 /** IBAN en grupos de cuatro, como sale en la factura. */
 const ibanLegible = (iban: string) => iban.replace(/\s+/g, '').replace(/(.{4})/g, '$1 ').trim();
 
+const RUTA_SERIES = '/dashboard/configuracion/series';
+
+/**
+ * Cómo queda la serie A tras cambiar «Repercuto el IEEPNR»: con la serie de la
+ * lista (null si no se pudo leer la lista; undefined si no hay serie A).
+ */
+function textoSerieA(a: SerieConfig | null | undefined, marcada: boolean): string {
+  if (a === null) {
+    return marcada
+      ? 'La serie A usará la plantilla A, salvo que le hayas elegido otra en Configuración > Series.'
+      : 'La serie A vuelve a la plantilla estándar, salvo que le hayas elegido otra en Configuración > Series.';
+  }
+  if (!a) return marcada ? 'No tienes serie A: para facturar con la plantilla A, elígela en una serie de facturas en Configuración > Series.' : '';
+  if (a.motivoPlantilla === 'elegida' || (a.plantillaElegida && a.motivoPlantilla === undefined)) {
+    const nombre = NOMBRE_PLANTILLA[normalizarPlantilla(a.plantilla)];
+    return marcada
+      ? `La serie A tiene elegida la ${nombre} en Configuración > Series y sigue con esa. Para que use la plantilla A, ponle allí «Automática».`
+      : `La serie A sigue con la ${nombre}, que tiene elegida en Configuración > Series.`;
+  }
+  if (marcada) {
+    return `La serie A usa ahora la plantilla A: columnas ${COLUMNAS_PLANTILLA_A}.${a.activa ? '' : ' Está desactivada: actívala en Configuración > Series para usarla.'}`;
+  }
+  return 'La serie A vuelve a la plantilla estándar.';
+}
+
+/** Cómo queda la serie B tras guardar (sin el aviso, que va aparte). '' si no hay nada que decir. */
+function textoSerieB(antes: boolean, despues: AjustesFacturacion, b: SerieConfig | null | undefined): string {
+  const marcada = despues.vendeCeramica === true;
+  const estado = despues.serieCeramica?.estado;
+  if (marcada && estado === 'creada') {
+    return `Se ha creado la serie B (cerámica y materiales de construcción) con la plantilla B: ${COLUMNAS_PLANTILLA_B}. Ya puedes elegirla en Nueva factura.`;
+  }
+  if (antes === marcada) return '';
+  if (marcada) return estado === 'activa' ? `La serie B usa ahora la plantilla B: ${COLUMNAS_PLANTILLA_B}.` : '';
+  if (b === undefined) return '';
+  if (b?.motivoPlantilla === 'elegida') return `La serie B sigue con la ${NOMBRE_PLANTILLA[normalizarPlantilla(b.plantilla)]}, que tiene elegida en Configuración > Series.`;
+  return 'La serie B vuelve a la plantilla estándar. No se ha borrado ni desactivado.';
+}
+
+/** Aviso de la serie B (desactivada, de otro tipo o con otra plantilla), con el enlace a las series. */
+function AvisoSerieB({ texto, anunciar = false }: { texto: string; anunciar?: boolean }) {
+  return (
+    <div role={anunciar ? 'status' : undefined} className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+      <WarningCircle size={18} className="mt-0.5 shrink-0" aria-hidden="true" />
+      <p className="min-w-0">
+        {texto}{' '}
+        <Link href={RUTA_SERIES} className="whitespace-nowrap font-medium underline">
+          Ir a Configuración &gt; Series
+        </Link>
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Bajo la casilla «Vendo cerámica»: qué pasará al guardar (si se ha cambiado)
+ * o cómo está la serie B (si ya estaba marcada).
+ */
+function EstadoSerieB({ marcada, guardada, serie }: { marcada: boolean; guardada: boolean; serie: AjustesFacturacion['serieCeramica'] }) {
+  if (marcada !== guardada) {
+    return (
+      <p className="text-sm font-medium text-slate-700">
+        {marcada
+          ? 'Al guardar se crea la serie B, si no la tienes.'
+          : 'Al guardar, la serie B vuelve a la plantilla estándar. No se borra ni se desactiva.'}
+      </p>
+    );
+  }
+  if (!marcada || !serie) return null;
+  if (serie.aviso) return <AvisoSerieB texto={serie.aviso} />;
+  if (serie.estado === 'pendiente') {
+    return <p className="text-sm text-slate-600">La serie B aún no está creada: se crea al guardar o al abrir Configuración &gt; Series.</p>;
+  }
+  return (
+    <p className="text-sm text-emerald-700">
+      La serie B está activa y usa la plantilla B.{' '}
+      <Link href={RUTA_SERIES} className="font-medium underline">
+        Ver series
+      </Link>
+    </p>
+  );
+}
+
 export default function FacturacionPage() {
   const { user, listo } = useConfiguracion();
   const ver = puedeVer(user, 'facturacion');
@@ -87,6 +176,8 @@ export default function FacturacionPage() {
   const [form, setForm] = useState<Formulario | null>(null);
   const [errores, setErrores] = useState<Partial<Record<Campo, string>>>({});
   const [mensaje, setMensaje] = useState<MensajeConfig>(null);
+  // Tras guardar: lo que hay que hacer con la serie B (desactivada, de otro tipo o con otra plantilla).
+  const [avisoGuardado, setAvisoGuardado] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
   // IEEPNR: solo en una empresa española y con un servidor que lo tenga.
   const conIeepnr = !!ajustes?.empresaEspanola && ajustes.ieepnrRepercute !== undefined;
@@ -133,6 +224,7 @@ export default function FacturacionPage() {
     }
     setErrores(err);
     setMensaje(null);
+    setAvisoGuardado(null);
     if (Object.keys(err).length) return;
     setGuardando(true);
     try {
@@ -151,9 +243,30 @@ export default function FacturacionPage() {
           ...(conVendeCeramica ? { vendeCeramica: form.vendeCeramica } : {}),
         }),
       });
+      // Cómo han quedado las series A y B, si ha cambiado alguna casilla (o se ha creado la B).
+      const cambiaA = conIeepnr && form.ieepnrRepercute !== ajustes.ieepnrRepercute;
+      const cambiaB = conVendeCeramica && (form.vendeCeramica !== ajustes.vendeCeramica || a.serieCeramica?.estado === 'creada');
+      const series =
+        cambiaA || cambiaB ? await apiFetch<SerieConfig[]>(companyPath('/series?tipoDocumento=FACTURA')).catch(() => null) : null;
+      const serie = (codigo: string) => (series ? series.find((x) => x.codigo === codigo) : null);
+      const frases: ReactNode[] = ['Guardado. Las facturas nuevas usarán estos valores; las ya emitidas no cambian.'];
+      if (cambiaA) frases.push(textoSerieA(serie('A'), form.ieepnrRepercute));
+      if (cambiaB) frases.push(textoSerieB(ajustes.vendeCeramica === true, a, serie('B')));
       setAjustes(a);
       setForm(aFormulario(a));
-      setMensaje({ ok: true, texto: 'Guardado. Las facturas nuevas usarán estos valores; las ya emitidas no cambian.' });
+      setMensaje({
+        ok: true,
+        texto: (
+          <>
+            {frases.filter(Boolean).map((f, i) => (
+              <p key={i} className={i ? 'mt-1' : undefined}>
+                {f}
+              </p>
+            ))}
+          </>
+        ),
+      });
+      setAvisoGuardado(a.vendeCeramica && a.serieCeramica?.aviso ? a.serieCeramica.aviso : null);
     } catch (ex) {
       const campo = campoDelError(ex) as Campo | undefined;
       if (campo && form && campo in form) setErrores({ [campo]: errorMessage(ex) });
@@ -393,23 +506,36 @@ export default function FacturacionPage() {
                   IVA.
                 </p>
               </div>
-              <label className="flex items-start gap-3">
-                <input
-                  type="checkbox"
-                  checked={form.ieepnrRepercute}
-                  onChange={(e) => cambiar('ieepnrRepercute', e.target.checked)}
-                  disabled={off}
-                  aria-describedby="ieepnrRepercute-ayuda"
-                  className="mt-1 h-4 w-4 accent-emerald-600"
-                />
-                <span className="text-sm">
-                  <span className="font-medium text-slate-900">Repercuto el IEEPNR en mis facturas</span>
-                  <span id="ieepnrRepercute-ayuda" className="block text-slate-600">
-                    Si lo marcas, la serie A pasa a usar la plantilla A (envases), salvo que le hayas elegido otra en Configuración &gt; Series. Si no lo marcas, la serie
-                    A sigue con la estándar y, en las series con la plantilla A, el IEEPNR sale a 0 aunque las líneas lleven kg de plástico.
+              <div>
+                <label className="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    checked={form.ieepnrRepercute}
+                    onChange={(e) => cambiar('ieepnrRepercute', e.target.checked)}
+                    disabled={off}
+                    aria-describedby="ieepnrRepercute-ayuda"
+                    className="mt-1 h-4 w-4 accent-emerald-600"
+                  />
+                  <span className="text-sm">
+                    <span className="font-medium text-slate-900">{CASILLA_IEEPNR}</span>
+                    <span id="ieepnrRepercute-ayuda" className="block text-slate-600">
+                      La serie A usará la plantilla A: columnas {COLUMNAS_PLANTILLA_A}. Sin marcar, la serie A sigue con la estándar (concepto, cantidad, precio y
+                      descuento), y en una serie con la plantilla A elegida a mano el IEEPNR sale a 0. Si en Configuración &gt; Series le eliges otra plantilla a la
+                      serie A, manda la elegida.
+                    </span>
                   </span>
-                </span>
-              </label>
+                </label>
+                {/* Qué pasará al guardar, si se ha cambiado la casilla (siempre en la página, para que se anuncie). */}
+                <div role="status" className="mt-1 pl-7 empty:hidden">
+                  {form.ieepnrRepercute !== (ajustes.ieepnrRepercute === true) && (
+                    <p className="text-sm font-medium text-slate-700">
+                      {form.ieepnrRepercute
+                        ? 'Al guardar, la serie A pasa a la plantilla A (si no tiene otra elegida en Configuración > Series).'
+                        : 'Al guardar, la serie A vuelve a la plantilla estándar. Las facturas ya hechas no cambian.'}
+                    </p>
+                  )}
+                </div>
+              </div>
               <div className="max-w-xs">
                 <label htmlFor="ieepnrPorKg" className="block text-sm font-medium text-slate-700">
                   Euros por kg
@@ -467,23 +593,30 @@ export default function FacturacionPage() {
                 </p>
               </div>
               {conVendeCeramica && (
-                <label className="flex items-start gap-3">
-                  <input
-                    type="checkbox"
-                    checked={form.vendeCeramica}
-                    onChange={(e) => cambiar('vendeCeramica', e.target.checked)}
-                    disabled={off}
-                    aria-describedby="vendeCeramica-ayuda"
-                    className="mt-1 h-4 w-4 accent-emerald-600"
-                  />
-                  <span className="text-sm">
-                    <span className="font-medium text-slate-900">Vendo cerámica y materiales de construcción</span>
-                    <span id="vendeCeramica-ayuda" className="block text-slate-600">
-                      Si lo marcas, la serie B pasa a usar la plantilla B (cerámica), salvo que le hayas elegido otra en Configuración &gt; Series. Si no lo marcas, la
-                      serie B sigue con la estándar: descuento por línea, el IVA de siempre y el PDF de siempre. En cualquier serie puedes elegir la plantilla B a mano.
+                <div>
+                  <label className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      checked={form.vendeCeramica}
+                      onChange={(e) => cambiar('vendeCeramica', e.target.checked)}
+                      disabled={off}
+                      aria-describedby="vendeCeramica-ayuda"
+                      className="mt-1 h-4 w-4 accent-emerald-600"
+                    />
+                    <span className="text-sm">
+                      <span className="font-medium text-slate-900">{CASILLA_CERAMICA}</span>
+                      <span id="vendeCeramica-ayuda" className="block text-slate-600">
+                        Se crea la serie B con la plantilla B: {COLUMNAS_PLANTILLA_B}, además de la obra, los pesos neto y bruto y el cargo de palets. Si ya tienes
+                        una serie B, se usa esa. Sin marcar, la serie B sigue con la estándar; quitar la marca no borra ni desactiva la serie. En cualquier serie
+                        puedes elegir la plantilla B a mano.
+                      </span>
                     </span>
-                  </span>
-                </label>
+                  </label>
+                  {/* Qué pasará al guardar o cómo está la serie B (siempre en la página, para que se anuncie). */}
+                  <div role="status" className="mt-2 pl-7 empty:hidden">
+                    <EstadoSerieB marcada={form.vendeCeramica} guardada={ajustes.vendeCeramica === true} serie={ajustes.serieCeramica} />
+                  </div>
+                </div>
               )}
               <div className="max-w-xs">
                 <label htmlFor="cuentaPalets" className="block text-sm font-medium text-slate-700">
@@ -525,7 +658,14 @@ export default function FacturacionPage() {
             </section>
           )}
 
-          <Mensaje mensaje={mensaje} onCerrar={() => setMensaje(null)} />
+          <Mensaje
+            mensaje={mensaje}
+            onCerrar={() => {
+              setMensaje(null);
+              setAvisoGuardado(null);
+            }}
+          />
+          {mensaje?.ok && avisoGuardado && <AvisoSerieB texto={avisoGuardado} anunciar />}
 
           {editar && (
             <div className="flex justify-end">
