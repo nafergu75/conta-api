@@ -169,6 +169,16 @@ export interface LineaOriginalVenta {
   kgPlastico?: number | null;
   ieepnrImporte?: number;
   textoAdicional?: string | null;
+  /** Plantilla B (un servidor anterior no los manda): medidas, formato, calidad, unidad del precio y cargo de palets. */
+  palets?: number | null;
+  cajas?: number | null;
+  metros2?: number | null;
+  piezas?: number | null;
+  formato?: string | null;
+  calidad?: string | null;
+  pesoKg?: number | null;
+  unidadPrecio?: string | null;
+  cargoPalets?: boolean;
 }
 
 /** GET /:id/rectificar. */
@@ -192,6 +202,8 @@ export interface DatosParaRectificarVenta {
     plantillaId?: string;
     /** IEEPNR por kg que aplicó (null: sin IEEPNR). La rectificativa usa el mismo. */
     ieepnrPorKg?: number | null;
+    /** Plantilla B: la obra de la factura (la rectificativa la propone). */
+    obra?: string | null;
     baseTotal: number;
     ivaTotal: number;
     retencionTotal: number;
@@ -550,6 +562,16 @@ export interface LineaPropuesta {
   packs?: number | null;
   kgPlastico?: number | null;
   textoAdicional?: string | null;
+  /** Plantilla B: palets, cajas, m², piezas y peso con el signo de la cantidad; formato, calidad, unidad del precio y cargo de palets tal cual. */
+  palets?: number | null;
+  cajas?: number | null;
+  metros2?: number | null;
+  piezas?: number | null;
+  pesoKg?: number | null;
+  formato?: string | null;
+  calidad?: string | null;
+  unidadPrecio?: string | null;
+  cargoPalets?: boolean;
   /** Factura de la que sale (para el reparto entre varias). */
   originalId: string;
 }
@@ -581,6 +603,12 @@ export function lineasPropuestas(datos: DatosParaRectificarVenta[], forma: Forma
       ...(l.packs !== undefined && l.packs !== null ? { packs: conSigno(l.packs) } : {}),
       ...(l.kgPlastico !== undefined && l.kgPlastico !== null ? { kgPlastico: conSigno(l.kgPlastico) } : {}),
       ...(l.textoAdicional ? { textoAdicional: l.textoAdicional } : {}),
+      // Plantilla B: las medidas con el signo de la cantidad; el resto tal cual.
+      ...Object.fromEntries((['palets', 'cajas', 'metros2', 'piezas', 'pesoKg'] as const).filter((k) => l[k] !== undefined && l[k] !== null).map((k) => [k, conSigno(l[k])])),
+      ...(l.formato ? { formato: l.formato } : {}),
+      ...(l.calidad ? { calidad: l.calidad } : {}),
+      ...(l.unidadPrecio ? { unidadPrecio: l.unidadPrecio } : {}),
+      ...(l.cargoPalets ? { cargoPalets: true } : {}),
       originalId: d.original.id,
     }));
   });

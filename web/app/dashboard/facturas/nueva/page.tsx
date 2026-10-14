@@ -32,8 +32,14 @@ import BloqueRectificativaVenta from '@/components/ventas/BloqueRectificativaVen
 import { AvisoServidorAnterior, BloqueRectificaFueraAnterior } from '@/components/ventas/RectificativaServidorAnterior';
 import LineasEnvases, { kgPropuestos, seguirPropuestas, udsPropuestas } from '@/components/ventas/LineasEnvases';
 import ResumenEnvases, { type SinIeepnr } from '@/components/ventas/ResumenEnvases';
+import LineasCeramica, { cantidadCeramica, propuestasCeramica, seguirPropuestasCeramica } from '@/components/ventas/LineasCeramica';
+import ResumenCeramica from '@/components/ventas/ResumenCeramica';
+import { CALIDAD_MAX, esUnidadPrecio, FORMATO_MAX, OBRA_MAX, resumenCeramica, TEXTO_CARGO_PALETS, type UnidadPrecio } from '@/lib/ceramica';
 import {
+  admiteCeramica,
+  admiteDescuento,
   admiteEnvases,
+  admiteTextoAdicional,
   calcularIeepnr,
   decimalesDe,
   formatoCantidad,
@@ -106,7 +112,12 @@ import {
  * factura). Con la plantilla A (envases) las líneas llevan packs, uds, kg de
  * plástico, IEEPNR y texto adicional (LineasEnvases), sin descuento, con el
  * resumen y el peso bruto (ResumenEnvases), y el IVA se calcula por tipo. Con
- * las demás, la tabla de siempre, sin cambios.
+ * la plantilla B (cerámica), la obra, las líneas con palets, cajas, m², piezas,
+ * formato, calidad, peso, la unidad del precio y el cargo de palets
+ * (LineasCeramica), sin descuento, con los totales y los pesos neto y bruto
+ * (ResumenCeramica), y el IVA por tipo. Con las demás, la tabla de siempre.
+ * Las observaciones por defecto de la serie salen escritas en una factura nueva
+ * mientras no se toquen.
  */
 
 interface Cliente {
@@ -126,6 +137,8 @@ interface AjustesFacturacionApi {
   /** IEEPNR (plantilla A): si la empresa lo repercute y a cuánto el kg. Un servidor anterior no los manda. */
   ieepnrRepercute?: boolean;
   ieepnrPorKg?: number;
+  /** Plantilla B: cuenta del cargo de palets (null = la de ventas). */
+  cuentaPalets?: string | null;
 }
 
 interface Serie {
@@ -137,6 +150,8 @@ interface Serie {
   ultimoNumero?: number;
   /** Plantilla que usa la serie ('default', 'A'...). Un servidor anterior no la manda: la estándar. */
   plantilla?: string;
+  /** Observaciones que salen escritas en cada factura nueva de la serie. */
+  observacionesDefecto?: string | null;
 }
 
 interface Producto {
@@ -153,6 +168,12 @@ interface Producto {
   kgPlasticoUnidad?: number | null;
   llevaIeepnr?: boolean;
   textoFactura?: string | null;
+  /** Plantilla B: formato, m² y piezas por caja, unidad del precio y kg por esa unidad. */
+  formato?: string | null;
+  metros2PorCaja?: number | null;
+  piezasPorCaja?: number | null;
+  unidadPrecio?: string | null;
+  pesoKgPorUnidad?: number | null;
 }
 
 interface Linea {
@@ -171,6 +192,22 @@ interface Linea {
   /** Plantilla A: las uds o los kg se escribieron a mano y ya no siguen a la propuesta. */
   udsTocadas?: boolean;
   kgTocados?: boolean;
+  /** Plantilla B: palets, cajas, m², piezas, formato, calidad, peso y unidad del precio (con las demás no se mandan). */
+  palets: string;
+  cajas: string;
+  metros2: string;
+  piezas: string;
+  formato: string;
+  calidad: string;
+  pesoKg: string;
+  unidadPrecio: UnidadPrecio;
+  /** Plantilla B: es el cargo de palets de madera (va en el pie del PDF). */
+  cargoPalets?: boolean;
+  /** Plantilla B: se escribieron a mano y ya no siguen a la propuesta. */
+  cajasTocadas?: boolean;
+  m2Tocados?: boolean;
+  piezasTocadas?: boolean;
+  pesoTocado?: boolean;
   /** IVA que tenia antes de elegir un tipo de operacion sin cuota (se restaura al volver a nacional). */
   ivaPrevio?: number;
   /** Cuenta de ingresos propia de la linea (70x); sin ella, la del producto o la 700. */
@@ -208,8 +245,11 @@ interface FacturaApi {
   rectificaFuera?: { numero: string; fecha: string | null };
   /** Rectificativa: lo que rectifica, el motivo y la forma. */
   rectificativa?: RectificativaVentaResp | null;
-  /** Plantilla A: peso bruto escrito a mano. */
+  /** Plantillas A y B: peso bruto escrito a mano. */
   pesoBrutoKg?: number | null;
+  /** Plantilla B: obra y peso neto escrito a mano. */
+  obra?: string | null;
+  pesoNetoKg?: number | null;
   /** Plantilla con la que se guardó (la fija el servidor). */
   plantillaId?: string;
   lineas: Array<{
@@ -225,6 +265,15 @@ interface FacturaApi {
     packs?: number | null;
     kgPlastico?: number | null;
     textoAdicional?: string | null;
+    palets?: number | null;
+    cajas?: number | null;
+    metros2?: number | null;
+    piezas?: number | null;
+    formato?: string | null;
+    calidad?: string | null;
+    pesoKg?: number | null;
+    unidadPrecio?: string | null;
+    cargoPalets?: boolean;
   }>;
 }
 
@@ -282,7 +331,65 @@ const lineaVacia = (tipoIva = 21): Linea => ({
   packs: '',
   kgPlastico: '',
   textoAdicional: '',
+  palets: '',
+  cajas: '',
+  metros2: '',
+  piezas: '',
+  formato: '',
+  calidad: '',
+  pesoKg: '',
+  unidadPrecio: 'M2',
 });
+
+/** Línea del cargo de palets de madera (plantilla B): por unidad, con su texto y la cantidad de palets propuesta. */
+const lineaCargoPalets = (tipoIva: number, palets: number): Linea => ({
+  ...lineaVacia(tipoIva),
+  descripcion: TEXTO_CARGO_PALETS,
+  cantidad: palets > 0 ? String(palets) : '1',
+  unidadPrecio: 'UNIDAD',
+  cargoPalets: true,
+});
+
+/**
+ * Datos de cerámica de una línea guardada (borrador o propuesta de una
+ * rectificativa, plantilla B). Las medidas siguen a la propuesta del producto
+ * solo si coinciden con ella; si no, son las que se escribieron.
+ */
+function ceramicaGuardada(
+  l: {
+    cantidad: number;
+    palets?: number | null;
+    cajas?: number | null;
+    metros2?: number | null;
+    piezas?: number | null;
+    formato?: string | null;
+    calidad?: string | null;
+    pesoKg?: number | null;
+    unidadPrecio?: string | null;
+    cargoPalets?: boolean;
+  },
+  p: Producto | undefined,
+): Pick<Linea, 'palets' | 'cajas' | 'metros2' | 'piezas' | 'formato' | 'calidad' | 'pesoKg' | 'unidadPrecio' | 'cargoPalets' | 'cajasTocadas' | 'm2Tocados' | 'piezasTocadas' | 'pesoTocado'> {
+  const datos = {
+    palets: paraEditar(l.palets),
+    cajas: paraEditar(l.cajas),
+    metros2: paraEditar(l.metros2),
+    piezas: paraEditar(l.piezas),
+    formato: l.formato ?? '',
+    calidad: l.calidad ?? '',
+    pesoKg: paraEditar(l.pesoKg),
+    unidadPrecio: (esUnidadPrecio(l.unidadPrecio) ? l.unidadPrecio : l.cargoPalets ? 'UNIDAD' : 'M2') as UnidadPrecio,
+    cargoPalets: l.cargoPalets === true,
+  };
+  const pr = propuestasCeramica({ ...datos, clave: 0, productoServicioId: '', descripcion: '', cantidad: '', precioUnitario: '', tipoIva: 21, textoAdicional: '' }, p);
+  return {
+    ...datos,
+    cajasTocadas: true,
+    m2Tocados: pr.metros2 !== null && pr.metros2 !== (l.metros2 ?? null),
+    piezasTocadas: pr.piezas !== null && pr.piezas !== (l.piezas ?? null),
+    pesoTocado: pr.peso !== null && pr.peso !== (l.pesoKg ?? null),
+  };
+}
 
 /**
  * Datos de envase de una línea guardada (borrador o propuesta de una
@@ -380,8 +487,11 @@ function idDelCampo(c: string | undefined, esRect: boolean): string | null {
   if (c === 'tipoCambio') return 'tipo-cambio';
   if (c === 'tipoRetencion') return 'irpf';
   if (c === 'pesoBrutoKg') return 'peso-bruto';
-  // packs, kgPlastico y textoAdicional: plantilla A (LineasEnvases); el descuento, solo en la tabla de siempre.
-  const l = /^lineas\.(\d+)\.(cantidad|precioUnitario|descripcion|packs|kgPlastico|textoAdicional|descuentoPorcentaje)/.exec(c);
+  if (c === 'pesoNetoKg') return 'peso-neto';
+  if (c === 'obra') return 'obra';
+  // packs, kgPlastico y textoAdicional: plantilla A (LineasEnvases); palets, cajas, metros2, piezas, formato, calidad,
+  // pesoKg y unidadPrecio: plantilla B (LineasCeramica); el descuento, solo en la tabla de siempre.
+  const l = /^lineas\.(\d+)\.(cantidad|precioUnitario|descripcion|packs|kgPlastico|textoAdicional|descuentoPorcentaje|palets|cajas|metros2|piezas|formato|calidad|pesoKg|unidadPrecio)/.exec(c);
   if (l) return `linea-${l[1]}-${l[2]}`;
   if (c.startsWith('lineas')) return 'lineas-titulo';
   return null;
@@ -448,6 +558,13 @@ function FormularioFactura() {
   const [observaciones, setObservaciones] = useState('');
   // Plantilla A: peso bruto escrito a mano, el IEEPNR de Configuración > Facturación y las series de proformas.
   const [pesoBruto, setPesoBruto] = useState('');
+  // Plantilla B: la obra y el peso neto escrito a mano.
+  const [obra, setObra] = useState('');
+  const [pesoNeto, setPesoNeto] = useState('');
+  // Observaciones por defecto de la serie que se escribieron solas (siguen a la serie mientras no se toquen).
+  const [obsDeSerie, setObsDeSerie] = useState<string | null>(null);
+  // Plantilla B: la cuenta del cargo de palets de Configuración > Facturación (null = la de ventas).
+  const [cuentaPaletsAjustes, setCuentaPaletsAjustes] = useState<string | null>(null);
   // Plantilla con la que se guardó el borrador o la proforma que se edita (null: alta nueva).
   const [plantillaGuardada, setPlantillaGuardada] = useState<string | null>(null);
   const [ajustesIeepnr, setAjustesIeepnr] = useState<{ repercute: boolean; porKg: number }>({ repercute: false, porKg: 0.45 });
@@ -520,16 +637,15 @@ function FormularioFactura() {
   const serieProforma = esProforma
     ? (borradorId ? seriesProforma.find((s) => s.codigo === serie) : undefined) ?? seriesProforma.find((s) => s.activa && s.porDefecto) ?? seriesProforma.find((s) => s.activa)
     : undefined;
-  const plantilla = normalizarPlantilla(
-    esRect && conOriginalApp
-      ? datosPrincipal?.original.plantillaId
-      : esProforma
-        ? serieProforma?.plantilla
-        : esRect
-          ? (seriesRect ?? []).find((s) => s.codigo === serieRect)?.plantilla
-          : series.find((s) => s.codigo === serie)?.plantilla,
-  );
+  // La serie elegida (la P en una proforma, la de rectificativas en una rectificativa).
+  const serieActual = esProforma ? serieProforma : esRect ? (seriesRect ?? []).find((s) => s.codigo === serieRect) : series.find((s) => s.codigo === serie);
+  const plantilla = normalizarPlantilla(esRect && conOriginalApp ? datosPrincipal?.original.plantillaId : serieActual?.plantilla);
   const envases = admiteEnvases(plantilla);
+  // Plantilla B (cerámica): obra, palets, cajas, m², piezas, pesos y cargo de palets.
+  const ceramica = admiteCeramica(plantilla);
+  // La A y la B no llevan descuento por línea; la A y la B, texto adicional y peso bruto.
+  const sinDescuento = !admiteDescuento(plantilla);
+  const conTexto = admiteTextoAdicional(plantilla);
   const cuotaPorTipo = ivaPorTipo(plantilla);
   // IEEPNR por kg: en una rectificativa de una factura de la app, el de esa factura (null si no lo
   // llevaba); si no, el de Configuración > Facturación si la empresa lo repercute (0 si no).
@@ -560,6 +676,7 @@ function FormularioFactura() {
         const productoDe = (id?: string | null) => catalogo.find((p) => p.id === id);
         // El IEEPNR solo se repercute en España y si la empresa lo ha activado (el servidor manda al guardar).
         if (ajustes) setAjustesIeepnr({ repercute: !!ajustes.empresaEspanola && ajustes.ieepnrRepercute === true, porKg: Number(ajustes.ieepnrPorKg ?? 0.45) || 0.45 });
+        if (ajustes) setCuentaPaletsAjustes(ajustes.cuentaPalets ?? null);
 
         if (borradorId) {
           const { invoice } = await apiFetch<{ invoice: FacturaApi }>(companyPath(`/income-invoices/${borradorId}`));
@@ -580,6 +697,8 @@ function FormularioFactura() {
           setFechaOperacion(invoice.fechaOperacion ?? '');
           setObservaciones(invoice.observaciones ?? '');
           setPesoBruto(paraEditar(invoice.pesoBrutoKg));
+          setObra(invoice.obra ?? '');
+          setPesoNeto(paraEditar(invoice.pesoNetoKg));
           setPlantillaGuardada(invoice.plantillaId ?? null);
           setIrpf(invoice.lineas.find((l) => l.tipoRetencion)?.tipoRetencion ?? 0);
           if (invoice.moneda) {
@@ -619,6 +738,7 @@ function FormularioFactura() {
               tipoIva: l.tipoIva,
               cuenta: l.cuenta ?? undefined,
               ...envaseGuardado(l, productoDe(l.productoServicioId)),
+              ...ceramicaGuardada(l, productoDe(l.productoServicioId)),
             })),
           );
         } else {
@@ -653,6 +773,21 @@ function FormularioFactura() {
       vivo = false;
     };
   }, [esProforma]);
+
+  // Plantilla B: una rectificativa de una factura de la app propone la obra de esa factura.
+  const obraOriginal = datosPrincipal?.original.obra ?? '';
+  useEffect(() => {
+    if (obraOriginal && !borradorId) setObra((o) => o || obraOriginal);
+  }, [obraOriginal, borradorId]);
+
+  // Observaciones por defecto de la serie (Configuración > Series): en un documento nuevo salen escritas y
+  // siguen a la serie que se elija mientras no se toquen. Un borrador guardado conserva las suyas.
+  const obsDefectoSerie = serieActual?.observacionesDefecto ?? '';
+  useEffect(() => {
+    if (borradorId || cargando) return;
+    setObservaciones((o) => (o === '' || o === (obsDeSerie ?? '') ? obsDefectoSerie : o));
+    setObsDeSerie(obsDefectoSerie || null);
+  }, [borradorId, cargando, obsDefectoSerie, obsDeSerie]);
 
   // Supuesto de exencion guardado: se busca en el catalogo por su referencia.
   useEffect(() => {
@@ -745,36 +880,53 @@ function FormularioFactura() {
   };
 
   /**
-   * Antes de cambiar a una serie con otra plantilla: de la A a otra, los
-   * packs, kg, texto adicional y peso bruto ya escritos no se guardan (se
-   * pregunta); de otra a la A, que no lleva descuento por línea, se quitan los
-   * descuentos (se pregunta). false: no se cambia.
+   * Lo que se pierde al pasar de la plantilla `desde` (la de ahora, si no se
+   * dice) a `destino` (null si nada): los envases de la A, los datos de
+   * cerámica de la B, el texto adicional y el peso bruto (la A y la B) y los
+   * descuentos por línea (la A y la B no los llevan).
+   */
+  const perdidasDePlantilla = (destino: string, desde: string = plantilla): { datos: string | null; descuentos: boolean } => {
+    const que: string[] = [];
+    if (admiteEnvases(desde) && !admiteEnvases(destino) && lineas.some((l) => l.packs.trim() || l.kgPlastico.trim())) que.push('los packs, los kg de plástico y el IEEPNR');
+    const conCeramica = !!obra.trim() || !!pesoNeto.trim() || lineas.some((l) => l.cargoPalets || l.palets.trim() || l.cajas.trim() || l.metros2.trim() || l.piezas.trim() || l.formato.trim() || l.calidad.trim() || l.pesoKg.trim());
+    if (admiteCeramica(desde) && !admiteCeramica(destino) && conCeramica) que.push('los palets, las cajas, los m², las piezas, el formato, la calidad, el peso, la obra y el peso neto (los palets de madera quedan como una línea más)');
+    if (admiteTextoAdicional(desde) && !admiteTextoAdicional(destino) && lineas.some((l) => l.textoAdicional.trim())) que.push('el texto adicional de las líneas');
+    if (admiteTextoAdicional(desde) && !admiteTextoAdicional(destino) && pesoBruto.trim()) que.push('el peso bruto');
+    const descuentos = admiteDescuento(desde) && !admiteDescuento(destino) && lineas.some((l) => num(l.descuentoPorcentaje) !== 0);
+    return { datos: que.length ? que.join(', ') : null, descuentos };
+  };
+
+  /**
+   * Antes de cambiar a una serie con otra plantilla: lo que la nueva no lleva
+   * no se guarda (se pregunta); y si la nueva no lleva descuento por línea (la
+   * A o la B), se quitan los descuentos (se pregunta). false: no se cambia.
    */
   const confirmarPlantilla = (otra: string | undefined): boolean => {
     const destino = normalizarPlantilla(otra);
-    if (admiteEnvases(destino) === envases) return true;
+    if (destino === plantilla) return true;
     // Ya se ha preguntado: al guardar no se vuelve a preguntar por lo mismo.
     const aceptado = () => {
       if (plantillaGuardada !== null) setPlantillaGuardada(destino);
       return true;
     };
-    if (envases) {
-      const conDatos = !!pesoBruto.trim() || lineas.some((l) => l.packs.trim() || l.kgPlastico.trim() || l.textoAdicional.trim());
-      if (
-        conDatos &&
-        !window.confirm(
-          `Esa serie usa la plantilla ${NOMBRE_PLANTILLA[destino]}, que no lleva packs, kg de plástico, IEEPNR, texto adicional ni peso bruto: si la cambias, esos datos no se guardan.\n\n¿Cambiar de serie?`,
-        )
-      ) {
-        return false;
-      }
-      return aceptado();
-    }
-    if (!lineas.some((l) => num(l.descuentoPorcentaje) !== 0)) return aceptado();
-    if (!window.confirm('Esa serie usa la plantilla A (envases), que no lleva descuento por línea: se quitan los descuentos y tendrás que poner el precio ya rebajado.\n\n¿Cambiar de serie?')) {
+    const { datos, descuentos } = perdidasDePlantilla(destino);
+    if (datos && !window.confirm(`Esa serie usa la plantilla ${NOMBRE_PLANTILLA[destino]}, que no lleva ${datos}: si la cambias, esos datos no se guardan.\n\n¿Cambiar de serie?`)) {
       return false;
     }
-    setLineas((ls) => ls.map((l) => ({ ...l, descuentoPorcentaje: '0' })));
+    if (descuentos) {
+      if (!window.confirm(`Esa serie usa la plantilla ${NOMBRE_PLANTILLA[destino]}, que no lleva descuento por línea: se quitan los descuentos y tendrás que poner el precio ya rebajado.\n\n¿Cambiar de serie?`)) {
+        return false;
+      }
+      setLineas((ls) => ls.map((l) => ({ ...l, descuentoPorcentaje: '0' })));
+    }
+    // A la B: las líneas que ya hay pasan a ir por unidad, con su cantidad en las piezas.
+    if (admiteCeramica(destino) && !ceramica) {
+      setLineas((ls) => ls.map((l) => (l.cargoPalets || l.piezas.trim() || l.metros2.trim() ? l : { ...l, unidadPrecio: 'UNIDAD', piezas: l.cantidad })));
+    }
+    // De la B a otra: la cantidad de cada línea es la que se cobraba (los m² o las piezas).
+    if (ceramica && !admiteCeramica(destino)) {
+      setLineas((ls) => ls.map((l) => (l.cargoPalets ? { ...l, cargoPalets: false } : l)));
+    }
     return aceptado();
   };
 
@@ -790,6 +942,23 @@ function FormularioFactura() {
     const envase = actual
       ? seguirPropuestas({ ...actual, udsTocadas: false, kgTocados: false, kgPlastico: p.llevaIeepnr ? actual.kgPlastico : '' }, p)
       : null;
+    // Plantilla B: su formato y la unidad de su precio; desde las cajas, los m² y las piezas, y el peso
+    // (siguen a lo que se escriba hasta que se toquen a mano).
+    const ceramico =
+      ceramica && actual && !actual.cargoPalets
+        ? seguirPropuestasCeramica(
+            {
+              ...actual,
+              formato: p.formato ?? actual.formato,
+              unidadPrecio: esUnidadPrecio(p.unidadPrecio) ? p.unidadPrecio : actual.unidadPrecio,
+              cajasTocadas: !!actual.cajas.trim(),
+              m2Tocados: false,
+              piezasTocadas: false,
+              pesoTocado: false,
+            },
+            p,
+          )
+        : null;
     cambiarLinea(clave, {
       productoServicioId: p.id,
       descripcion: p.descripcion,
@@ -798,7 +967,33 @@ function FormularioFactura() {
       textoAdicional: p.textoFactura ?? '',
       udsTocadas: false,
       kgTocados: false,
-      ...(envase ? { cantidad: envase.cantidad, kgPlastico: envase.kgPlastico } : {}),
+      ...(envase && !ceramica ? { cantidad: envase.cantidad, kgPlastico: envase.kgPlastico } : {}),
+      ...(ceramico
+        ? {
+            formato: ceramico.formato,
+            unidadPrecio: ceramico.unidadPrecio,
+            cajas: ceramico.cajas,
+            metros2: ceramico.metros2,
+            piezas: ceramico.piezas,
+            pesoKg: ceramico.pesoKg,
+            cantidad: ceramico.cantidad,
+            cajasTocadas: ceramico.cajasTocadas,
+            m2Tocados: false,
+            piezasTocadas: false,
+            pesoTocado: false,
+          }
+        : {}),
+    });
+  };
+
+  /** Plantilla B: añade un cargo de palets de madera (con los palets de las líneas) al final. */
+  const anadirCargoPalets = () => {
+    setLineasTocadas(true);
+    setLineasDeBorrador(false);
+    setLineas((ls) => {
+      const palets = ls.filter((l) => !l.cargoPalets).reduce((a, l) => a + (Math.trunc(num(l.palets)) || 0), 0);
+      const iva = ls.find((l) => !l.cargoPalets)?.tipoIva ?? (sinCuota ? 0 : 21);
+      return [...ls, lineaCargoPalets(iva, palets)];
     });
   };
 
@@ -924,6 +1119,8 @@ function FormularioFactura() {
             retencionOrigen: l.tipoRetencion,
             // Plantilla A: los packs y los kg de la original (con el signo de la cantidad) y su texto.
             ...envaseGuardado(l, productos.find((x) => x.id === l.productoServicioId)),
+            // Plantilla B: sus medidas (con el signo de la cantidad), formato, calidad, unidad del precio y cargo de palets.
+            ...ceramicaGuardada(l, productos.find((x) => x.id === l.productoServicioId)),
           }))
         : [lineaVacia()],
     );
@@ -986,21 +1183,22 @@ function FormularioFactura() {
 
   // Mismo calculo que el servidor (redondeo por linea), para que lo que se ve sea lo que se emite.
   // Las rectificativas redondean con signo (-0,525 da -0,53), como el servidor. Con la plantilla A,
-  // sin descuento, con el IEEPNR de cada línea dentro de su base y el IVA por tipo.
+  // sin descuento, con el IEEPNR de cada línea dentro de su base y el IVA por tipo. Con la B, sin
+  // descuento, la cantidad de la unidad del precio (los m² o las piezas) y el IVA por tipo.
   const lineasCalculo = useMemo(
     () =>
       lineas.map((l) => {
         const kg = envases ? leerCantidad(l.kgPlastico) : null;
         return {
-          cantidad: num(l.cantidad),
+          cantidad: ceramica && !l.cargoPalets ? (cantidadCeramica(l) ?? 0) : num(l.cantidad),
           precioUnitario: num(l.precioUnitario),
-          descuentoPorcentaje: envases ? 0 : num(l.descuentoPorcentaje),
+          descuentoPorcentaje: sinDescuento ? 0 : num(l.descuentoPorcentaje),
           tipoIva: l.tipoIva,
           tipoRetencion: irpf,
           ...(kg && tipoIeepnr ? { ieepnr: calcularIeepnr(kg, tipoIeepnr, { simetrico: esRect }) } : {}),
         };
       }),
-    [lineas, irpf, envases, tipoIeepnr, esRect],
+    [lineas, irpf, envases, ceramica, sinDescuento, tipoIeepnr, esRect],
   );
   const calculo = useMemo(
     () => calcularFactura(lineasCalculo, { tipoCambio: tipoAplicado, mismaMoneda: !enDivisa, simetrico: esRect, cuotaPorTipo }),
@@ -1028,6 +1226,19 @@ function FormularioFactura() {
   const finito = (n: number | null) => (n !== null && Number.isFinite(n) ? n : 0);
   const resumen = resumenEnvases(
     lineas.map((l, i) => ({ cantidad: num(l.cantidad), packs: finito(leerCantidad(l.packs)), kgPlastico: finito(leerCantidad(l.kgPlastico)), ieepnrImporte: ieepnrLineas[i] })),
+  );
+  // Plantilla B: el importe de cada línea (cantidad × precio, como el TOTAL del artículo) y los totales del pie.
+  const resumenB = resumenCeramica(
+    lineas.map((l, i) => ({
+      cantidad: lineasCalculo[i]?.cantidad ?? 0,
+      palets: finito(leerCantidad(l.palets)),
+      cajas: finito(leerCantidad(l.cajas)),
+      metros2: finito(leerCantidad(l.metros2)),
+      piezas: finito(leerCantidad(l.piezas)),
+      pesoKg: finito(leerCantidad(l.pesoKg)),
+      cargoPalets: l.cargoPalets,
+      baseLine: totalesArticulo[i],
+    })),
   );
   const fmt = (n: number) => formatoImporte(n, monedaDoc);
   const fmtCuenta = (n: number) => formatoImporte(n, monedaCuenta);
@@ -1137,25 +1348,44 @@ function FormularioFactura() {
 
   const cuerpo = () => {
     const fiscal = espanola ? { tipoOperacion: tipoOperacion || null, ...causaYReferencia() } : {};
-    const lineasCuerpo = lineas.map((l) => ({
+    const lineasCuerpo = lineas.map((l, i) => ({
       descripcion: l.descripcion.trim(),
-      cantidad: num(l.cantidad),
+      // Plantilla B: la cantidad de la unidad del precio (los m² o las piezas).
+      cantidad: lineasCalculo[i]?.cantidad ?? num(l.cantidad),
       precioUnitario: num(l.precioUnitario),
-      // La plantilla A no lleva descuento por línea.
-      descuentoPorcentaje: envases ? 0 : num(l.descuentoPorcentaje),
+      // La plantilla A y la B no llevan descuento por línea.
+      descuentoPorcentaje: sinDescuento ? 0 : num(l.descuentoPorcentaje),
       tipoIva: sinCuota ? 0 : l.tipoIva,
       tipoRetencion: sinRetencion ? 0 : irpf,
       productoServicioId: l.productoServicioId || undefined,
-      // Sin cuenta, el servidor usa la del producto (o la 700).
+      // Sin cuenta, el servidor usa la del producto (o la 700; la del cargo de palets, la de los ajustes).
       ...(l.cuenta ? { cuenta: l.cuenta } : {}),
-      // Plantilla A: packs, kg y texto adicional (el IEEPNR lo calcula el servidor). Con las demás no se mandan.
-      ...(envases
-        ? { packs: leerCantidad(l.packs), kgPlastico: leerCantidad(l.kgPlastico), textoAdicional: l.textoAdicional.trim() || null }
+      // Plantilla A: packs y kg (el IEEPNR lo calcula el servidor). Con las demás no se mandan.
+      ...(envases ? { packs: leerCantidad(l.packs), kgPlastico: leerCantidad(l.kgPlastico) } : {}),
+      // Plantillas A y B: el texto adicional bajo el concepto.
+      ...(conTexto ? { textoAdicional: l.textoAdicional.trim() || null } : {}),
+      // Plantilla B: las medidas, el formato, la calidad, la unidad del precio y el cargo de palets.
+      ...(ceramica
+        ? l.cargoPalets
+          ? { cargoPalets: true, unidadPrecio: 'UNIDAD' }
+          : {
+              palets: leerCantidad(l.palets),
+              cajas: leerCantidad(l.cajas),
+              metros2: leerCantidad(l.metros2),
+              piezas: leerCantidad(l.piezas),
+              formato: l.formato.trim() || null,
+              calidad: l.calidad.trim() || null,
+              pesoKg: leerCantidad(l.pesoKg),
+              unidadPrecio: l.unidadPrecio,
+            }
         : {}),
       moneda: monedaDoc,
     }));
-    // Plantilla A: peso bruto escrito a mano (null: sin peso).
-    const peso = envases ? { pesoBrutoKg: leerCantidad(pesoBruto) } : {};
+    // Plantillas A y B: peso bruto escrito a mano (null: sin peso); la B, también la obra y el peso neto.
+    const peso = {
+      ...(conTexto ? { pesoBrutoKg: leerCantidad(pesoBruto) } : {}),
+      ...(ceramica ? { obra: obra.trim() || null, pesoNetoKg: leerCantidad(pesoNeto) } : {}),
+    };
     if (esRect && compat) {
       // Servidor anterior: abono de una factura de fuera, R1 por diferencias, con los campos de antes.
       const o = rect.originales[0];
@@ -1170,7 +1400,8 @@ function FormularioFactura() {
         fechaEmision,
         fechaVencimiento,
         fechaOperacion: null,
-        observaciones: observaciones.trim() || undefined,
+        // Vacías también se mandan: si no, el servidor pondría las de la serie por defecto.
+        observaciones: observaciones.trim(),
         moneda: monedaDoc,
         ...(enDivisa && tipoManual.trim() ? { tipoCambio: manual } : volverAlBce ? { tipoCambio: null } : {}),
         ...fiscal,
@@ -1189,7 +1420,8 @@ function FormularioFactura() {
         fechaVencimiento,
         // Una rectificativa no lleva fecha de la operación.
         fechaOperacion: null,
-        observaciones: observaciones.trim() || undefined,
+        // Vacías también se mandan: si no, el servidor pondría las de la serie por defecto.
+        observaciones: observaciones.trim(),
         // Con una original de la app, la moneda, el tipo de cambio y el tipo de operación son los suyos.
         ...(conOriginalApp
           ? {}
@@ -1208,7 +1440,8 @@ function FormularioFactura() {
       fechaEmision,
       fechaVencimiento,
       fechaOperacion: fechaOperacion && fechaOperacion !== fechaEmision ? fechaOperacion : null,
-      observaciones: observaciones.trim() || undefined,
+      // Vacías también se mandan: si no, el servidor pondría las de la serie por defecto.
+      observaciones: observaciones.trim(),
       moneda: monedaDoc,
       // Solo el tipo escrito a mano; sin el, el del BCE (null: volver al del BCE).
       ...(enDivisa && tipoManual.trim() ? { tipoCambio: manual } : volverAlBce ? { tipoCambio: null } : {}),
@@ -1274,11 +1507,59 @@ function FormularioFactura() {
     if (!esRect && fechaOperacion && fechaOperacion > fechaEmision) return falla('La fecha de la operación no puede ser posterior a la de emisión.', 'fechaOperacion');
     // Rectificativa por diferencias con la plantilla A: una línea de 0 uds con kg corrige solo los kg (y su IEEPNR).
     const soloKg = (l: Linea) => envases && esRect && !sustitucion && num(l.cantidad) === 0 && !!leerCantidad(l.kgPlastico);
-    const mal = lineas.findIndex((l) => !l.descripcion.trim() || (num(l.cantidad) === 0 && !soloKg(l)) || l.precioUnitario === '');
+    // Plantilla B: la cantidad es la de la unidad del precio (los m² o las piezas).
+    const cantidadDe = (i: number) => lineasCalculo[i]?.cantidad ?? num(lineas[i].cantidad);
+    const mal = lineas.findIndex((l, i) => !l.descripcion.trim() || (cantidadDe(i) === 0 && !soloKg(l)) || l.precioUnitario === '');
     if (mal >= 0) {
       const l = lineas[mal];
-      const que = !l.descripcion.trim() ? 'descripcion' : num(l.cantidad) === 0 ? 'cantidad' : 'precioUnitario';
-      return falla(`Completa la línea ${mal + 1}: ${envases ? 'concepto, uds' : 'descripción, cantidad'} y precio.`, `lineas.${mal}.${que}`);
+      const deUnidad = ceramica && !l.cargoPalets;
+      const campoCantidad = deUnidad ? (l.unidadPrecio === 'M2' ? 'metros2' : 'piezas') : 'cantidad';
+      const que = !l.descripcion.trim() ? 'descripcion' : cantidadDe(mal) === 0 ? campoCantidad : 'precioUnitario';
+      const cantidadTxt = envases ? 'concepto, uds' : deUnidad ? `descripción, ${l.unidadPrecio === 'M2' ? 'm²' : 'piezas'}` : l.cargoPalets ? 'texto, palets' : 'descripción, cantidad';
+      return falla(`Completa la línea ${mal + 1}: ${cantidadTxt} y precio.`, `lineas.${mal}.${que}`);
+    }
+    if (ceramica) {
+      // Plantilla B: las mismas reglas que el servidor, con el campo que lo arregla.
+      for (let i = 0; i < lineas.length; i++) {
+        const l = lineas[i];
+        const n = i + 1;
+        const signo = Math.sign(cantidadDe(i));
+        if (!l.cargoPalets) {
+          for (const [k, entero, nombre] of [
+            ['palets', true, 'los palets'],
+            ['cajas', true, 'las cajas'],
+            ['metros2', false, 'los m²'],
+            ['piezas', false, 'las piezas'],
+            ['pesoKg', false, 'el peso'],
+          ] as const) {
+            const v = leerCantidad(l[k]);
+            if (v === null) continue;
+            if (Number.isNaN(v) || (entero ? !Number.isInteger(v) : decimalesDe(v) > 3)) {
+              return falla(`Línea ${n}: ${nombre} ${k === 'pesoKg' ? 'es un número' : 'son un número'}${entero ? ' entero' : ' con 3 decimales como mucho'}.`, `lineas.${i}.${k}`);
+            }
+            if (v !== 0 && Math.sign(v) !== signo) {
+              return falla(`Línea ${n}: ${nombre} van con el mismo signo que la cantidad (en negativo solo si la cantidad lo está).`, `lineas.${i}.${k}`);
+            }
+          }
+          if (l.unidadPrecio === 'PIEZA' && !Number.isInteger(cantidadDe(i))) {
+            return falla(`Línea ${n}: las piezas son un número entero (si vendes por fracciones, pon el precio por unidad).`, `lineas.${i}.piezas`);
+          }
+          if (l.formato.trim().length > FORMATO_MAX) return falla(`Línea ${n}: el formato admite ${FORMATO_MAX} caracteres como mucho.`, `lineas.${i}.formato`);
+          if (l.calidad.trim().length > CALIDAD_MAX) return falla(`Línea ${n}: la calidad admite ${CALIDAD_MAX} caracteres como mucho.`, `lineas.${i}.calidad`);
+          const texto = problemaTextoAdicional(l.textoAdicional);
+          if (texto) return falla(`Línea ${n}: ${texto.charAt(0).toLowerCase()}${texto.slice(1)}`, `lineas.${i}.textoAdicional`);
+        }
+      }
+      if (obra.trim().length > OBRA_MAX) return falla(`La obra admite ${OBRA_MAX} caracteres como mucho.`, 'obra');
+      for (const [valor, campo, nombre] of [
+        [pesoNeto, 'pesoNetoKg', 'neto'],
+        [pesoBruto, 'pesoBrutoKg', 'bruto'],
+      ] as const) {
+        const peso = leerCantidad(valor);
+        if (peso !== null && (Number.isNaN(peso) || peso < 0 || decimalesDe(peso) > 3)) {
+          return falla(`El peso ${nombre} son los kg de la mercancía: un número desde 0 y con 3 decimales como mucho.`, campo);
+        }
+      }
     }
     if (envases) {
       // Plantilla A: las mismas reglas que el servidor, con el campo que lo arregla.
@@ -1392,13 +1673,13 @@ function FormularioFactura() {
     // cambió en Configuración > Series): al guardarlo pasa a la de ahora y pierde lo que esta no
     // lleva. Se pregunta una vez.
     if (plantillaGuardada !== null && normalizarPlantilla(plantillaGuardada) !== plantilla) {
-      const pierde = envases
-        ? lineas.some((l) => num(l.descuentoPorcentaje) !== 0)
-          ? 'los descuentos por línea (la plantilla A no los lleva: tendrás que poner el precio ya rebajado)'
-          : null
-        : pesoBruto.trim() || lineas.some((l) => l.packs.trim() || l.kgPlastico.trim() || l.textoAdicional.trim())
-          ? 'los packs, los kg de plástico, el texto adicional y el peso bruto (esa plantilla no los lleva)'
-          : null;
+      const p = perdidasDePlantilla(plantilla, normalizarPlantilla(plantillaGuardada));
+      const pierde = [
+        p.datos ? `${p.datos} (esa plantilla no los lleva)` : null,
+        p.descuentos ? `los descuentos por línea (la plantilla ${NOMBRE_PLANTILLA[plantilla]} no los lleva: tendrás que poner el precio ya rebajado)` : null,
+      ]
+        .filter(Boolean)
+        .join(' y ');
       if (
         pierde &&
         !window.confirm(
@@ -1520,6 +1801,56 @@ function FormularioFactura() {
   const etiquetaSinCuota = regla && !regla.llevaCuota ? regla.etiquetaCorta : 'Sin IVA';
   // Lo que resta (abonos), en rojo.
   const rojo = (n: number) => (n < 0 ? 'text-red-700' : '');
+
+  /** El IVA de una línea (desplegable o «Sin IVA»), para los editores de la plantilla A y de la B. */
+  const ivaDeLinea = (l: { clave: number; tipoIva: number }, i: number) =>
+    espanola ? (
+      sinCuota ? (
+        <>
+          <p className="mb-1 text-xs font-medium text-slate-600">IVA</p>
+          <p className={`${campo} whitespace-nowrap bg-slate-100 text-slate-600`} title="El tipo de operación no lleva IVA">
+            {etiquetaSinCuota}
+          </p>
+        </>
+      ) : (
+        <>
+          <label htmlFor={`linea-${i}-iva`} className="mb-1 block text-xs font-medium text-slate-600">
+            IVA
+          </label>
+          <select
+            id={`linea-${i}-iva`}
+            aria-label={`IVA de la línea ${i + 1}`}
+            className={campo}
+            value={l.tipoIva}
+            onChange={(e) => cambiarLinea(l.clave, { tipoIva: Number(e.target.value) })}
+          >
+            {IVAS.map((t) => (
+              <option key={t} value={t}>
+                {t} %
+              </option>
+            ))}
+          </select>
+        </>
+      )
+    ) : null;
+
+  /** La cuenta de ingresos de una línea (CuentaLinea), para los editores de la plantilla A y de la B. */
+  const cuentaDeLinea = (l: { clave: number; productoServicioId: string; cargoPalets?: boolean }, i: number) => (
+    <CuentaLinea
+      tipo="venta"
+      catalogo={catalogoCuentas}
+      valor={lineas[i]?.cuenta}
+      onCambiar={(codigo) => cambiarLinea(l.clave, { cuenta: codigo ?? undefined })}
+      porDefecto={
+        l.cargoPalets && cuentaPaletsAjustes
+          ? { codigo: cuentaPaletsAjustes, texto: 'la de los palets (Configuración > Facturación)' }
+          : cuentaPorDefecto(productos.find((p) => p.id === l.productoServicioId))
+      }
+      linea={i + 1}
+      id={`fv-cuenta-${l.clave}`}
+      puedeCrear={puedeCrearCuenta}
+    />
+  );
 
   // Título, avisos generales, error y tipo de factura: igual con el servidor anterior.
   const cabecera = (
@@ -1798,12 +2129,19 @@ function FormularioFactura() {
               ))}
             </select>
           )}
-          {/* La plantilla sale de la serie (Configuración > Series); la A cambia las líneas. */}
+          {/* La plantilla sale de la serie (Configuración > Series); la A y la B cambian las líneas. */}
           {envases && (
             <p className="mt-1 text-xs text-slate-500">
               {esRect && conOriginalApp
                 ? 'Plantilla A (envases): la de la factura que rectificas.'
                 : 'Plantilla A (envases): packs, uds, kg de plástico e IEEPNR, sin descuento por línea.'}
+            </p>
+          )}
+          {ceramica && (
+            <p className="mt-1 text-xs text-slate-500">
+              {esRect && conOriginalApp
+                ? 'Plantilla B (cerámica): la de la factura que rectificas.'
+                : 'Plantilla B (cerámica): obra, palets, cajas, m², piezas, formato, calidad, peso y palets de madera, sin descuento por línea.'}
             </p>
           )}
           {esRect && (
@@ -2083,7 +2421,12 @@ function FormularioFactura() {
               onClick={() => {
                 setLineasTocadas(true);
                 setLineasDeBorrador(false);
-                setLineas((ls) => [...ls, lineaVacia(sinCuota ? 0 : 21)]);
+                // Plantilla B: las líneas nuevas van antes de los palets de madera (que salen en el pie).
+                setLineas((ls) => {
+                  const nueva = lineaVacia(sinCuota ? 0 : 21);
+                  const primerCargo = ceramica ? ls.findIndex((l) => l.cargoPalets) : -1;
+                  return primerCargo < 0 ? [...ls, nueva] : [...ls.slice(0, primerCargo), nueva, ...ls.slice(primerCargo)];
+                });
               }}
               className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
             >
@@ -2131,50 +2474,45 @@ function FormularioFactura() {
               setLineas((ls) => ls.filter((x) => x.clave !== clave));
             }}
             marca={marca}
-            iva={(l, i) =>
-              espanola ? (
-                sinCuota ? (
-                  <>
-                    <p className="mb-1 text-xs font-medium text-slate-600">IVA</p>
-                    <p className={`${campo} whitespace-nowrap bg-slate-100 text-slate-600`} title="El tipo de operación no lleva IVA">
-                      {etiquetaSinCuota}
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <label htmlFor={`linea-${i}-iva`} className="mb-1 block text-xs font-medium text-slate-600">
-                      IVA
-                    </label>
-                    <select
-                      id={`linea-${i}-iva`}
-                      aria-label={`IVA de la línea ${i + 1}`}
-                      className={campo}
-                      value={l.tipoIva}
-                      onChange={(e) => cambiarLinea(l.clave, { tipoIva: Number(e.target.value) })}
-                    >
-                      {IVAS.map((t) => (
-                        <option key={t} value={t}>
-                          {t} %
-                        </option>
-                      ))}
-                    </select>
-                  </>
-                )
-              ) : null
-            }
-            cuenta={(l, i) => (
-              <CuentaLinea
-                tipo="venta"
-                catalogo={catalogoCuentas}
-                valor={lineas[i]?.cuenta}
-                onCambiar={(codigo) => cambiarLinea(l.clave, { cuenta: codigo ?? undefined })}
-                porDefecto={cuentaPorDefecto(productos.find((p) => p.id === l.productoServicioId))}
-                linea={i + 1}
-                id={`fv-cuenta-${l.clave}`}
-                puedeCrear={puedeCrearCuenta}
-              />
-            )}
+            iva={ivaDeLinea}
+            cuenta={cuentaDeLinea}
           />
+        ) : ceramica ? (
+          <>
+            {/* Plantilla B: la obra sale en la franja OBRA: del PDF, sobre la tabla. */}
+            <div className="border-b border-slate-100 px-4 py-3 md:px-5">
+              <label htmlFor="obra" className="mb-1 block text-sm font-medium text-slate-700">
+                Obra <span className="font-normal text-slate-500">(opcional)</span>
+              </label>
+              <input
+                id="obra"
+                className={campo}
+                value={obra}
+                maxLength={OBRA_MAX}
+                placeholder="La obra o el proyecto del cliente"
+                onChange={(e) => setObra(e.target.value)}
+                {...marca('obra')}
+              />
+            </div>
+            <LineasCeramica
+              lineas={lineas}
+              productos={productos}
+              importes={totalesArticulo}
+              moneda={monedaDoc}
+              fmt={fmt}
+              onCambiar={cambiarLinea}
+              onElegirProducto={elegirProducto}
+              onQuitar={(clave) => {
+                setLineasTocadas(true);
+                setLineasDeBorrador(false);
+                setLineas((ls) => ls.filter((x) => x.clave !== clave));
+              }}
+              onAnadirCargo={anadirCargoPalets}
+              marca={marca}
+              iva={ivaDeLinea}
+              cuenta={cuentaDeLinea}
+            />
+          </>
         ) : (
         <div className="overflow-x-auto">
           <table className={`w-full text-sm ${espanola ? 'min-w-[860px]' : 'min-w-[720px]'}`}>
@@ -2336,6 +2674,9 @@ function FormularioFactura() {
           fmt={fmt}
         />
       )}
+      {ceramica && (
+        <ResumenCeramica resumen={resumenB} pesoNeto={pesoNeto} onPesoNeto={setPesoNeto} pesoBruto={pesoBruto} onPesoBruto={setPesoBruto} marca={marca} />
+      )}
 
       <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-5">
@@ -2373,7 +2714,10 @@ function FormularioFactura() {
               placeholder="Ej.: pedido nº 1234; entrega en almacén; gracias por su confianza…"
               onChange={(e) => setObservaciones(e.target.value)}
             />
-            <p className="mt-1 text-xs text-slate-500">Se imprimen en {esProforma ? 'la proforma' : 'la factura'}.</p>
+            <p className="mt-1 text-xs text-slate-500">
+              Se imprimen en {esProforma ? 'la proforma' : 'la factura'}.
+              {obsDeSerie && observaciones === obsDeSerie && ' Son las de la serie por defecto: puedes cambiarlas.'}
+            </p>
           </div>
         </div>
 
@@ -2394,8 +2738,21 @@ function FormularioFactura() {
                 </div>
               </>
             )}
-            <div className={`flex justify-between gap-3 ${envases ? 'border-t border-slate-200 pt-2 font-medium' : ''}`}>
-              <dt className="text-slate-600">{envases ? 'Subtotal (base imponible)' : 'Base imponible'}</dt>
+            {/* Plantilla B: el total bruto (la base) lleva los palets de madera. */}
+            {ceramica && resumenB.cargoPalets.importe !== 0 && (
+              <>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-slate-600">Materiales</dt>
+                  <dd className={`font-mono tabular-nums ${rojo(totales.base)}`}>{fmt((Math.round(totales.base * 100) - Math.round(resumenB.cargoPalets.importe * 100)) / 100)}</dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-slate-600">Palets de madera</dt>
+                  <dd className={`font-mono tabular-nums ${rojo(resumenB.cargoPalets.importe)}`}>{fmt(resumenB.cargoPalets.importe)}</dd>
+                </div>
+              </>
+            )}
+            <div className={`flex justify-between gap-3 ${envases || (ceramica && resumenB.cargoPalets.importe !== 0) ? 'border-t border-slate-200 pt-2 font-medium' : ''}`}>
+              <dt className="text-slate-600">{envases ? 'Subtotal (base imponible)' : ceramica ? 'Total bruto (base imponible)' : 'Base imponible'}</dt>
               <dd className={`font-mono tabular-nums ${rojo(totales.base)}`}>{fmt(totales.base)}</dd>
             </div>
             {espanola &&
