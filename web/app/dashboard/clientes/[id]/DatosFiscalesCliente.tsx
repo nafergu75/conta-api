@@ -2,15 +2,18 @@
 
 import { useState } from 'react';
 import { CheckCircle, PencilSimple, WarningCircle } from '@phosphor-icons/react';
-import { apiFetch, companyPath, errorMessage } from '@/lib/api';
+import { apiFetch, campoDelError, companyPath, errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { nombreNumeroFiscal, nombrePais, PAISES, PAISES_UE, pareceNifIvaUe } from '@/lib/fiscal';
 import { NOMBRE_MONEDA } from '@/lib/moneda';
+import { CampoWeb, EnlaceWeb } from '@/components/terceros/Web';
 
 /**
- * Pais, direccion y moneda preferida del cliente. El pais decide el tipo de
- * operacion de IVA que se sugiere al facturarle (nacional, intracomunitaria,
- * exportacion...); la moneda solo se propone en el formulario de la factura.
+ * Pais, direccion, contacto (email, telefono y web) y moneda preferida del
+ * cliente. El pais decide el tipo de operacion de IVA que se sugiere al
+ * facturarle (nacional, intracomunitaria, exportacion...); la moneda solo se
+ * propone en el formulario de la factura. La web sale como enlace (pestaña
+ * nueva) y, al editarla, su error va junto a su casilla.
  */
 
 export interface DatosFiscales {
@@ -22,10 +25,15 @@ export interface DatosFiscales {
   cp?: string;
   municipio?: string;
   provincia?: string;
+  email?: string;
+  telefono?: string;
+  /** Con https:// delante (el servidor se lo pone). */
+  web?: string;
   monedaPreferida?: string | null;
 }
 
-const campo = 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500';
+const campo =
+  'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 aria-[invalid=true]:border-red-500 aria-[invalid=true]:bg-red-50';
 const etq = 'mb-1 block text-xs font-medium text-slate-600';
 
 export function DatosFiscalesCliente({ cliente, onGuardado }: { cliente: DatosFiscales; onGuardado: (c: DatosFiscales) => void }) {
@@ -38,10 +46,13 @@ export function DatosFiscalesCliente({ cliente, onGuardado }: { cliente: DatosFi
     cp: cliente.cp ?? '',
     municipio: cliente.municipio ?? '',
     provincia: cliente.provincia ?? '',
+    email: cliente.email ?? '',
+    telefono: cliente.telefono ?? '',
+    web: cliente.web ?? '',
     monedaPreferida: cliente.monedaPreferida ?? '',
   });
   const [guardando, setGuardando] = useState(false);
-  const [mensaje, setMensaje] = useState<{ ok: boolean; texto: string } | null>(null);
+  const [mensaje, setMensaje] = useState<{ ok: boolean; texto: string; campo?: string } | null>(null);
   const ue = d.pais !== 'ES' && PAISES_UE.has(d.pais);
   const s = (k: keyof typeof d) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setD((x) => ({ ...x, [k]: e.target.value }));
 
@@ -58,7 +69,9 @@ export function DatosFiscalesCliente({ cliente, onGuardado }: { cliente: DatosFi
       setEditando(false);
       setMensaje({ ok: true, texto: 'Datos guardados.' });
     } catch (err) {
-      setMensaje({ ok: false, texto: errorMessage(err) });
+      const c = campoDelError(err);
+      setMensaje({ ok: false, texto: errorMessage(err), campo: c });
+      if (c === 'web') requestAnimationFrame(() => document.getElementById('cli-web')?.focus());
     } finally {
       setGuardando(false);
     }
@@ -69,7 +82,7 @@ export function DatosFiscalesCliente({ cliente, onGuardado }: { cliente: DatosFi
     return (
       <section className="mb-6 rounded-xl border border-slate-200 bg-white p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="grid flex-1 grid-cols-1 gap-3 text-sm sm:grid-cols-3">
+          <div className="grid min-w-0 flex-1 grid-cols-1 gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
             <div>
               <p className="text-xs uppercase tracking-wide text-slate-500">País</p>
               <p className="font-medium text-slate-900">{nombrePais(cliente.pais || 'ES')}</p>
@@ -82,6 +95,22 @@ export function DatosFiscalesCliente({ cliente, onGuardado }: { cliente: DatosFi
                   {poblacion}
                   {cliente.provincia ? ` (${cliente.provincia})` : ''}
                 </p>
+              )}
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs uppercase tracking-wide text-slate-500">Contacto</p>
+              {cliente.email || cliente.telefono || cliente.web ? (
+                <>
+                  {cliente.email && <p className="break-all text-slate-900">{cliente.email}</p>}
+                  {cliente.telefono && <p className="text-slate-900">{cliente.telefono}</p>}
+                  {cliente.web && (
+                    <p>
+                      <EnlaceWeb web={cliente.web} />
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="text-slate-900">—</p>
               )}
             </div>
             <div>
@@ -159,8 +188,20 @@ export function DatosFiscalesCliente({ cliente, onGuardado }: { cliente: DatosFi
           <label htmlFor="cli-prov" className={etq}>{d.pais === 'ES' ? 'Provincia' : 'Región o estado'}</label>
           <input id="cli-prov" value={d.provincia} onChange={s('provincia')} className={campo} />
         </div>
+        <div>
+          <label htmlFor="cli-email" className={etq}>Email</label>
+          <input id="cli-email" type="email" value={d.email} onChange={s('email')} className={campo} />
+        </div>
+        <div>
+          <label htmlFor="cli-tel" className={etq}>Teléfono</label>
+          <input id="cli-tel" type="tel" value={d.telefono} onChange={s('telefono')} className={campo} />
+        </div>
+        <div className="sm:col-span-2 md:col-span-1">
+          <CampoWeb id="cli-web" value={d.web} onChange={s('web')} error={mensaje && !mensaje.ok && mensaje.campo === 'web' ? mensaje.texto : null} claseEtiqueta={etq} claseCampo={campo} />
+        </div>
       </div>
-      {mensaje && !mensaje.ok && (
+      {/* El de la web sale junto a su casilla. */}
+      {mensaje && !mensaje.ok && mensaje.campo !== 'web' && (
         <p role="alert" className="text-sm text-red-700">
           {mensaje.texto}
         </p>
@@ -168,7 +209,11 @@ export function DatosFiscalesCliente({ cliente, onGuardado }: { cliente: DatosFi
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         <button
           type="button"
-          onClick={() => setEditando(false)}
+          onClick={() => {
+            setEditando(false);
+            // Un error de la web (o de otro dato) no se queda a la vista al cancelar.
+            setMensaje(null);
+          }}
           className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
         >
           Cancelar
