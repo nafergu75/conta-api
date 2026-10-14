@@ -36,6 +36,7 @@ import LineasEnvases, { kgPropuestos, seguirPropuestas, udsPropuestas } from '@/
 import ResumenEnvases, { type SinIeepnr } from '@/components/ventas/ResumenEnvases';
 import LineasCeramica, { cantidadCeramica, propuestasCeramica, seguirPropuestasCeramica } from '@/components/ventas/LineasCeramica';
 import ResumenCeramica from '@/components/ventas/ResumenCeramica';
+import AvisoPlantillaSerie from '@/components/ventas/AvisoPlantillaSerie';
 import { CALIDAD_MAX, esUnidadPrecio, FORMATO_MAX, OBRA_MAX, resumenCeramica, TEXTO_CARGO_PALETS, type UnidadPrecio } from '@/lib/ceramica';
 import {
   admiteCeramica,
@@ -119,7 +120,9 @@ import {
  * (LineasCeramica), sin descuento, con los totales y los pesos neto y bruto
  * (ResumenCeramica), y el IVA por tipo. Con las demás, la tabla de siempre.
  * Las observaciones por defecto de la serie salen escritas en una factura nueva
- * mientras no se toquen.
+ * mientras no se toquen. Si la serie A o la B usa la estándar porque su casilla
+ * de Configuración > Facturación está sin marcar, un aviso discreto encima de
+ * las líneas lo dice (AvisoPlantillaSerie).
  */
 
 interface Cliente {
@@ -154,6 +157,12 @@ interface Serie {
   ultimoNumero?: number;
   /** Plantilla que usa la serie ('default', 'A'...). Un servidor anterior no la manda: la estándar. */
   plantilla?: string;
+  /**
+   * Por qué usa esa plantilla: 'sinIeepnr' o 'sinCeramica' si es la serie A o B
+   * con la estándar porque su casilla de Configuración > Facturación está sin
+   * marcar (AvisoPlantillaSerie). Un servidor anterior no lo manda.
+   */
+  motivoPlantilla?: string;
   /** Observaciones que salen escritas en cada factura nueva de la serie. */
   observacionesDefecto?: string | null;
 }
@@ -2552,6 +2561,8 @@ function FormularioFactura() {
             </button>
           </div>
         </div>
+        {/* La serie A o la B con la estándar porque su casilla está sin marcar: qué marcar para tener sus columnas. */}
+        {!esRect && serieActual && <AvisoPlantillaSerie key={serieActual.codigo} codigo={serieActual.codigo} motivo={serieActual.motivoPlantilla} />}
         {error && errorVf?.campo === 'lineas' && (
           <p aria-hidden="true" className="border-b border-slate-100 px-5 py-2 text-sm text-red-700">
             {error}
