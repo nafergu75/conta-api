@@ -163,9 +163,9 @@ export const NAV_GROUPS: NavGroup[] = [
       {
         label: 'Movimientos',
         slug: 'movimientos',
-        description: 'Movimientos anotados a mano. No cuentan en el Resumen, que sale de las facturas.',
+        description: 'Consulta de los movimientos anotados a mano (ya no se crean). No cuentan en el Resumen, que sale de las facturas.',
         implemented: true,
-        endpoints: ['GET /companies/:id/movements', 'POST /companies/:id/movements'],
+        endpoints: ['GET /companies/:id/movements'],
         requiredRoles: ['contabilidad:read', 'tesoreria:read'],
       },
       {
