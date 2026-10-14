@@ -277,6 +277,9 @@ export default function CorreccionVenta({
         <div className={L.contenedor}>
           {e.lineas.map((l, i) => {
             const id = `cv-linea-${l.clave}`;
+            // Empresa de fuera: sin IVA español. Un IVA leído (el OCR lo pone por defecto) se ve y se puede quitar.
+            const ivaLeido = leido.lineas.find((o) => o.clave === l.clave)?.tipoIva ?? 0;
+            const tiposIva = espanola ? TIPOS_IVA_VENTA : Array.from(new Set([l.tipoIva, ivaLeido, 0])).sort((a, b) => b - a);
             return (
               <div key={l.clave} className={L.fila}>
                 <div className={L.descripcion}>
@@ -319,12 +322,12 @@ export default function CorreccionVenta({
                   <select
                     id={`${id}-iva`}
                     value={l.tipoIva}
-                    disabled={disabled || !espanola}
+                    disabled={disabled || tiposIva.length === 1}
                     onChange={(ev) => ponerLinea(l.clave, { tipoIva: Number(ev.target.value) })}
                     {...marca(`${id}-iva`, `linea:${l.clave}.tipoIva`)}
                     className={campoBase}
                   >
-                    {(espanola ? TIPOS_IVA_VENTA : [0]).map((t) => (
+                    {tiposIva.map((t) => (
                       <option key={t} value={t}>
                         {t === 0 ? (espanola ? 'Exento' : 'Sin IVA') : porcentaje(t)}
                       </option>
@@ -355,6 +358,7 @@ export default function CorreccionVenta({
                     id={`${id}-cuenta`}
                     puedeCrear={puedeCrearCuenta}
                     invalido={idError === `${id}-cuenta`}
+                    idError={`${id}-cuenta-error`}
                     disabled={disabled}
                   />
                   {mensaje(`${id}-cuenta`)}
@@ -388,7 +392,7 @@ export default function CorreccionVenta({
             </label>
             <input
               id="cv-retencion"
-              inputMode="decimal"
+              inputMode="numeric"
               autoComplete="off"
               value={e.tipoRetencion}
               disabled={disabled}
@@ -396,7 +400,7 @@ export default function CorreccionVenta({
               {...marca('cv-retencion', 'correcciones.tipoRetencion')}
               className={`${campoBase} text-right font-mono`}
             />
-            <p className={ayuda}>Una sola para toda la factura. Pon 0 si no lleva.</p>
+            <p className={ayuda}>Una sola para toda la factura, sin decimales. Pon 0 si no lleva.</p>
             {mensaje('cv-retencion')}
           </div>
         )}
@@ -420,9 +424,12 @@ export default function CorreccionVenta({
         </div>
       </div>
 
-      {/* Cuadre al momento: lo anuncia el lector de pantalla sin mover el foco. */}
+      {/* El lector de pantalla solo anuncia si cuadra o no, cuando cambia (no a cada tecla); el detalle está en el recuadro. */}
+      <p role="status" className="sr-only">
+        {!q.completo || !Number.isFinite(q.escrito) ? '' : q.cuadra ? 'Las líneas cuadran con el total.' : 'Las líneas no cuadran con el total.'}
+      </p>
+      {/* Cuadre al momento. */}
       <div
-        role="status"
         className={`rounded-lg border p-3 text-sm ${
           !q.completo || !Number.isFinite(q.escrito)
             ? 'border-slate-200 bg-slate-50 text-slate-700'
