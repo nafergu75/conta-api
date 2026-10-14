@@ -1,0 +1,400 @@
+'use client';
+
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { ArrowLeft, FunnelSimple, Info, X } from '@phosphor-icons/react';
+import { getToken, getUser, tieneAlgunPermiso } from '@/lib/auth';
+import { apiFetch, companyPath } from '@/lib/api';
+import { mensajeSinAcceso, PantallaSinAcceso } from '@/components/dashboard/SinAcceso';
+import { CATEGORIES, STATUSES } from '@/lib/movimientos';
+
+/**
+ * Movimientos antiguos: los anotados a mano antes (tabla Movement).
+ * «Nuevo movimiento» está retirado: aquí solo se consultan (el servidor ya no
+ * deja crearlos, cambiarlos ni borrarlos). Las ventas y los gastos se
+ * registran como facturas, y Contabilidad > Movimientos enseña los apuntes de
+ * los asientos; desde allí se llega aquí si la empresa tiene alguno.
+ */
+
+interface Movement {
+  id: string;
+  type: 'income' | 'expense';
+  amount: string;
+  category: string;
+  description: string;
+  date: string;
+  referenceDocument?: string;
+  status: string;
+}
+
+const eur = (n: number) =>
+  n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
+
+const statusStyles: Record<string, string> = {
+  approved: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  reconciled: 'bg-slate-100 text-slate-700 border-slate-300',
+  draft: 'bg-amber-50 text-amber-700 border-amber-200',
+};
+
+const statusLabels: Record<string, string> = {
+  approved: 'Aprobado',
+  reconciled: 'Conciliado',
+  draft: 'Borrador',
+};
+
+export default function MovimientosPage() {
+  const router = useRouter();
+  const [movements, setMovements] = useState<Movement[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  // Enlaces para registrar la venta o el gasto como factura, según su acceso (la sesión vive en el navegador).
+  const [altas, setAltas] = useState<{ venta: boolean; gasto: boolean }>({ venta: false, gasto: false });
+  useEffect(() => {
+    const u = getUser();
+    setAltas({ venta: tieneAlgunPermiso(u, ['ventas:write']), gasto: tieneAlgunPermiso(u, ['compras:write']) });
+  }, []);
+  // Texto del 403 si su acceso no incluye movimientos (null = si lo incluye).
+  const [sinAcceso, setSinAcceso] = useState<string | null>(null);
+
+  // Filtros servidor (la API los soporta como query params)
+  const [type, setType] = useState('');
+  const [category, setCategory] = useState('');
+  // Filtros cliente
+  const [status, setStatus] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+
+  const loadData = useCallback(async () => {
+    const token = getToken();
+    if (!token) {
+      router.replace('/login');
+      return;
+    }
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ limit: '100' });
+      if (type) params.set('type', type);
+      if (category) params.set('category', category);
+
+      // apiFetch: un 401 lleva al login y la contraseña provisional, a cambiarla.
+      const d = await apiFetch<Movement[]>(companyPath(`/movements?${params}`));
+      setMovements(Array.isArray(d) ? d : []);
+      setError(null);
+      setSinAcceso(null);
+    } catch (e) {
+      const sinPermiso = mensajeSinAcceso(e);
+      if (sinPermiso) setSinAcceso(sinPermiso);
+      else setError(e instanceof Error ? e.message : 'Error desconocido');
+    } finally {
+      setLoading(false);
+    }
+  }, [router, type, category]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const filtered = useMemo(() => {
+    return movements.filter((m) => {
+      if (status && m.status !== status) return false;
+      const d = m.date.slice(0, 10);
+      if (dateFrom && d < dateFrom) return false;
+      if (dateTo && d > dateTo) return false;
+      return true;
+    });
+  }, [movements, status, dateFrom, dateTo]);
+
+  const totals = useMemo(() => {
+    let income = 0;
+    let expense = 0;
+    for (const m of filtered) {
+      if (m.type === 'income') income += Number(m.amount);
+      else expense += Number(m.amount);
+    }
+    return { income, expense, net: income - expense };
+  }, [filtered]);
+
+  const hasFilters = type || category || status || dateFrom || dateTo;
+
+  function clearFilters() {
+    setType('');
+    setCategory('');
+    setStatus('');
+    setDateFrom('');
+    setDateTo('');
+  }
+
+  const selectClass =
+    'rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-accent-600 focus:border-accent-600';
+
+  if (sinAcceso) return <PantallaSinAcceso titulo="Movimientos antiguos" mensaje={sinAcceso} />;
+
+  return (
+    <div>
+      <header className="sticky top-0 z-40 h-16 bg-white border-b border-slate-200">
+        <div className="max-w-6xl mx-auto px-4 md:px-8 h-full flex items-center gap-2">
+          <Link
+            href="/dashboard/movimientos"
+            className="-ml-2 inline-flex h-11 w-11 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+            aria-label="Volver a Movimientos"
+          >
+            <ArrowLeft size={18} aria-hidden="true" />
+          </Link>
+          <h1 className="font-semibold text-slate-900">Movimientos antiguos</h1>
+        </div>
+      </header>
+
+      <main className="max-w-6xl mx-auto px-4 md:px-8 py-8 flex flex-col gap-6">
+        {/* Solo consulta: ya no se anotan movimientos a mano y el Resumen sale de las facturas y las nóminas. */}
+        <div role="note" className="flex items-start gap-2 rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
+          <Info size={18} className="mt-0.5 shrink-0 text-slate-400" aria-hidden="true" />
+          <div className="min-w-0">
+            <p>
+              Aquí solo se consultan los movimientos que se anotaron a mano. Ya no se crean: registra la venta o el gasto como factura. Estos
+              movimientos tampoco cuentan en el{' '}
+              <Link href="/dashboard" className="font-medium underline hover:no-underline">
+                Resumen
+              </Link>{' '}
+              ni en la contabilidad: los cargos y abonos de los asientos están en{' '}
+              <Link href="/dashboard/movimientos" className="font-medium underline hover:no-underline">
+                Movimientos
+              </Link>
+              .
+            </p>
+            {(altas.venta || altas.gasto) && (
+              <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+                {altas.venta && (
+                  <Link href="/dashboard/facturas/nueva" className="inline-flex min-h-[44px] items-center font-medium text-accent-600 underline hover:no-underline sm:min-h-0">
+                    Nueva factura de venta
+                  </Link>
+                )}
+                {altas.gasto && (
+                  <Link href="/dashboard/compras/nueva" className="inline-flex min-h-[44px] items-center font-medium text-accent-600 underline hover:no-underline sm:min-h-0">
+                    Nueva factura de gasto
+                  </Link>
+                )}
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* Barra de filtros */}
+        <section className="rounded-xl bg-white border border-slate-200 p-4">
+          <div className="flex items-center gap-2 mb-3 text-sm font-semibold text-slate-900">
+            <FunnelSimple size={18} className="text-accent-600" />
+            Filtros
+            {hasFilters && (
+              <button
+                onClick={clearFilters}
+                className="ml-auto inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-900 transition-colors"
+              >
+                <X size={13} /> Limpiar filtros
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="f-type" className="text-xs font-medium text-slate-500">
+                Tipo
+              </label>
+              <select
+                id="f-type"
+                value={type}
+                onChange={(e) => setType(e.target.value)}
+                className={selectClass}
+              >
+                <option value="">Todos</option>
+                <option value="income">Ingresos</option>
+                <option value="expense">Gastos</option>
+              </select>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="f-cat" className="text-xs font-medium text-slate-500">
+                Categoría
+              </label>
+              <select
+                id="f-cat"
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className={selectClass}
+              >
+                <option value="">Todas</option>
+                {CATEGORIES.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="f-status" className="text-xs font-medium text-slate-500">
+                Estado
+              </label>
+              <select
+                id="f-status"
+                value={status}
+                onChange={(e) => setStatus(e.target.value)}
+                className={selectClass}
+              >
+                <option value="">Todos</option>
+                {STATUSES.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="f-from" className="text-xs font-medium text-slate-500">
+                Desde
+              </label>
+              <input
+                id="f-from"
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className={selectClass}
+              />
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="f-to" className="text-xs font-medium text-slate-500">
+                Hasta
+              </label>
+              <input
+                id="f-to"
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                className={selectClass}
+              />
+            </div>
+          </div>
+        </section>
+
+        {error && (
+          <div className="rounded-xl border border-rose-200 bg-rose-50 text-rose-700 p-4 text-sm">
+            {error}
+          </div>
+        )}
+
+        {/* Totales del filtro */}
+        <section className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="rounded-xl bg-white border border-slate-200 p-4">
+            <p className="text-sm text-slate-500 mb-1">Ingresos filtrados</p>
+            <p className="text-xl font-semibold font-mono text-emerald-700">
+              {eur(totals.income)}
+            </p>
+          </div>
+          <div className="rounded-xl bg-white border border-slate-200 p-4">
+            <p className="text-sm text-slate-500 mb-1">Gastos filtrados</p>
+            <p className="text-xl font-semibold font-mono text-rose-600">
+              {eur(totals.expense)}
+            </p>
+          </div>
+          <div className="rounded-xl bg-white border border-emerald-300 p-4">
+            <p className="text-sm text-slate-500 mb-1">Neto</p>
+            <p className="text-xl font-semibold font-mono text-slate-900">
+              {eur(totals.net)}
+            </p>
+          </div>
+        </section>
+
+        {/* Tabla */}
+        <section className="rounded-xl bg-white border border-slate-200 overflow-hidden">
+          <div className="flex items-center justify-between px-6 pt-5 pb-3">
+            <h2 className="text-base font-semibold text-slate-900">
+              Resultados
+            </h2>
+            <span className="text-sm text-slate-500">
+              {loading ? 'Cargando...' : `${filtered.length} movimientos`}
+            </span>
+          </div>
+
+          {loading ? (
+            <div className="h-64 mx-6 mb-6 animate-pulse bg-slate-100 rounded-lg" />
+          ) : filtered.length === 0 && !hasFilters ? (
+            <div className="px-6 pb-10 pt-4 text-center">
+              <p className="text-slate-600 font-medium">No hay movimientos anotados a mano.</p>
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="px-6 pb-10 pt-4 text-center">
+              <p className="text-slate-600 font-medium mb-1">
+                Sin resultados con estos filtros
+              </p>
+              <p className="text-sm text-slate-500 mb-4">
+                Prueba a ampliar el rango de fechas o quitar algún filtro.
+              </p>
+              <button
+                onClick={clearFilters}
+                className="text-sm font-semibold text-accent-600 hover:text-accent-700"
+              >
+                Limpiar filtros
+              </button>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs uppercase tracking-wide text-slate-500 border-y border-slate-200 bg-slate-50">
+                    <th className="px-6 py-3 font-medium">Fecha</th>
+                    <th className="px-6 py-3 font-medium">Descripción</th>
+                    <th className="px-6 py-3 font-medium">Categoría</th>
+                    <th className="px-6 py-3 font-medium">Documento</th>
+                    <th className="px-6 py-3 font-medium">Estado</th>
+                    <th className="px-6 py-3 font-medium text-right">Importe</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((m) => (
+                    <tr
+                      key={m.id}
+                      className="border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors"
+                    >
+                      <td className="px-6 py-3 text-slate-600 whitespace-nowrap">
+                        {new Date(m.date).toLocaleDateString('es-ES')}
+                      </td>
+                      <td className="px-6 py-3 text-slate-900 font-medium">
+                        {m.description}
+                      </td>
+                      <td className="px-6 py-3 text-slate-600 capitalize">
+                        {m.category}
+                      </td>
+                      <td className="px-6 py-3 font-mono text-slate-500">
+                        {m.referenceDocument ?? '-'}
+                      </td>
+                      <td className="px-6 py-3">
+                        <span
+                          className={`inline-block text-xs font-medium border rounded-full px-2.5 py-0.5 ${
+                            statusStyles[m.status] ?? statusStyles.draft
+                          }`}
+                        >
+                          {statusLabels[m.status] ?? m.status}
+                        </span>
+                      </td>
+                      <td
+                        className={`px-6 py-3 text-right font-mono font-medium whitespace-nowrap ${
+                          m.type === 'income'
+                            ? 'text-emerald-700'
+                            : 'text-rose-600'
+                        }`}
+                      >
+                        {m.type === 'income' ? '+' : '-'}
+                        {eur(Number(m.amount))}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      </main>
+    </div>
+  );
+}
