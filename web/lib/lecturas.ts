@@ -570,6 +570,7 @@ export function valorLegible(id: string, v: string | number | null): string {
 
 /** Lo que se anuncia al lector de pantalla cuando termina la lectura. */
 export function anuncioLecturaTerminada(info: InfoLectura): string {
+  if (info.origen === 'MANUAL') return 'Formulario vacío: escribe los datos de la factura mirando el archivo.';
   const n = Object.values(info.campos).filter((c) => c && c.estado !== 'ok').length;
   const g = (info.generales ?? []).length;
   const delQr = (info.qr.completados ?? []).length;
