@@ -7,14 +7,14 @@ import { formatoCantidad, leerCantidad, paraEditar, propuestaKg, propuestaUds } 
 
 /**
  * Líneas de una factura con la plantilla A (envases), como la factura
- * NZ004_26: Concepto (producto, descripción y texto adicional), Packs, Uds, KG
- * Plástico, IEEPNR, Precio/ud y Total. Debajo de cada una, el IVA y la cuenta
- * de ingresos.
+ * NZ004_26: Concepto (producto y descripción), Packs, Uds, KG Plástico,
+ * IEEPNR, Precio/ud y Total. Debajo de cada una, el texto adicional (sale bajo
+ * el concepto), el IVA y la cuenta de ingresos.
  *
  * Al elegir un producto con unidades por pack, las Uds se proponen como
  * packs × unidades; si lleva IEEPNR, los kg como uds × kg por unidad. Siguen
- * a los packs y a las uds mientras no se escriban a mano; si se escriben,
- * «Volver a calcular» devuelve la propuesta.
+ * a los packs y a las uds mientras no se escriban a mano; si se escriben y no
+ * coinciden, el enlace «Usar 103,09» vuelve a calcularlas.
  *
  * En el escritorio ancho es una tabla; en el móvil y la tableta, una tarjeta
  * por línea con sus etiquetas a la vista. Es controlado: las líneas, el IEEPNR
@@ -82,7 +82,7 @@ const campo =
 /** Etiqueta a la vista en la tarjeta (móvil y tableta); en la tabla la da la cabecera. */
 const etiqueta = 'mb-1 block text-xs font-medium text-slate-600 lg:sr-only';
 /** Columnas de la tabla (escritorio ancho). */
-const COLUMNAS = 'lg:grid-cols-[minmax(0,1fr)_5rem_6rem_6.5rem_5.5rem_6.5rem_7rem_2.25rem]';
+const COLUMNAS = 'lg:grid-cols-[minmax(0,1fr)_4.5rem_5.5rem_5.75rem_5.5rem_5.5rem_6.75rem_2.25rem] lg:gap-2';
 
 export default function LineasEnvases({
   lineas,
@@ -206,22 +206,6 @@ export default function LineasEnvases({
                       onChange={(e) => onCambiar(l.clave, { descripcion: e.target.value })}
                     />
                   </div>
-                  <div>
-                    <label htmlFor={`linea-${i}-textoAdicional`} className={etiqueta}>
-                      Texto adicional <span className="font-normal text-slate-500">(opcional)</span>
-                    </label>
-                    <textarea
-                      id={`linea-${i}-textoAdicional`}
-                      aria-label={`Texto adicional de la línea ${n}, bajo el concepto`}
-                      {...marca(`lineas.${i}.textoAdicional`)}
-                      rows={2}
-                      maxLength={500}
-                      placeholder="Bajo el concepto: código RPA, formato, graduación…"
-                      className={`${campo} text-xs`}
-                      value={l.textoAdicional}
-                      onChange={(e) => onCambiar(l.clave, { textoAdicional: e.target.value })}
-                    />
-                  </div>
                 </div>
 
                 <div>
@@ -255,11 +239,12 @@ export default function LineasEnvases({
                   {recalcularUds && uds !== null && (
                     <button
                       type="button"
-                      className="mt-1 text-xs font-medium text-blue-700 underline"
+                      className="mt-1 whitespace-nowrap text-xs font-medium text-blue-700 underline"
+                      title="Volver a calcular: packs × unidades por pack"
                       aria-label={`Volver a calcular las uds de la línea ${n}: ${formatoCantidad(uds)}`}
                       onClick={() => cambiarConPropuestas(l, { udsTocadas: false })}
                     >
-                      Volver a calcular
+                      Usar {formatoCantidad(uds)}
                     </button>
                   )}
                 </div>
@@ -280,11 +265,12 @@ export default function LineasEnvases({
                   {recalcularKg && kg !== null && (
                     <button
                       type="button"
-                      className="mt-1 text-xs font-medium text-blue-700 underline"
+                      className="mt-1 whitespace-nowrap text-xs font-medium text-blue-700 underline"
+                      title="Volver a calcular: uds × kg de plástico por unidad del producto"
                       aria-label={`Volver a calcular los kg de la línea ${n}: ${formatoCantidad(kg)}`}
                       onClick={() => onCambiar(l.clave, { kgTocados: false, kgPlastico: paraEditar(kg) })}
                     >
-                      Volver a calcular
+                      Usar {formatoCantidad(kg)}
                     </button>
                   )}
                 </div>
@@ -327,9 +313,26 @@ export default function LineasEnvases({
                 <div className="hidden pt-1 lg:block">{quitar}</div>
               </div>
 
-              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[10rem_minmax(0,1fr)] sm:items-start">
+              {/* Debajo: el texto adicional (sale bajo el concepto en el PDF), el IVA y la cuenta de ingresos. */}
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[9rem_minmax(0,1fr)] sm:items-start lg:grid-cols-[minmax(0,1.3fr)_8rem_minmax(0,1fr)]">
+                <div className="sm:col-span-2 lg:col-span-1">
+                  <label htmlFor={`linea-${i}-textoAdicional`} className="mb-1 block text-xs font-medium text-slate-600">
+                    Texto adicional <span className="font-normal text-slate-500">(opcional)</span>
+                  </label>
+                  <textarea
+                    id={`linea-${i}-textoAdicional`}
+                    aria-label={`Texto adicional de la línea ${n}, bajo el concepto`}
+                    {...marca(`lineas.${i}.textoAdicional`)}
+                    rows={2}
+                    maxLength={500}
+                    placeholder="Bajo el concepto: código RPA, formato, graduación…"
+                    className={`${campo} text-xs`}
+                    value={l.textoAdicional}
+                    onChange={(e) => onCambiar(l.clave, { textoAdicional: e.target.value })}
+                  />
+                </div>
                 <div>{iva(l, i)}</div>
-                <div className="min-w-0">{cuenta(l, i)}</div>
+                <div className="min-w-0 sm:pt-5">{cuenta(l, i)}</div>
               </div>
             </li>
           );
