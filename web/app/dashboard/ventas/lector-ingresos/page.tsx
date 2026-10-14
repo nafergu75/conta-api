@@ -2,10 +2,11 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, CheckCircle, FileArrowUp, Warning, WarningCircle } from '@phosphor-icons/react';
-import { apiFetch, campoDelError, companyPath, errorMessage } from '@/lib/api';
+import { ArrowLeft, CheckCircle, FileArrowUp, PencilSimple, Warning, WarningCircle } from '@phosphor-icons/react';
+import { ApiError, apiFetch, campoDelError, companyPath, errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import PanelLectura from '@/components/lector/PanelLectura';
+import CorreccionVenta from '@/components/lector/CorreccionVenta';
 import { CuentaLinea } from '@/components/contabilidad/CuentaLinea';
 import { useCuentasLinea } from '@/lib/subcuentas';
 import RectificativaVentaLector, { ID_ERROR_LECTOR, useRectificativaLector } from '@/components/lector/RectificativaVentaLector';
@@ -17,14 +18,35 @@ import {
   descartarLectura,
   ErrorLectura,
   esCancelada,
+  esMuyIncompleta,
   euros,
   fechaLegible,
   leerFactura,
   porcentaje,
+  rellenarAMano,
   type EleccionOrigen,
   type IngresoExtraido,
   type InfoLectura,
 } from '@/lib/lecturas';
+import {
+  cambios,
+  comprobarCorreccion,
+  copiaDe,
+  cuerpoCorrecciones,
+  errorCorregible,
+  erroresPendientes,
+  estadoInicial,
+  estadoVacio,
+  infoConValidaciones,
+  ingresoEfectivo,
+  marcasDeLaLectura,
+  validacionesDe,
+  validacionesVigentes,
+  valoresCorregidos,
+  type ErrorCorreccion,
+  type EstadoCorreccion,
+  type ValidacionServidor,
+} from '@/lib/correccionVenta';
 import SoltarFactura from '@/components/lector/SoltarFactura';
 import AvisoTerceroNuevo, { camposDudosos, quienEs, type TerceroEnlazado } from '@/components/lector/AvisoTerceroNuevo';
 import OrigenTercero, {
@@ -36,13 +58,21 @@ import OrigenTercero, {
   recordarEleccion,
 } from '@/components/lector/OrigenTercero';
 import { paisDelPrefijo } from '@/lib/compras';
-import { conDevengoFuera, nombreNumeroFiscal, nombrePais, pareceNifIvaUe, usePaisEmpresa } from '@/lib/fiscal';
+import { conDevengoFuera, esPaisEmpresaEspanola, nombreNumeroFiscal, nombrePais, pareceNifIvaUe, usePaisEmpresa } from '@/lib/fiscal';
 
 /**
  * Lector de facturas de venta: se sube el PDF o la foto de una factura
  * emitida, el servidor la lee (Azure y, si hace falta, Claude) y valida cada
  * dato. El usuario lo revisa y, al confirmar, el servidor registra la factura
- * con los datos que leyo (no con lo que reenvia el navegador).
+ * con los datos que leyo mas lo que se haya corregido a mano.
+ *
+ * «Corregir los datos» (CorreccionVenta, lib/correccionVenta): numero, fechas,
+ * concepto, lineas, retencion y total, con el cuadre al momento. Se manda solo
+ * lo cambiado (`correcciones`) y el servidor lo vuelve a validar como una
+ * lectura. Si la lectura falla, tarda demasiado o sale muy incompleta,
+ * «Rellenarla a mano» abre el mismo formulario vacio con el archivo ya subido.
+ * Sigue siendo una venta leida: su numero, sin VERI*FACTU y nunca en la serie
+ * A o B.
  *
  * Una rectificativa o un abono (o importes en negativo) se registra como
  * rectificativa: ver RectificativaVentaLector.
@@ -64,6 +94,23 @@ interface Registrada {
   esRectificativa?: boolean;
   /** Avisos que no impiden registrarla (plazos, modelo 952, serie...). */
   avisos?: string[];
+  /** Se registró con los datos corregidos a mano (un servidor anterior no lo dice). */
+  corregida?: boolean;
+  /** Se registró rellenada a mano, sin nada leído. */
+  aMano?: boolean;
+  /** Se mandaron correcciones y el servidor no dice que las aplicara (no tiene esta versión): se registró lo leído. */
+  sinCorregir?: boolean;
+}
+
+/**
+ * «Corregir los datos» abierto: lo leído (con lo que se compara qué ha
+ * cambiado) y lo que hay ahora. Va ligado al documento: cambiar de dónde es el
+ * cliente no lo borra.
+ */
+interface Correccion {
+  doc: string;
+  leido: EstadoCorreccion;
+  estado: EstadoCorreccion;
 }
 
 function Dato({ etiqueta, children, mono, ancho }: { etiqueta: string; children: React.ReactNode; mono?: boolean; ancho?: boolean }) {
@@ -159,8 +206,21 @@ export default function LectorIngresosPage() {
   // «Cambiar cuenta»: la cuenta elegida para cada linea (null = la de por defecto) y la que rechazo el servidor.
   const [cuentas, setCuentas] = useState<Array<string | null>>([]);
   const [cuentaMal, setCuentaMal] = useState<number | null>(null);
+  // «Corregir los datos» (o «Rellenarla a mano»): null mientras no se abre.
+  const [corrGuardada, setCorr] = useState<Correccion | null>(null);
+  const corr = corrGuardada && ingreso && corrGuardada.doc === ingreso.documentId ? corrGuardada : null;
+  // El error de un dato corregido (de la comprobación o del servidor) y lo que dijo el servidor al registrarla.
+  const [errorCorr, setErrorCorr] = useState<ErrorCorreccion | null>(null);
+  const [intentoCorr, setIntentoCorr] = useState(0);
+  const [validacionesServidor, setValidacionesServidor] = useState<{ lista: ValidacionServidor[]; enviado: EstadoCorreccion | null }>({ lista: [], enviado: null });
+  // «Rellenarla a mano»: la lectura fallida o lenta que se puede terminar a mano, y si se está pasando.
+  const [aManoId, setAManoId] = useState<string | null>(null);
+  const [pasandoAMano, setPasandoAMano] = useState(false);
+  const [errorAMano, setErrorAMano] = useState('');
+  // La venta tal como se registrará (con lo corregido): la rectificativa y los totales siguen a lo corregido.
+  const ingresoEf = ingreso ? ingresoEfectivo(ingreso, corr?.leido ?? null, corr?.estado ?? null) : null;
   // Rectificativa o abono leido: factura que rectifica, motivo, signo y forma (se reinicia con cada lectura).
-  const rv = useRectificativaLector(ingreso);
+  const rv = useRectificativaLector(ingresoEf);
   const catalogo = useCuentasLinea('venta', !!ingreso, { rectificativa: rv.activa });
   const puedeCrearCuenta = tieneAlgunPermiso(getUser(), ['ventas:write', 'contabilidad:write']);
   // Cliente dado de alta o elegido en esta lectura (sin el no se registra; el aviso pasa a verde).
@@ -196,6 +256,8 @@ export default function LectorIngresosPage() {
   // La última elección de este lector y esta empresa (en el navegador). Sin ella, De España; en una
   // empresa de fuera (EE. UU., Hong Kong), De fuera de la UE. Lo que ya se haya elegido aquí no se pisa.
   const paisEmpresa = usePaisEmpresa();
+  // Una empresa de fuera de España vende sin IVA español (mientras carga, como española: lo corrige el servidor).
+  const espanola = paisEmpresa === null || esPaisEmpresaEspanola(paisEmpresa);
   const origenElegidoRef = useRef(false);
   useEffect(() => {
     if (!origenElegidoRef.current) setOrigen(eleccionRecordada('ventas', origenPorDefecto(paisEmpresa)));
@@ -251,6 +313,7 @@ export default function LectorIngresosPage() {
     setErrorOrigen('');
     setCuentas([]);
     setCuentaMal(null);
+    limpiarCorreccion();
     setError('');
     setErrorGuardar('');
     setAlternativa(null);
@@ -258,10 +321,89 @@ export default function LectorIngresosPage() {
     if (inputRef.current) inputRef.current.value = '';
   };
 
+  /** Sin «Corregir los datos» ni nada de lo que dijo el servidor sobre lo corregido. */
+  const limpiarCorreccion = () => {
+    setCorr(null);
+    setErrorCorr(null);
+    setValidacionesServidor({ lista: [], enviado: null });
+    setAManoId(null);
+    setErrorAMano('');
+  };
+
+  /**
+   * Una lectura lista: lo leído y, si se rellena a mano o ha salido muy
+   * incompleta, «Corregir los datos» ya abierto (vacío o con lo leído).
+   */
+  const ponerLectura = (ing: IngresoExtraido, inf: InfoLectura) => {
+    setIngreso(ing);
+    setInfo(inf);
+    setCuentas((ing.lineas ?? []).map(() => null));
+    setCuentaMal(null);
+    setErrorCorr(null);
+    setValidacionesServidor({ lista: [], enviado: null });
+    if (inf.origen === 'MANUAL') {
+      const vacio = estadoVacio(espanola);
+      setCorr({ doc: ing.documentId, leido: vacio, estado: { ...vacio, lineas: vacio.lineas.map((l) => ({ ...l })) } });
+    } else if (esMuyIncompleta(inf)) {
+      const leido = estadoInicial(ing, inf);
+      setCorr({ doc: ing.documentId, leido, estado: copiaDe(leido) });
+    } else setCorr(null);
+  };
+
+  /** «Corregir los datos»: el formulario con lo leído (y las cuentas ya elegidas). */
+  const abrirCorreccion = (foco = true) => {
+    if (!ingreso || !info) return null;
+    const leido = estadoInicial(ingreso, info);
+    const c: Correccion = { doc: ingreso.documentId, leido, estado: estadoInicial(ingreso, info, cuentas) };
+    setCorr(c);
+    setErrorGuardar('');
+    if (foco) requestAnimationFrame(() => document.getElementById('cv-numero')?.focus());
+    return c;
+  };
+
+  /** «Volver a lo leído»: lo que se leyó, con las cuentas de por defecto. */
+  const volverALoLeido = () => {
+    if (!corr) return;
+    setCorr({ ...corr, estado: copiaDe(corr.leido) });
+    setCuentas((cs) => cs.map(() => null));
+    setErrorCorr(null);
+    setValidacionesServidor({ lista: [], enviado: null });
+    setErrorGuardar('');
+  };
+
+  /**
+   * «Rellenarla a mano»: la lectura fallida, lenta o muy incompleta pasa a vacía
+   * con el archivo ya subido, y se abre el formulario sin nada leído.
+   */
+  const pasarAMano = async (lecturaId: string) => {
+    if (pasandoAMano) return;
+    setPasandoAMano(true);
+    setErrorAMano('');
+    setErrorGuardar('');
+    try {
+      const r = await rellenarAMano('ventas', lecturaId);
+      lecturaIdRef.current = r.lecturaId;
+      setError('');
+      setAlternativa(null);
+      setAManoId(null);
+      setRevisado(false);
+      setClienteResuelto(null);
+      ponerLectura(r.ingreso, r.lectura);
+    } catch (err) {
+      setErrorAMano(errorMessage(err));
+      // Sin archivo o ya cerrada: ya no se puede rellenar a mano (hay que volver a subirla).
+      if (err instanceof ApiError && err.status < 500) setAManoId(null);
+    } finally {
+      setPasandoAMano(false);
+    }
+  };
+
   const leer = async (f: File) => {
     setError('');
     setErrorGuardar('');
     setAlternativa(null);
+    setAManoId(null);
+    setErrorAMano('');
     setRegistrada(null);
     if (!TIPOS.includes(f.type)) {
       setError('Solo se pueden leer PDF e imágenes (JPG, PNG o WEBP).');
@@ -279,6 +421,7 @@ export default function LectorIngresosPage() {
     setInfo(null);
     setRevisado(false);
     setClienteResuelto(null);
+    limpiarCorreccion();
     setLeyendo(true);
     try {
       const r = await leerFactura('ventas', f, {
@@ -289,14 +432,13 @@ export default function LectorIngresosPage() {
         },
       });
       if (cortar.signal.aborted) return;
-      setIngreso(r.ingreso);
-      setInfo(r.lectura);
-      setCuentas((r.ingreso.lineas ?? []).map(() => null));
-      setCuentaMal(null);
+      ponerLectura(r.ingreso, r.lectura);
     } catch (err) {
       if (esCancelada(err) || cortar.signal.aborted) return;
       setError(errorMessage(err));
       if (err instanceof ErrorLectura && err.alternativa) setAlternativa(err.alternativa);
+      // Ha fallado (con el archivo guardado) o tarda demasiado: se puede terminar a mano.
+      if (err instanceof ErrorLectura && err.aMano) setAManoId(err.aMano.lecturaId);
     } finally {
       if (cortarRef.current === cortar) {
         cortarRef.current = null;
@@ -337,7 +479,17 @@ export default function LectorIngresosPage() {
   const numeroFiscal = cliente ? nombreNumeroFiscal(cliente.pais) : (tercero?.numeroFiscal ?? 'NIF');
 
   const confirmar = async () => {
-    if (!ingreso) return;
+    if (!ingreso || !info) return;
+    // Lo corregido a mano: lo que falta o no cuadra se dice junto a su campo, antes de enviarlo.
+    if (corr) {
+      const mal = comprobarCorreccion(corr.leido, corr.estado, { aMano: info.origen === 'MANUAL', negativos: !!ingreso.rectificativa });
+      if (mal) {
+        setErrorCorr(mal);
+        setIntentoCorr((n) => n + 1);
+        setErrorGuardar(mal.mensaje);
+        return;
+      }
+    }
     // Rectificativa: lo que falta se dice junto a su campo, antes de enviarla.
     const falta = rv.comprobar();
     if (falta) {
@@ -347,11 +499,17 @@ export default function LectorIngresosPage() {
     }
     setGuardando(true);
     setErrorGuardar('');
+    setErrorCorr(null);
     setCuentaMal(null);
+    // Rectificativa de varias facturas: sin cuenta elegida, la que se enseña (la de la original con más base).
+    const cuentaPorDefecto = (tipoIva: number) => rv.cuentaParaEnviar(tipoIva);
+    // Solo lo cambiado; si cambian las líneas, la cuenta va dentro de cada una.
+    const { correcciones, cuentas: cuentasCorr } = corr ? cuerpoCorrecciones(corr.leido, corr.estado, cuentaPorDefecto) : { correcciones: null, cuentas: null };
+    const enviado = corr?.estado ?? null;
     try {
-      // El id y la cuenta de cada linea: el servidor registra la factura con los datos que leyo.
-      // Una rectificativa que sube el IVA de un periodo de la gestoría o de un 303 ya presentado (409
-      // DEVENGO_FUERA_APP) se registra si se confirma; el aviso vuelve en `avisos`.
+      // El id, la cuenta de cada linea y lo corregido: el servidor registra la factura con lo que leyo más las
+      // correcciones, que vuelve a comprobar. Una rectificativa que sube el IVA de un periodo de la gestoría o de un
+      // 303 ya presentado (409 DEVENGO_FUERA_APP) se registra si se confirma; el aviso vuelve en `avisos`.
       const r = await conDevengoFuera(
         (extra) =>
           apiFetch<Registrada>(companyPath('/ingresos-extractor/confirmar'), {
@@ -360,23 +518,40 @@ export default function LectorIngresosPage() {
               documentId: ingreso.documentId,
               ...(cliente ? { clienteId: cliente.id } : {}),
               revisado,
-              // Rectificativa de varias facturas: sin cuenta elegida, la que se enseña (la de la original con más base).
-              lineas: cuentas.map((cuenta, i) => ({ cuenta: cuenta ?? (ingreso.lineas?.[i] ? rv.cuentaParaEnviar(ingreso.lineas[i].tipoIva) : null) })),
+              ...(correcciones ? { correcciones } : {}),
+              ...(correcciones?.lineas
+                ? {}
+                : { lineas: cuentasCorr ?? cuentas.map((cuenta, i) => ({ cuenta: cuenta ?? (ingreso.lineas?.[i] ? cuentaPorDefecto(ingreso.lineas[i].tipoIva) : null) })) }),
               ...rv.cuerpo(),
               ...extra,
             }),
           }),
         '¿La registras igualmente?',
       );
-      if (r) setRegistrada(r.r);
+      // Un servidor sin esta versión no conoce `correcciones` y registra lo leído: se avisa (corregida no llega).
+      if (r) setRegistrada({ ...r.r, ...(correcciones && r.r.corregida !== true ? { sinCorregir: true } : {}) });
       else setErrorGuardar('No se ha registrado. La lectura sigue aquí: puedes revisarla y volver a intentarlo.');
     } catch (err) {
       setErrorGuardar(errorMessage(err));
-      const campoRect = campoDelError(err);
+      const campoErr = campoDelError(err);
+      // Lo que el servidor ve en lo corregido: cada validación en su dato y el error junto a su campo.
+      const validaciones = validacionesDe(err instanceof ApiError ? err.detalles : undefined);
+      if (validaciones.length) setValidacionesServidor({ lista: validaciones, enviado });
+      if (campoErr && (campoErr === 'correcciones' || campoErr.startsWith('correcciones.') || campoErr === 'serie')) {
+        // El número de una serie de la app (409) o un dato corregido: al formulario, abierto si no lo estaba.
+        if (!corr) abrirCorreccion(false);
+        setErrorCorr({ campo: campoErr === 'serie' ? 'correcciones.numero' : campoErr, mensaje: errorMessage(err) });
+        setIntentoCorr((n) => n + 1);
+      }
+      const campoRect = campoErr;
       if (campoRect && rv.esCampoSuyo(campoRect)) rv.mostrarError({ campo: campoRect, mensaje: errorMessage(err) });
-      // Una cuenta que el servidor no admite: se marca su linea y el foco va a su «Cambiar cuenta».
-      const m = /^lineas\.(\d+)\.cuenta$/.exec(campoDelError(err) ?? '');
-      if (m) {
+      // Una cuenta que el servidor no admite: se marca su linea y el foco va a su «Cambiar cuenta»
+      // (con «Corregir los datos» abierto, la de su línea del formulario).
+      const m = /^lineas\.(\d+)\.cuenta$/.exec(campoErr ?? '');
+      if (m && corr) {
+        setErrorCorr({ campo: m[0], mensaje: errorMessage(err) });
+        setIntentoCorr((n) => n + 1);
+      } else if (m) {
         const i = Number(m[1]);
         setCuentaMal(i);
         requestAnimationFrame(() => document.getElementById(`li-cuenta-${i}`)?.focus());
@@ -392,16 +567,35 @@ export default function LectorIngresosPage() {
   };
 
   const esImagen = archivo?.type.startsWith('image/');
+  // Rellenada a mano: no hay nada leído (ni cliente, ni importes).
+  const aMano = info?.origen === 'MANUAL';
+  const camb = corr ? cambios(corr.leido, corr.estado) : null;
   // Los errores que ya explica el panel no se repiten.
   const yaExplicados = new Set(
     info ? [...Object.values(info.campos).flatMap((c) => (c ? c.motivos.map(claveTexto) : [])), ...(info.generales ?? []).map((g) => claveTexto(g.mensaje)), claveTexto(info.qr.texto)] : [],
   );
   // Que falte o este mal el NIF leido del cliente ya no bloquea: lo resuelve el cliente dado de alta o elegido.
   const esDelNif = erroresDelNifCliente(info);
-  const errores = ingreso ? ingreso.errores.filter((e) => !esDelNif(e) && !rv.noBloquea(e)) : [];
-  const erroresSueltos = errores.filter((e) => !yaExplicados.has(claveTexto(e)));
+  const erroresLeidos = ingreso ? ingreso.errores.filter((e) => !esDelNif(e) && !rv.noBloquea(e)) : [];
+  // Con «Corregir los datos», un error de un dato ya corregido deja de bloquear (el servidor lo vuelve a comprobar).
+  const errores = info ? erroresPendientes(erroresLeidos, info, camb) : erroresLeidos;
+  // Los que se arreglan corrigiendo algún dato de aquí y los que no (emisor, moneda, tipo de documento...).
+  const corregibles = info ? errores.filter((e) => errorCorregible(e, info)) : [];
+  const noCorregibles = errores.filter((e) => !corregibles.includes(e));
+  const erroresSueltos = noCorregibles.filter((e) => !yaExplicados.has(claveTexto(e)));
   const bloqueada = errores.length > 0;
-  const faltaRevision = !!info?.requiereRevision && !revisado;
+  // Lo que dijo el servidor de lo corregido y sigue valiendo (de los datos que no se han vuelto a tocar).
+  const vigentes = corr ? validacionesVigentes(validacionesServidor.lista, validacionesServidor.enviado, corr.estado) : validacionesServidor.lista;
+  const infoBase = info
+    ? rv.ajustarInfo(rv.clienteOriginal ? conClienteDeLaOriginal(info, rv.clienteOriginal) : clienteResuelto ? conClienteElegido(info, clienteResuelto) : info)
+    : null;
+  const infoPanel = infoBase ? infoConValidaciones(infoBase, vigentes) : null;
+  // Los datos marcados ya corregidos (en verde en el panel), salvo los que el servidor ha vuelto a marcar.
+  const conAvisoServidor = new Set(vigentes.flatMap((v) => v.campos));
+  const corregidos =
+    corr && infoBase ? Object.fromEntries(Object.entries(valoresCorregidos(infoBase, corr.leido, corr.estado)).filter(([id]) => !conAvisoServidor.has(id))) : {};
+  const faltaRevision = !!infoPanel?.requiereRevision && !revisado;
+  const muyIncompleta = !!info && !aMano && esMuyIncompleta(info);
   const anuncio = leyendo
     ? segundos < 10
       ? 'Leyendo la factura. Tarda unos segundos.'
@@ -410,10 +604,12 @@ export default function LectorIngresosPage() {
       ? anuncioLecturaTerminada(info)
       : '';
 
-  // Al terminar la lectura, el foco va a los datos leidos (sin mover la pantalla).
-  const lecturaLista = info?.lecturaId ?? null;
+  // Al terminar la lectura, el foco va a los datos leidos (sin mover la pantalla); rellenada a mano, al primer campo.
+  const lecturaLista = info ? `${info.lecturaId}:${info.origen}` : null;
   useEffect(() => {
-    if (lecturaLista) panelRef.current?.focus({ preventScroll: true });
+    if (!lecturaLista) return;
+    if (lecturaLista.endsWith(':MANUAL')) document.getElementById('cv-numero')?.focus();
+    else panelRef.current?.focus({ preventScroll: true });
   }, [lecturaLista]);
 
   return (
@@ -450,13 +646,23 @@ export default function LectorIngresosPage() {
             <p className="flex items-start gap-2 font-medium">
               <CheckCircle size={22} weight="fill" className="mt-0.5 shrink-0" />
               <span>
-                {registrada.esRectificativa ? 'Rectificativa' : 'Factura'} {registrada.numeroCompleto} registrada por {euros(registrada.total)}.
+                {registrada.esRectificativa ? 'Rectificativa' : 'Factura'} {registrada.numeroCompleto} registrada por {euros(registrada.total)}
+                {registrada.aMano ? ' con los datos que has escrito' : registrada.corregida ? ' con los datos corregidos a mano' : ''}.
                 {registrada.contabilizada === true &&
                   (registrada.asientoEnBorrador
                     ? ' Su asiento está en borrador: revísalo y apruébalo en el Motor contable. Hasta entonces no cuenta en el saldo del cliente ni en los informes.'
                     : ' Ya está contabilizada.')}
               </span>
             </p>
+            {registrada.sinCorregir && (
+              <p role="alert" className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
+                <WarningCircle size={18} className="mt-0.5 shrink-0" />
+                <span>
+                  Ojo: el servidor no ha aplicado tus correcciones y la ha registrado con lo que se leyó. Abre la factura y compruébala; si está mal, anúlala y vuelve a
+                  leerla más tarde.
+                </span>
+              </p>
+            )}
             {registrada.contabilizada === false && (
               <p className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
                 <WarningCircle size={18} className="mt-0.5 shrink-0" />
@@ -539,23 +745,51 @@ export default function LectorIngresosPage() {
               )}
             </div>
             {error && (
-              <p role="alert" className="mt-4 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
-                <WarningCircle size={18} className="mt-0.5 shrink-0" />
-                <span>
-                  {error}
-                  {alternativa && (
-                    <>
-                      {' '}
-                      <Link href={alternativa.ruta} className="font-semibold underline">
-                        {alternativa.texto}
-                      </Link>
-                    </>
-                  )}
-                </span>
-              </p>
+              <div className="mt-4 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+                <p role="alert" className="flex items-start gap-2">
+                  <WarningCircle size={18} className="mt-0.5 shrink-0" />
+                  <span>
+                    {error}
+                    {alternativa && !aManoId && (
+                      <>
+                        {' '}
+                        <Link href={alternativa.ruta} className="font-semibold underline">
+                          {alternativa.texto}
+                        </Link>
+                      </>
+                    )}
+                  </span>
+                </p>
+                {/* Con el archivo ya subido, se puede terminar a mano sin volver a subirlo. */}
+                {aManoId && !leyendo && (
+                  <div className="mt-3 flex flex-col gap-2 pl-[26px]">
+                    <p className="text-slate-700">Puedes escribir tú los datos mirando el archivo que has subido. Se guarda con la factura, igual que una leída.</p>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
+                      <button
+                        type="button"
+                        onClick={() => void pasarAMano(aManoId)}
+                        disabled={pasandoAMano}
+                        className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-lg bg-accent-600 px-4 py-2 font-semibold text-white hover:bg-accent-700 disabled:opacity-60 sm:min-h-0"
+                      >
+                        <PencilSimple size={16} aria-hidden="true" /> {pasandoAMano ? 'Abriendo…' : 'Rellenarla a mano'}
+                      </button>
+                      {alternativa && (
+                        <Link href={alternativa.ruta} className="font-semibold underline">
+                          {alternativa.texto}
+                        </Link>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {errorAMano && (
+                  <p role="alert" className="mt-2 pl-[26px] font-medium">
+                    {errorAMano}
+                  </p>
+                )}
+              </div>
             )}
             <p className="mt-4 text-sm text-slate-500">
-              Verás los datos leídos y lo que haya que comprobar antes de registrarla. La factura se registra con lo que se ha leído: si algo está mal, créala a mano.
+              Verás los datos leídos y lo que haya que comprobar antes de registrarla. Si algo se ha leído mal, podrás corregirlo antes de registrarla.
             </p>
           </div>
         ) : (
@@ -594,17 +828,42 @@ export default function LectorIngresosPage() {
                 />
               )}
               <PanelLectura
-                info={rv.ajustarInfo(
-                  rv.clienteOriginal ? conClienteDeLaOriginal(info, rv.clienteOriginal) : clienteResuelto ? conClienteElegido(info, clienteResuelto) : info,
-                )}
+                info={infoPanel ?? info}
                 lector="ventas"
                 revisado={revisado}
                 onRevisado={setRevisado}
                 conCasilla={!bloqueada}
+                editable={!!corr}
+                corregidos={corregidos}
               />
 
-              {/* Rectificativa o abono: que factura rectifica, motivo, signo y forma. */}
-              <RectificativaVentaLector rv={rv} ingreso={ingreso} clienteLeidoId={clienteLeido?.id ?? null} disabled={guardando} />
+              {/* Muy incompleta: el formulario ya está abierto con lo leído; también se puede empezar de cero. */}
+              {muyIncompleta && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                  <p>
+                    La lectura ha salido muy incompleta. Completa abajo lo que falta o, si te resulta más fácil, empieza de cero y escribe tú todos los datos mirando el
+                    archivo.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (window.confirm('Se quita todo lo leído y se abre el formulario vacío, con el archivo que has subido. ¿Seguir?')) void pasarAMano(info.lecturaId);
+                    }}
+                    disabled={pasandoAMano || guardando}
+                    className="mt-2 inline-flex min-h-[44px] items-center gap-1.5 font-semibold text-amber-900 underline hover:no-underline disabled:opacity-60 sm:min-h-0"
+                  >
+                    <PencilSimple size={16} aria-hidden="true" /> {pasandoAMano ? 'Abriendo…' : 'Rellenarla a mano'}
+                  </button>
+                  {errorAMano && (
+                    <p role="alert" className="mt-1 font-medium text-rose-700">
+                      {errorAMano}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Rectificativa o abono: que factura rectifica, motivo, signo y forma (con lo corregido, si lo hay). */}
+              <RectificativaVentaLector rv={rv} ingreso={ingresoEf ?? ingreso} clienteLeidoId={clienteLeido?.id ?? null} disabled={guardando} />
 
               {/* Cliente sin dar de alta: «Dar de alta este cliente» o «Es uno que ya tengo». */}
               {(!existente || clienteResuelto) && !rv.clienteOriginal && (
@@ -635,48 +894,93 @@ export default function LectorIngresosPage() {
                 />
               )}
 
-              <div className="rounded-lg border border-slate-200 bg-white p-4">
-                <h2 className="mb-3 font-semibold text-slate-900">Datos leídos</h2>
-                <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <Dato etiqueta="Cliente">{cliente?.nombre || ingreso.cliente || 'sin leer'}</Dato>
-                  <Dato etiqueta={`${numeroFiscal} del cliente`} mono>
-                    {cliente?.nif || ingreso.nifCliente || 'sin leer'}
-                    {/* «Es uno que ya tengo» corrige el NIF mal leido: se ve tambien el que se leyo. */}
-                    {cliente && nifLeido && nifComparable(cliente.nif) !== nifComparable(nifLeido) && (
-                      <span className="mt-0.5 block font-sans text-xs font-normal text-slate-500">En la factura se leyó {nifLeido}.</span>
+              {/* Rellenada a mano no hay nada leído: el cliente se elige o se da de alta en el aviso de arriba. */}
+              {!aMano && (
+                <div className="rounded-lg border border-slate-200 bg-white p-4">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+                    <h2 className="font-semibold text-slate-900">{corr ? 'Cliente leído' : 'Datos leídos'}</h2>
+                    {!corr && (
+                      <button
+                        type="button"
+                        onClick={() => abrirCorreccion()}
+                        disabled={guardando}
+                        className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60 sm:min-h-0"
+                      >
+                        <PencilSimple size={16} aria-hidden="true" /> Corregir los datos
+                      </button>
                     )}
-                  </Dato>
-                  {/* Un servidor anterior no la manda: entonces no se enseña. Tampoco si la rectificativa va al
-                      cliente de la factura que rectifica: se registra con su ficha, no con lo leído. */}
-                  {ingreso.direccionCliente !== undefined && !rv.clienteOriginal && (
-                    <Dato etiqueta="Dirección del cliente" ancho>
-                      {lineasDireccion.length > 0
-                        ? lineasDireccion.map((l, i) => (
-                            <span key={i} className="block">
-                              {l}
-                            </span>
-                          ))
-                        : 'sin leer'}
-                      {direccion?.revisar && lineasDireccion.length > 0 && (
-                        <span className="mt-1.5 inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800">
-                          <Warning size={14} weight="fill" aria-hidden="true" />
-                          Leída con poca seguridad: compruébala con la factura
-                        </span>
+                  </div>
+                  <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <Dato etiqueta="Cliente">{cliente?.nombre || ingreso.cliente || 'sin leer'}</Dato>
+                    <Dato etiqueta={`${numeroFiscal} del cliente`} mono>
+                      {cliente?.nif || ingreso.nifCliente || 'sin leer'}
+                      {/* «Es uno que ya tengo» corrige el NIF mal leido: se ve tambien el que se leyo. */}
+                      {cliente && nifLeido && nifComparable(cliente.nif) !== nifComparable(nifLeido) && (
+                        <span className="mt-0.5 block font-sans text-xs font-normal text-slate-500">En la factura se leyó {nifLeido}.</span>
                       )}
                     </Dato>
-                  )}
-                  <Dato etiqueta="Número de factura">{ingreso.numeroFactura || 'sin leer'}</Dato>
-                  <Dato etiqueta="Fecha">{ingreso.fecha ? fechaLegible(ingreso.fecha) : 'sin leer'}</Dato>
-                  <Dato etiqueta="Concepto">{ingreso.concepto || 'sin leer'}</Dato>
-                  <Dato etiqueta="Base imponible">{importe(ingreso.base)}</Dato>
-                  <Dato etiqueta="IVA">{importe(ingreso.iva)}</Dato>
-                  {(ingreso.retencion ?? 0) > 0 && <Dato etiqueta="Retención de IRPF">− {importe(ingreso.retencion)}</Dato>}
-                  <Dato etiqueta="Total">{importe(ingreso.total)}</Dato>
-                </dl>
-              </div>
+                    {/* Un servidor anterior no la manda: entonces no se enseña. Tampoco si la rectificativa va al
+                        cliente de la factura que rectifica: se registra con su ficha, no con lo leído. */}
+                    {ingreso.direccionCliente !== undefined && !rv.clienteOriginal && (
+                      <Dato etiqueta="Dirección del cliente" ancho>
+                        {lineasDireccion.length > 0
+                          ? lineasDireccion.map((l, i) => (
+                              <span key={i} className="block">
+                                {l}
+                              </span>
+                            ))
+                          : 'sin leer'}
+                        {direccion?.revisar && lineasDireccion.length > 0 && (
+                          <span className="mt-1.5 inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800">
+                            <Warning size={14} weight="fill" aria-hidden="true" />
+                            Leída con poca seguridad: compruébala con la factura
+                          </span>
+                        )}
+                      </Dato>
+                    )}
+                    {/* Con «Corregir los datos» abierto, la factura se ve (y se corrige) en el formulario de abajo. */}
+                    {!corr && (
+                      <>
+                        <Dato etiqueta="Número de factura">{ingreso.numeroFactura || 'sin leer'}</Dato>
+                        <Dato etiqueta="Fecha">{ingreso.fecha ? fechaLegible(ingreso.fecha) : 'sin leer'}</Dato>
+                        <Dato etiqueta="Concepto">{ingreso.concepto || 'sin leer'}</Dato>
+                        <Dato etiqueta="Base imponible">{importe(ingreso.base)}</Dato>
+                        <Dato etiqueta="IVA">{importe(ingreso.iva)}</Dato>
+                        {(ingreso.retencion ?? 0) > 0 && <Dato etiqueta="Retención de IRPF">− {importe(ingreso.retencion)}</Dato>}
+                        <Dato etiqueta="Total">{importe(ingreso.total)}</Dato>
+                      </>
+                    )}
+                  </dl>
+                </div>
+              )}
+
+              {/* «Corregir los datos» o «Rellenarla a mano»: número, fechas, concepto, líneas con su cuenta, retención y total. */}
+              {corr && (
+                <CorreccionVenta
+                  leido={corr.leido}
+                  valor={corr.estado}
+                  onCambio={(estado) => {
+                    setCorr({ ...corr, estado });
+                    // El error de un campo se quita al cambiarlo (la comprobación vuelve a mirar al registrar).
+                    if (errorCorr) setErrorCorr(null);
+                    if (errorGuardar) setErrorGuardar('');
+                  }}
+                  marcas={aMano ? {} : marcasDeLaLectura(info, corr.leido)}
+                  aMano={aMano}
+                  espanola={espanola}
+                  negativos={!!ingreso.rectificativa}
+                  catalogo={catalogo}
+                  puedeCrearCuenta={puedeCrearCuenta}
+                  cuentaPorDefecto={(tipoIva) => rv.cuentaDeLinea(tipoIva) ?? POR_DEFECTO}
+                  error={errorCorr}
+                  intento={intentoCorr}
+                  onVolver={volverALoLeido}
+                  disabled={guardando}
+                />
+              )}
 
               {/* Lineas con que se registrara, cada una con su cuenta de ingresos. */}
-              {(ingreso.lineas?.length ?? 0) > 0 && (
+              {!corr && (ingreso.lineas?.length ?? 0) > 0 && (
                 <div className="rounded-lg border border-slate-200 bg-white p-4">
                   <h2 className="font-semibold text-slate-900">{ingreso.lineas!.length === 1 ? 'Línea de la factura' : 'Líneas de la factura'}</h2>
                   <p className="mt-0.5 text-sm text-slate-600">
@@ -714,8 +1018,9 @@ export default function LectorIngresosPage() {
                 </div>
               )}
 
-              {bloqueada && (
-                <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+              {/* Lo que no se arregla aquí (empresa emisora, moneda, tipo de documento...): a Nueva factura. */}
+              {noCorregibles.length > 0 && (
+                <div id="lv-bloqueo" className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
                   <p className="font-semibold">Esta factura no se puede registrar desde el lector.</p>
                   {erroresSueltos.length > 0 && (
                     <ul className="mt-1 list-disc space-y-1 pl-5">
@@ -735,16 +1040,35 @@ export default function LectorIngresosPage() {
                 </div>
               )}
 
-              {!bloqueada && info.requiereRevision && (
+              {/* Datos mal leídos que se arreglan corrigiéndolos aquí. */}
+              {noCorregibles.length === 0 && corregibles.length > 0 && (
+                <div id="lv-bloqueo" className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+                  {corr ? (
+                    <p>Corrige los datos marcados en rojo para poder registrarla.</p>
+                  ) : (
+                    <>
+                      <p>Hay datos mal leídos que impiden registrarla (los tienes marcados arriba). Corrígelos y podrás registrarla.</p>
+                      <button
+                        type="button"
+                        onClick={() => abrirCorreccion()}
+                        disabled={guardando}
+                        className="mt-2 inline-flex min-h-[44px] items-center gap-1.5 font-semibold underline hover:no-underline disabled:opacity-60 sm:min-h-0"
+                      >
+                        <PencilSimple size={16} aria-hidden="true" /> Corregir los datos
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {!bloqueada && infoPanel?.requiereRevision && (!corr || faltaRevision) && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                  <p>
-                    Aquí solo se puede cambiar la cuenta de cada línea. Si algún otro dato está mal, no la registres desde el lector:{' '}
-                    <Link href={ALTA_MANUAL.ventas.ruta} className="font-semibold underline">
-                      {ALTA_MANUAL.ventas.texto}
-                    </Link>
-                    .
-                  </p>
-                  {faltaRevision && <p className="mt-1">Si todo está bien, marca la casilla de arriba para poder registrarla.</p>}
+                  {!corr && <p>Si algún dato está mal, pulsa «Corregir los datos» y cámbialo antes de registrarla.</p>}
+                  {faltaRevision && (
+                    <p className={corr ? '' : 'mt-1'}>
+                      {corr ? 'Cuando lo hayas comprobado todo, marca la casilla de arriba para poder registrarla.' : 'Si todo está bien, marca la casilla de arriba para poder registrarla.'}
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -769,7 +1093,7 @@ export default function LectorIngresosPage() {
                   type="button"
                   onClick={confirmar}
                   disabled={guardando || bloqueada || faltaRevision || faltaCliente}
-                  aria-describedby={faltaCliente && !bloqueada ? 'lv-motivo-cliente' : undefined}
+                  aria-describedby={bloqueada ? 'lv-bloqueo' : faltaCliente ? 'lv-motivo-cliente' : undefined}
                   className="rounded-lg bg-accent-600 px-5 py-2.5 font-semibold text-white transition-all hover:bg-accent-700 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-60"
                 >
                   {guardando ? 'Registrando…' : rv.activa ? 'Registrar la rectificativa' : 'Registrar la factura de venta'}
