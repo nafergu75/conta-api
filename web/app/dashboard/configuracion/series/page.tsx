@@ -1,11 +1,22 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { ListNumbers, PencilSimple, Plus, Star } from '@phosphor-icons/react';
 import { apiFetch, campoDelError, companyPath, errorMessage } from '@/lib/api';
 import { servidorConRectificativasNuevas } from '@/lib/rectificativasVenta';
 import { claseBoton, claseBotonSecundario, claseCampo, puedeEditar, puedeVer, QUIEN_EDITA, type SerieConfig } from '@/lib/configuracion';
-import { NOMBRE_PLANTILLA, normalizarPlantilla, type PlantillaCatalogo, useCatalogoPlantillas } from '@/lib/plantillasFactura';
+import {
+  CASILLA_CERAMICA,
+  CASILLA_IEEPNR,
+  NOMBRE_PLANTILLA,
+  normalizarPlantilla,
+  plantillaPorCasilla,
+  RUTA_AJUSTES_FACTURACION,
+  textoMotivoPlantilla,
+  type PlantillaCatalogo,
+  useCatalogoPlantillas,
+} from '@/lib/plantillasFactura';
 import { AvisoSoloLectura, CabeceraBloque, Etiqueta, Mensaje, SinAcceso, type MensajeConfig } from '../componentes';
 import { useConfiguracion } from '../contexto';
 
@@ -19,7 +30,10 @@ import { useConfiguracion } from '../contexto';
  * IEEPNR, la B en la serie B si vende cerámica y la C en la serie C; si no, la estándar), y sus
  * observaciones por defecto, que salen escritas en cada factura nueva.
  * Cambiarlas vale para lo que se cree o se guarde después: las facturas ya
- * emitidas conservan lo suyo. Toda empresa tiene la serie C (servicios).
+ * emitidas conservan lo suyo. Toda empresa tiene la serie C (servicios), y la
+ * B se crea sola al marcar «Vendo cerámica» en Configuración > Facturación.
+ * Cada serie dice qué plantilla usa y por qué (elegida, por su código o por una
+ * casilla de Facturación), con el enlace a la casilla si está sin marcar.
  * Ver: ventas:read o contabilidad:read; cambiar: ventas:write.
  */
 
@@ -36,6 +50,20 @@ function plantillaAutomatica(codigo: string, catalogo: PlantillaCatalogo[] | nul
   if (catalogo?.some((p) => Array.isArray(p.seriesAutomaticas))) return catalogo.find((p) => p.seriesAutomaticas?.includes(c))?.id ?? 'default';
   if (c !== 'A') return 'default';
   return catalogo?.find((p) => p.automaticaSerieA)?.id ?? 'default';
+}
+
+/**
+ * Qué hace la automática con este código (para la ayuda del desplegable): la A
+ * y la B dependen de una casilla de Configuración > Facturación (solo en una
+ * empresa española: si el catálogo no deja usar la A, la automática es la estándar).
+ */
+function ayudaAutomatica(codigo: string, catalogo: PlantillaCatalogo[]): string {
+  const c = codigo.trim().toUpperCase();
+  const espanola = catalogo.find((p) => p.id === 'A')?.disponible !== false;
+  if (c === 'A' && espanola) return `Automática: la plantilla A si marcas «${CASILLA_IEEPNR}» en Configuración > Facturación; si no, la estándar`;
+  if (c === 'B' && espanola) return `Automática: la plantilla B si marcas «${CASILLA_CERAMICA}» en Configuración > Facturación; si no, la estándar`;
+  if (c === 'C') return 'Automática: la plantilla C (servicios)';
+  return 'Automática: la estándar';
 }
 
 /** Por qué no se puede elegir una plantilla del catálogo. */
@@ -220,12 +248,13 @@ export default function SeriesPage() {
                                 {s.documentos === 0 ? 'Sin documentos' : `${s.documentos} ${s.documentos === 1 ? 'documento' : 'documentos'}`}
                                 {s.plantilla !== undefined && (
                                   <>
-                                    {' '}· Plantilla: <span className="font-medium text-slate-700">{nombrePlantilla(s.plantilla, catalogo)}</span>
-                                    {!s.plantillaElegida && ' (automática)'}
+                                    {' '}· Plantilla: <span className="font-medium text-slate-700">{nombrePlantilla(s.plantilla, catalogo)}</span> (
+                                    {textoMotivoPlantilla(s.motivoPlantilla, !!s.plantillaElegida)})
                                   </>
                                 )}
                                 {s.observacionesDefecto && ' · Con observaciones por defecto'}
                               </p>
+                              <MotivoCasilla motivo={s.motivoPlantilla} editar={editar} />
                             </div>
                             {editar && (
                               <div className="flex flex-wrap gap-2">
@@ -281,6 +310,24 @@ export default function SeriesPage() {
         </>
       )}
     </>
+  );
+}
+
+/**
+ * La serie usa la estándar porque una casilla de Configuración > Facturación
+ * está sin marcar: cuál, con el enlace, y qué plantilla tendría.
+ */
+function MotivoCasilla({ motivo, editar }: { motivo: SerieConfig['motivoPlantilla']; editar: boolean }) {
+  const c = plantillaPorCasilla(motivo);
+  if (!c) return null;
+  return (
+    <p className="mt-0.5 text-xs text-slate-500">
+      Usa la estándar porque «{c.casilla}» está sin marcar en{' '}
+      <Link href={RUTA_AJUSTES_FACTURACION} className="font-medium text-emerald-700 underline">
+        Configuración &gt; Facturación
+      </Link>
+      . Márcala para usar la plantilla {c.plantilla} ({c.que}){editar ? ', o elige aquí otra plantilla con Editar' : ''}.
+    </p>
   );
 }
 
@@ -452,6 +499,7 @@ function FormularioSerie({
           <p id={`${id}-plantilla-ayuda`} className="mt-1 text-xs text-slate-600">
             {[
               catalogo.find((p) => p.id === normalizarPlantilla(plantilla || automatica))?.descripcion?.replace(/\.$/, ''),
+              !plantilla && !deRectificativas ? ayudaAutomatica(nueva ? codigo : serie.codigo, catalogo) : null,
               deRectificativas
                 ? 'Las rectificativas de una factura de la app salen con la plantilla de esa factura; esta solo vale para las demás'
                 : 'Vale para lo que crees o guardes después: las facturas ya emitidas no cambian',

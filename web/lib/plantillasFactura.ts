@@ -89,9 +89,9 @@ export function textoMotivoPlantilla(motivo: MotivoPlantilla | undefined, elegid
     case 'serieC':
       return 'automática de la serie C';
     case 'sinIeepnr':
-      return `automática: «${CASILLA_IEEPNR}» está sin marcar`;
     case 'sinCeramica':
-      return `automática: «${CASILLA_CERAMICA}» está sin marcar`;
+      // La casilla que falta se explica aparte (plantillaPorCasilla), con su enlace.
+      return 'automática';
     case 'soloEspana':
       return 'la A y la B solo valen en empresas españolas';
     case 'estandar':
