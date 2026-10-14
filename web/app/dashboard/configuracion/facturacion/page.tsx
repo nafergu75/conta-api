@@ -23,10 +23,16 @@ import { useConfiguracion } from '../contexto';
  * IRPF habitual (solo España), cuenta bancaria que sale en la factura, mostrar
  * o no el IBAN y un texto al pie. Al emitir, el IBAN y el pie se copian en la
  * factura: cambiarlos aqui no cambia las ya emitidas.
+ * IEEPNR (impuesto sobre los envases de plástico, plantilla A; solo empresas
+ * españolas): si se repercute, a cuánto el kg y, solo si la empresa fuera
+ * contribuyente, la cuenta a la que va. Cada factura guarda el tipo con que se
+ * hizo: cambiarlo no cambia las emitidas.
  * Ver: ventas:read o contabilidad:read; cambiar: ventas:write.
  */
 
 const TEXTO_PIE_MAX = 500;
+/** Tipo del IEEPNR: mayor que 0 y como mucho 10 € por kg, con 4 decimales (como el servidor). */
+const IEEPNR_POR_KG_MAX = 10;
 
 interface Formulario {
   formaPago: AjustesFacturacion['formaPago'];
@@ -35,6 +41,9 @@ interface Formulario {
   cuentaBancariaId: string; // '' = automatica
   mostrarIban: boolean;
   textoPie: string;
+  ieepnrRepercute: boolean;
+  ieepnrPorKg: string;
+  ieepnrCuenta: string; // '' = la de ingresos de cada linea
 }
 
 type Campo = keyof Formulario;
@@ -46,7 +55,17 @@ const aFormulario = (a: AjustesFacturacion): Formulario => ({
   cuentaBancariaId: a.cuentaBancariaId ?? '',
   mostrarIban: a.mostrarIban,
   textoPie: a.textoPie ?? '',
+  ieepnrRepercute: a.ieepnrRepercute === true,
+  ieepnrPorKg: String(a.ieepnrPorKg ?? 0.45).replace('.', ','),
+  ieepnrCuenta: a.ieepnrCuenta ?? '',
 });
+
+/** € por kg escrito a mano ('0,45' o '0.45'): NaN si no es un número con 4 decimales como mucho. */
+function leerTipoIeepnr(texto: string): number {
+  const t = texto.trim();
+  if (!/^\d+([.,]\d{1,4})?$/.test(t)) return NaN;
+  return Number(t.replace(',', '.'));
+}
 
 /** IBAN en grupos de cuatro, como sale en la factura. */
 const ibanLegible = (iban: string) => iban.replace(/\s+/g, '').replace(/(.{4})/g, '$1 ').trim();
@@ -61,6 +80,8 @@ export default function FacturacionPage() {
   const [errores, setErrores] = useState<Partial<Record<Campo, string>>>({});
   const [mensaje, setMensaje] = useState<MensajeConfig>(null);
   const [guardando, setGuardando] = useState(false);
+  // IEEPNR: solo en una empresa española y con un servidor que lo tenga.
+  const conIeepnr = !!ajustes?.empresaEspanola && ajustes.ieepnrRepercute !== undefined;
 
   useEffect(() => {
     if (!listo || !ver) return;
@@ -84,6 +105,16 @@ export default function FacturacionPage() {
     const dias = Number(form.diasVencimiento.trim());
     if (!/^\d+$/.test(form.diasVencimiento.trim()) || dias > 365) err.diasVencimiento = 'Escribe un número de días entre 0 y 365.';
     if (form.textoPie.length > TEXTO_PIE_MAX) err.textoPie = `Como máximo ${TEXTO_PIE_MAX} caracteres.`;
+    const tipoIeepnr = leerTipoIeepnr(form.ieepnrPorKg);
+    const cuentaIeepnr = form.ieepnrCuenta.replace(/[\s.]/g, '');
+    if (conIeepnr) {
+      if (!(tipoIeepnr > 0 && tipoIeepnr <= IEEPNR_POR_KG_MAX)) {
+        err.ieepnrPorKg = `Escribe un importe en euros mayor que 0 y de ${IEEPNR_POR_KG_MAX} como mucho, con 4 decimales como máximo (por ejemplo, 0,45).`;
+      }
+      if (cuentaIeepnr && !/^(47\d{0,13}|7\d{1,14})$/.test(cuentaIeepnr)) {
+        err.ieepnrCuenta = 'Escribe solo números y una cuenta que empiece por 47 (Hacienda) o por 7 (ingresos), o déjala vacía.';
+      }
+    }
     setErrores(err);
     setMensaje(null);
     if (Object.keys(err).length) return;
@@ -98,6 +129,8 @@ export default function FacturacionPage() {
           cuentaBancariaId: form.cuentaBancariaId || null,
           mostrarIban: form.mostrarIban,
           textoPie: form.textoPie.trim() || null,
+          // Solo si el servidor los conoce (si no, rechazaría el cambio entero).
+          ...(conIeepnr ? { ieepnrRepercute: form.ieepnrRepercute, ieepnrPorKg: tipoIeepnr, ieepnrCuenta: cuentaIeepnr || null } : {}),
         }),
       });
       setAjustes(a);
@@ -330,6 +363,77 @@ export default function FacturacionPage() {
               )}
             </div>
           </section>
+
+          {conIeepnr && (
+            <section aria-labelledby="ieepnr-titulo" className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 md:p-5">
+              <div>
+                <h2 id="ieepnr-titulo" className="font-semibold text-slate-900">
+                  Impuesto sobre envases de plástico (IEEPNR)
+                </h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Solo en las series con la plantilla A (envases). Se cobra en la factura por los kg de plástico no reciclado de cada línea y forma parte de la base del
+                  IVA.
+                </p>
+              </div>
+              <label className="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  checked={form.ieepnrRepercute}
+                  onChange={(e) => cambiar('ieepnrRepercute', e.target.checked)}
+                  disabled={off}
+                  aria-describedby="ieepnrRepercute-ayuda"
+                  className="mt-1 h-4 w-4 accent-emerald-600"
+                />
+                <span className="text-sm">
+                  <span className="font-medium text-slate-900">Repercuto el IEEPNR en mis facturas</span>
+                  <span id="ieepnrRepercute-ayuda" className="block text-slate-600">
+                    Si no lo marcas, el IEEPNR sale a 0 aunque las líneas lleven kg de plástico.
+                  </span>
+                </span>
+              </label>
+              <div className="max-w-xs">
+                <label htmlFor="ieepnrPorKg" className="block text-sm font-medium text-slate-700">
+                  Euros por kg
+                </label>
+                <input
+                  id="ieepnrPorKg"
+                  value={form.ieepnrPorKg}
+                  onChange={(e) => cambiar('ieepnrPorKg', e.target.value)}
+                  disabled={off}
+                  inputMode="decimal"
+                  aria-invalid={errores.ieepnrPorKg ? true : undefined}
+                  aria-describedby="ieepnrPorKg-ayuda"
+                  className={`${claseCampo} text-right tabular-nums`}
+                />
+                <p id="ieepnrPorKg-ayuda" className={`mt-1 text-xs ${errores.ieepnrPorKg ? 'text-red-700' : 'text-slate-500'}`}>
+                  {errores.ieepnrPorKg ?? 'El de la Ley 7/2022 es 0,45 €. Cada factura guarda el suyo: cambiarlo no cambia las ya emitidas.'}
+                </p>
+              </div>
+              <details className="rounded-lg border border-slate-200 p-3" open={!!form.ieepnrCuenta || !!errores.ieepnrCuenta}>
+                <summary className="cursor-pointer text-sm font-medium text-slate-700">Cuenta del IEEPNR (solo si sois contribuyentes)</summary>
+                <div className="mt-3 max-w-xs">
+                  <label htmlFor="ieepnrCuenta" className="block text-sm font-medium text-slate-700">
+                    Cuenta
+                  </label>
+                  <input
+                    id="ieepnrCuenta"
+                    value={form.ieepnrCuenta}
+                    onChange={(e) => cambiar('ieepnrCuenta', e.target.value)}
+                    disabled={off}
+                    inputMode="numeric"
+                    placeholder="La de ingresos de cada línea"
+                    aria-invalid={errores.ieepnrCuenta ? true : undefined}
+                    aria-describedby="ieepnrCuenta-ayuda"
+                    className={`${claseCampo} font-mono`}
+                  />
+                </div>
+                <p id="ieepnrCuenta-ayuda" className={`mt-1 text-xs ${errores.ieepnrCuenta ? 'text-red-700' : 'text-slate-500'}`}>
+                  {errores.ieepnrCuenta ??
+                    'Déjala vacía si solo repercutes el impuesto: va como venta, en la cuenta de ingresos de su línea. Si sois contribuyentes (presentáis el modelo 592), escribe aquí la cuenta, del grupo 47 o del 7, y el IEEPNR de las ventas que se contabilicen después irá a ella.'}
+                </p>
+              </details>
+            </section>
+          )}
 
           <Mensaje mensaje={mensaje} onCerrar={() => setMensaje(null)} />
 

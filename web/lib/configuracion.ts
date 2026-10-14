@@ -118,6 +118,14 @@ export interface AjustesFacturacion {
   cuentaBancariaId: string | null;
   mostrarIban: boolean;
   textoPie: string | null;
+  /**
+   * IEEPNR (plantilla A, solo empresas españolas): si se repercute en las
+   * facturas, a cuánto el kg y, si la empresa fuera contribuyente, su cuenta.
+   * Un servidor anterior no los manda.
+   */
+  ieepnrRepercute?: boolean;
+  ieepnrPorKg?: number;
+  ieepnrCuenta?: string | null;
   guardado: boolean;
   empresaEspanola: boolean;
   monedaCuenta: string;
