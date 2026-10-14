@@ -8,6 +8,7 @@ import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { TablaInforme, type Tabla } from './TablaInforme';
 import { BuscadorTercero } from '@/components/contabilidad/BuscadorTercero';
 import { BuscadorCuenta } from '@/components/contabilidad/BuscadorCuenta';
+import { esNotaFueraDelMayor, FacturasFueraDelMayor, type FacturaFueraDelMayor } from '@/components/contabilidad/FacturasFueraDelMayor';
 import SelectorAnio from '@/components/SelectorAnio';
 import { anioDeTexto, anioEspana, rangoAnios } from '@/lib/anios';
 import { ponerEnUrl } from '@/lib/urlEstado';
@@ -161,6 +162,8 @@ function InformesContables() {
   const [error, setError] = useState('');
   /** El año lo llevó la gestoría (solo lectura) o su apertura es la provisional de la carga. */
   const [avisoAnio, setAvisoAnio] = useState<{ llevanzaExterna: boolean; aperturaProvisional: boolean }>({ llevanzaExterna: false, aperturaProvisional: false });
+  /** Mayor de un cliente o proveedor: sus facturas sin asiento o con él en borrador, que el mayor no cuenta. */
+  const [fueraDelMayor, setFueraDelMayor] = useState<FacturaFueraDelMayor[]>([]);
 
   // Ejercicios del servidor (con asientos, dados de alta, el actual y el siguiente) y, si se llega
   // con un enlace, el informe pedido (?tipo=pyg). Se abre en el año en curso, no en el siguiente.
@@ -195,13 +198,21 @@ function InformesContables() {
     const ruta = INFORMES.find((i) => i.id === c.tipo)!.ruta;
     setCargando(true);
     try {
-      const r = await apiFetch<{ tabla: Tabla; tercero?: TerceroMayor | null; llevanzaExterna?: boolean; aperturaProvisional?: boolean }>(
-        companyPath(`/informes-contables/${ruta}?${parametros(c)}`),
-      );
-      setTabla(r.tabla);
+      const r = await apiFetch<{
+        tabla: Tabla;
+        tercero?: TerceroMayor | null;
+        llevanzaExterna?: boolean;
+        aperturaProvisional?: boolean;
+        facturasFueraDelMayor?: FacturaFueraDelMayor[];
+      }>(companyPath(`/informes-contables/${ruta}?${parametros(c)}`));
+      // Con la lista de las facturas que no cuenta, su nota de la tabla no se repite (sigue en el PDF y el Excel).
+      const fuera = r.facturasFueraDelMayor ?? [];
+      setTabla(fuera.length ? { ...r.tabla, notas: r.tabla.notas?.filter((n) => !esNotaFueraDelMayor(n)) } : r.tabla);
+      setFueraDelMayor(fuera);
       setAvisoAnio({ llevanzaExterna: !!r.llevanzaExterna, aperturaProvisional: !!r.aperturaProvisional });
       if (r.tercero) setTerceroLeido(r.tercero);
     } catch (e) {
+      setFueraDelMayor([]);
       setTabla(null);
       setError(errorMessage(e));
     } finally {
@@ -465,6 +476,8 @@ function InformesContables() {
               Apertura provisional: los saldos iniciales cambiarán cuando cargues el cierre definitivo de la gestoría.
             </p>
           )}
+          {/* Libro mayor de un cliente o proveedor: lo que no cuenta, con su enlace para arreglarlo. */}
+          <FacturasFueraDelMayor facturas={fueraDelMayor} />
           <TablaInforme tabla={tabla} maxFilas={3000} />
         </section>
       ) : null}
