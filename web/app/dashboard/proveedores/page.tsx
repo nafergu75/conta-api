@@ -9,6 +9,7 @@ import { nombreNumeroFiscal, nombrePais, PAISES, PAISES_UE, pareceNifIvaUe } fro
 import { paisDelPrefijo } from '@/lib/compras';
 import { mensajeSinAcceso, PantallaSinAcceso } from '@/components/dashboard/SinAcceso';
 import { useAvisoPlanAnterior } from '@/components/contabilidad/AvisoPlanAnterior';
+import { CampoWeb, EnlaceWeb } from '@/components/terceros/Web';
 
 interface Proveedor {
   id: string;
@@ -16,6 +17,8 @@ interface Proveedor {
   nifCif: string;
   email?: string | null;
   telefono?: string | null;
+  /** Con https:// delante (el servidor se lo pone). */
+  web?: string | null;
   direccion?: string | null;
   provincia?: string | null;
   municipio?: string | null;
@@ -243,6 +246,12 @@ export default function ProveedoresPage() {
                       <Phone size={14} className="shrink-0 text-slate-400" /> {proveedor.telefono}
                     </p>
                   )}
+                  {proveedor.web && (
+                    // Por encima del enlace de la tarjeta: abre la web, no la ficha.
+                    <p className="relative z-10 min-w-0">
+                      <EnlaceWeb web={proveedor.web} className="text-sm" />
+                    </p>
+                  )}
                   {(proveedor.municipio || proveedor.provincia) && (
                     <p className="flex items-center gap-1.5 text-slate-500">
                       <MapPin size={14} className="shrink-0 text-slate-400" /> {[proveedor.municipio, proveedor.provincia].filter(Boolean).join(', ')}
@@ -288,7 +297,7 @@ export default function ProveedoresPage() {
 }
 
 function NuevoProveedorModal({ onClose, onCreated }: { onClose: () => void; onCreated: (p: Proveedor) => void }) {
-  const [d, setD] = useState({ nombreFiscal: '', nifCif: '', pais: 'ES', direccion: '', cp: '', municipio: '', provincia: '', email: '', telefono: '' });
+  const [d, setD] = useState({ nombreFiscal: '', nifCif: '', pais: 'ES', direccion: '', cp: '', municipio: '', provincia: '', email: '', telefono: '', web: '' });
   const [saving, setSaving] = useState(false);
   const avisoPlan = useAvisoPlanAnterior();
   const [error, setError] = useState<string | null>(null);
@@ -330,8 +339,11 @@ function NuevoProveedorModal({ onClose, onCreated }: { onClose: () => void; onCr
       onCreated(creado);
     } catch (err) {
       setError(errorMessage(err));
-      setCampo(campoDelError(err));
+      const c = campoDelError(err);
+      setCampo(c);
       setSaving(false);
+      // La web mal escrita: el motivo sale junto a su casilla, y el foco va a ella.
+      if (c === 'web') requestAnimationFrame(() => document.getElementById('np-web')?.focus());
     }
   }
 
@@ -416,8 +428,11 @@ function NuevoProveedorModal({ onClose, onCreated }: { onClose: () => void; onCr
             </label>
             <input id="np-tel" type="tel" value={d.telefono} onChange={set('telefono')} aria-invalid={campo === 'telefono'} className={inputClass} />
           </div>
+          <div className="sm:col-span-2 flex flex-col gap-1.5">
+            <CampoWeb id="np-web" value={d.web} onChange={set('web')} error={campo === 'web' ? error : null} claseEtiqueta={label} claseCampo={inputClass} />
+          </div>
 
-          {error && <p className="sm:col-span-2 text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">{error}</p>}
+          {error && campo !== 'web' && <p className="sm:col-span-2 text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">{error}</p>}
 
           <div className="sm:col-span-2 flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="flex-1 py-2.5 rounded-lg border border-slate-300 text-slate-700 font-semibold hover:bg-slate-50 transition-colors">
