@@ -43,13 +43,15 @@ interface Props {
   puedeCrear: boolean;
   /** El servidor ha rechazado esta cuenta. */
   invalido?: boolean;
+  /** id del texto que explica por qué (lo lee el lector de pantalla con «Cambiar cuenta»). */
+  idError?: string;
   disabled?: boolean;
 }
 
 const campo =
   'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 aria-[invalid=true]:border-red-500 aria-[invalid=true]:bg-red-50';
 
-export function CuentaLinea({ tipo, catalogo, valor, onCambiar, porDefecto, linea, id, puedeCrear, invalido, disabled }: Props) {
+export function CuentaLinea({ tipo, catalogo, valor, onCambiar, porDefecto, linea, id, puedeCrear, invalido, idError, disabled }: Props) {
   const [abierto, setAbierto] = useState(false);
   const [creando, setCreando] = useState(false);
   const [q, setQ] = useState('');
@@ -111,6 +113,7 @@ export function CuentaLinea({ tipo, catalogo, valor, onCambiar, porDefecto, line
           disabled={disabled}
           aria-expanded={abierto}
           aria-invalid={invalido || undefined}
+          aria-describedby={invalido && idError ? idError : undefined}
           onClick={() => (abierto ? cerrar() : setAbierto(true))}
           className="inline-flex items-center gap-1 font-medium text-blue-600 hover:underline disabled:opacity-50"
         >
