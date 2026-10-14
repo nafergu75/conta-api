@@ -488,7 +488,7 @@ export default function LectorIngresosPage() {
     if (!ingreso || !info) return;
     // Lo corregido a mano: lo que falta o no cuadra se dice junto a su campo, antes de enviarlo.
     if (corr) {
-      const mal = comprobarCorreccion(corr.leido, corr.estado, { aMano: info.origen === 'MANUAL', negativos: !!ingreso.rectificativa });
+      const mal = comprobarCorreccion(corr.leido, corr.estado, { aMano: info.origen === 'MANUAL', negativos: !!ingreso.rectificativa, espanola });
       if (mal) {
         setErrorCorr(mal);
         setIntentoCorr((n) => n + 1);
