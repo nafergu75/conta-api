@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, CheckCircle, FileArrowUp, WarningCircle } from '@phosphor-icons/react';
-import { apiFetch, companyPath, errorMessage } from '@/lib/api';
+import { ArrowLeft, CheckCircle, FileArrowUp, PencilSimple, WarningCircle } from '@phosphor-icons/react';
+import { ApiError, apiFetch, companyPath, errorMessage } from '@/lib/api';
 import PanelLectura from '@/components/lector/PanelLectura';
 import {
   anuncioLecturaTerminada,
@@ -11,9 +11,11 @@ import {
   descartarLectura,
   ErrorLectura,
   esCancelada,
+  esMuyIncompleta,
   euros,
   leerFactura,
   porcentaje,
+  rellenarAMano,
   type EleccionOrigen,
   type GastoLeido,
   type InfoLectura,
@@ -21,7 +23,16 @@ import {
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import FormFacturaGasto, { type FormInicial } from '@/components/compras/FormFacturaGasto';
 import { fechaCorta, type GastoRegistrado } from '@/lib/compras';
-import { centimos, cuotasDescuadradas, inicialComoAbono, inicialDe, marcasDelFormulario, marcasDireccion, retencionSinTipo } from '@/lib/lectorGastos';
+import {
+  centimos,
+  corregidosEnFormulario,
+  cuotasDescuadradas,
+  inicialComoAbono,
+  inicialDe,
+  marcasDelFormulario,
+  marcasDireccion,
+  retencionSinTipo,
+} from '@/lib/lectorGastos';
 import SoltarFactura from '@/components/lector/SoltarFactura';
 import AvisoTerceroNuevo, { camposDudosos, type TerceroEnlazado } from '@/components/lector/AvisoTerceroNuevo';
 import { usePaisEmpresa } from '@/lib/fiscal';
@@ -38,7 +49,14 @@ import OrigenTercero, { eleccionRecordada, ORIGEN_POR_DEFECTO, origenPorDefecto,
  * formulario se abre con el bloque «Rectificación» y la factura original que
  * propone el servidor. Si no lo es, «Registrarla como factura normal» manda
  * noEsRectificativa (queda en el registro de auditoría).
+ *
+ * Si la lectura falla, tarda demasiado o sale muy incompleta, «Rellenarla a
+ * mano» abre el formulario vacío con el archivo ya subido (POST
+ * /lecturas/:id/manual): se registra igual y el archivo se guarda con la factura.
  */
+
+/** «Rellenarla a mano»: el formulario vacío (sin fecha: se escribe la de la factura). */
+const INICIAL_A_MANO: FormInicial = { proveedor: null, numeroFacturaProveedor: '', fechaEmision: '' };
 
 const MAX_BYTES = 4 * 1024 * 1024;
 const TIPOS = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
@@ -107,6 +125,12 @@ export default function LectorGastosPage() {
   const [origen, setOrigen] = useState<EleccionOrigen>(ORIGEN_POR_DEFECTO);
   const [cambiandoOrigen, setCambiandoOrigen] = useState(false);
   const [errorOrigen, setErrorOrigen] = useState('');
+  // Las marcas del formulario que siguen con el valor leído (null hasta que el formulario las dice).
+  const [vigentes, setVigentes] = useState<string[] | null>(null);
+  // «Rellenarla a mano»: la lectura fallida o lenta que se puede terminar a mano, y si se está pasando.
+  const [aManoId, setAManoId] = useState<string | null>(null);
+  const [pasandoAMano, setPasandoAMano] = useState(false);
+  const [errorAMano, setErrorAMano] = useState('');
   // Lectura en curso o sin registrar: "Leer otra" corta la espera y la descarta.
   const lecturaIdRef = useRef<string | null>(null);
   const cortarRef = useRef<AbortController | null>(null);
@@ -158,7 +182,8 @@ export default function LectorGastosPage() {
     setErrorOrigen('');
     try {
       const r = await cambiarOrigenLectura('gastos', info.lecturaId, e);
-      setInfo(conFechaDeHoy(r.lectura, leido));
+      // Rellenada a mano no hay fecha leída que marcar: la escribe la persona.
+      setInfo(r.lectura.origen === 'MANUAL' ? r.lectura : conFechaDeHoy(r.lectura, leido));
       // Lo marcado puede ser otra cosa: hay que volver a revisarlo.
       setRevisado(false);
       elegirOrigen(e);
@@ -195,13 +220,50 @@ export default function LectorGastosPage() {
     setErrorOrigen('');
     setError('');
     setAlternativa(null);
+    setVigentes(null);
+    setAManoId(null);
+    setErrorAMano('');
     setLeyendo(false);
     if (inputRef.current) inputRef.current.value = '';
+  };
+
+  /**
+   * «Rellenarla a mano»: la lectura fallida, lenta o muy incompleta pasa a vacía
+   * con el archivo ya subido, y se abre el formulario vacío.
+   */
+  const pasarAMano = async (lecturaId: string) => {
+    if (pasandoAMano) return;
+    setPasandoAMano(true);
+    setErrorAMano('');
+    try {
+      const r = await rellenarAMano('gastos', lecturaId);
+      lecturaIdRef.current = r.lecturaId;
+      setError('');
+      setAlternativa(null);
+      setAManoId(null);
+      setLeido(r.gasto);
+      setInfo(r.lectura);
+      setTipoDocumento('factura');
+      setInicial(INICIAL_A_MANO);
+      setRevisado(false);
+      setProveedorResuelto(null);
+      setComoAbono(true);
+      setVigentes(null);
+      setLectura((n) => n + 1);
+    } catch (err) {
+      setErrorAMano(errorMessage(err));
+      // Sin archivo o ya cerrada: ya no se puede rellenar a mano (hay que volver a subirla).
+      if (err instanceof ApiError && err.status < 500) setAManoId(null);
+    } finally {
+      setPasandoAMano(false);
+    }
   };
 
   const leer = async (f: File) => {
     setError('');
     setAlternativa(null);
+    setAManoId(null);
+    setErrorAMano('');
     setRegistrado(null);
     if (!TIPOS.includes(f.type)) {
       setError('Solo se pueden leer PDF e imágenes (JPG, PNG o WEBP).');
@@ -221,6 +283,7 @@ export default function LectorGastosPage() {
     setRevisado(false);
     setProveedorResuelto(null);
     setComoAbono(true);
+    setVigentes(null);
     setLeyendo(true);
     try {
       const r = await leerFactura('gastos', f, {
@@ -248,6 +311,8 @@ export default function LectorGastosPage() {
       if (esCancelada(err) || cortar.signal.aborted) return;
       setError(errorMessage(err));
       if (err instanceof ErrorLectura && err.alternativa) setAlternativa(err.alternativa);
+      // Ha fallado (con el archivo guardado) o tarda demasiado: se puede terminar a mano.
+      if (err instanceof ErrorLectura && err.aMano) setAManoId(err.aMano.lecturaId);
     } finally {
       if (cortarRef.current === cortar) {
         cortarRef.current = null;
@@ -292,10 +357,20 @@ export default function LectorGastosPage() {
       ? anuncioLecturaTerminada(infoPanel)
       : '';
 
-  // Al terminar la lectura, el foco va a los datos leidos (sin mover la pantalla).
-  const lecturaLista = infoPanel?.lecturaId ?? null;
+  // Rellenada a mano: no hay nada leído; muy incompleta: se ofrece empezar de cero.
+  const aMano = info?.origen === 'MANUAL';
+  const muyIncompleta = !!info && !aMano && esMuyIncompleta(info);
+  // Los datos marcados que ya se han corregido en el formulario pasan a verde en el panel.
+  const corregidos = infoPanel && inicialForm ? corregidosEnFormulario(infoPanel.campos, inicialForm, vigentes) : {};
+  // Con el número de una factura ya registrada cambiado (se leyó mal), ya se puede revisar y registrar.
+  const numeroCambiado = vigentes !== null && !vigentes.includes('numeroFacturaProveedor');
+
+  // Al terminar la lectura, el foco va a los datos leidos (sin mover la pantalla); rellenada a mano, al proveedor.
+  const lecturaLista = infoPanel ? `${infoPanel.lecturaId}:${infoPanel.origen}` : null;
   useEffect(() => {
-    if (lecturaLista) panelRef.current?.focus({ preventScroll: true });
+    if (!lecturaLista) return;
+    if (lecturaLista.endsWith(':MANUAL')) document.getElementById('fg-buscar')?.focus();
+    else panelRef.current?.focus({ preventScroll: true });
   }, [lecturaLista]);
 
   return (
@@ -410,20 +485,48 @@ export default function LectorGastosPage() {
               )}
             </div>
             {error && (
-              <p role="alert" className="mt-4 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
-                <WarningCircle size={18} className="mt-0.5 shrink-0" />
-                <span>
-                  {error}
-                  {alternativa && (
-                    <>
-                      {' '}
-                      <Link href={alternativa.ruta} className="font-semibold underline">
-                        {alternativa.texto}
-                      </Link>
-                    </>
-                  )}
-                </span>
-              </p>
+              <div className="mt-4 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+                <p role="alert" className="flex items-start gap-2">
+                  <WarningCircle size={18} className="mt-0.5 shrink-0" />
+                  <span>
+                    {error}
+                    {alternativa && !aManoId && (
+                      <>
+                        {' '}
+                        <Link href={alternativa.ruta} className="font-semibold underline">
+                          {alternativa.texto}
+                        </Link>
+                      </>
+                    )}
+                  </span>
+                </p>
+                {/* Con el archivo ya subido, se puede terminar a mano sin volver a subirlo. */}
+                {aManoId && !leyendo && (
+                  <div className="mt-3 flex flex-col gap-2 pl-[26px]">
+                    <p className="text-slate-700">Puedes escribir tú los datos mirando el archivo que has subido. Se guarda con la factura, igual que una leída.</p>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
+                      <button
+                        type="button"
+                        onClick={() => void pasarAMano(aManoId)}
+                        disabled={pasandoAMano}
+                        className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-lg bg-accent-600 px-4 py-2 font-semibold text-white hover:bg-accent-700 disabled:opacity-60 sm:min-h-0"
+                      >
+                        <PencilSimple size={16} aria-hidden="true" /> {pasandoAMano ? 'Abriendo…' : 'Rellenarla a mano'}
+                      </button>
+                      {alternativa && (
+                        <Link href={alternativa.ruta} className="font-semibold underline">
+                          {alternativa.texto}
+                        </Link>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {errorAMano && (
+                  <p role="alert" className="mt-2 pl-[26px] font-medium">
+                    {errorAMano}
+                  </p>
+                )}
+              </div>
             )}
             <p className="mt-4 text-sm text-slate-500">
               Revisarás y podrás corregir todos los datos antes de registrarla. La factura quedará pendiente de revisar hasta que apruebes su asiento en el Motor contable.
@@ -449,7 +552,7 @@ export default function LectorGastosPage() {
             </section>
 
             {/* Datos leidos, editables */}
-            <section ref={panelRef} tabIndex={-1} aria-label="Datos leídos" className="flex min-w-0 flex-col gap-4 focus:outline-none">
+            <section ref={panelRef} tabIndex={-1} aria-label={aMano ? 'Datos de la factura' : 'Datos leídos'} className="flex min-w-0 flex-col gap-4 focus:outline-none">
               {/* De dónde es el proveedor: se puede cambiar y se vuelve a comprobar sin leer otra vez. */}
               <OrigenTerceroLeido
                 tipo="proveedor"
@@ -464,9 +567,34 @@ export default function LectorGastosPage() {
                 lector="gastos"
                 revisado={revisado}
                 onRevisado={setRevisado}
-                conCasilla={!leido.duplicada}
+                conCasilla={!leido.duplicada || numeroCambiado}
                 sinArreglo={leido.duplicada ? ['numero'] : []}
+                corregidos={corregidos}
               />
+              {/* Muy incompleta: se puede seguir con lo leído o empezar de cero. */}
+              {muyIncompleta && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                  <p>
+                    La lectura ha salido muy incompleta. Completa abajo lo que falta o, si te resulta más fácil, empieza de cero y escribe tú todos los datos mirando el
+                    archivo.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (window.confirm('Se quita todo lo leído y se abre el formulario vacío, con el archivo que has subido. ¿Seguir?')) void pasarAMano(info.lecturaId);
+                    }}
+                    disabled={pasandoAMano}
+                    className="mt-2 inline-flex min-h-[44px] items-center gap-1.5 font-semibold text-amber-900 underline hover:no-underline disabled:opacity-60 sm:min-h-0"
+                  >
+                    <PencilSimple size={16} aria-hidden="true" /> {pasandoAMano ? 'Abriendo…' : 'Rellenarla a mano'}
+                  </button>
+                  {errorAMano && (
+                    <p role="alert" className="mt-1 font-medium text-rose-700">
+                      {errorAMano}
+                    </p>
+                  )}
+                </div>
+              )}
               {/* Rectificativa o abono: que factura rectifica (la propuesta del servidor) y la salida si no lo es. */}
               {leidaRect && (
                 <div className="space-y-2 rounded-lg border border-violet-200 bg-violet-50 p-4 text-sm text-slate-800">
@@ -539,6 +667,7 @@ export default function LectorGastosPage() {
                   <Link href={`/dashboard/compras/${leido.duplicada.facturaId}`} className="font-semibold underline">
                     Ver la factura
                   </Link>
+                  {numeroCambiado ? ' Has cambiado el número: se comprobará otra vez al registrarla.' : ' Si el número se leyó mal, corrígelo abajo y podrás registrarla.'}
                 </p>
               )}
 
@@ -583,6 +712,12 @@ export default function LectorGastosPage() {
                 modo="lector"
                 inicial={inicialForm}
                 marcas={{ ...marcasDireccion(leido, inicialForm), ...marcasDelFormulario(infoPanel.campos, inicialForm) }}
+                onMarcasVigentes={setVigentes}
+                numeroDuplicado={
+                  leido.duplicada
+                    ? { numero: inicialForm.numeroFacturaProveedor ?? '', mensaje: `Ya registraste esta factura (${leido.duplicada.numeroCompleto}): no se registra dos veces. Si el número se leyó mal, corrígelo.` }
+                    : undefined
+                }
                 numeroRectificadaLeida={leidaRect?.numeroRectificada ?? null}
                 extra={{
                   tipoDocumento,
@@ -593,13 +728,11 @@ export default function LectorGastosPage() {
                   ...(leidaRect && !abono ? { noEsRectificativa: true } : {}),
                 }}
                 bloqueado={
-                  leido.duplicada
-                    ? `Ya registraste esta factura (${leido.duplicada.numeroCompleto}): no se registra dos veces.`
-                    : noEsFactura
-                      ? 'Confirma antes si es una factura de gasto (aviso de arriba).'
-                      : faltaRevision
-                        ? 'Marca que has revisado los datos señalados (arriba) antes de registrar.'
-                        : undefined
+                  noEsFactura
+                    ? 'Confirma antes si es una factura de gasto (aviso de arriba).'
+                    : faltaRevision
+                      ? 'Marca que has revisado los datos señalados (arriba) antes de registrar.'
+                      : undefined
                 }
                 avisoProveedor={
                   puedeAltaProveedor
