@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { X } from '@phosphor-icons/react';
-import { apiFetch, companyPath, errorMessage } from '@/lib/api';
+import { apiFetch, campoDelError, companyPath, errorMessage } from '@/lib/api';
+import { decimalesDe, leerCantidad, paraEditar, problemaTextoAdicional, TEXTO_ADICIONAL_LINEAS_MAX, TEXTO_ADICIONAL_MAX } from '@/lib/plantillasFactura';
 
 export interface Familia {
   id: string;
@@ -31,6 +32,11 @@ export interface Producto {
   bloqueado: boolean;
   familiaId: string | null;
   familia: { id: string; codigo: string; nombre: string } | null;
+  /** Plantilla A (envases): unidades por pack, kg de plástico no reciclado por unidad, si lleva IEEPNR y su texto en la factura. */
+  unidadesPorPack?: number | null;
+  kgPlasticoUnidad?: number | null;
+  llevaIeepnr?: boolean;
+  textoFactura?: string | null;
 }
 
 /** Familias en lista plana, con las subfamilias detras de su familia. */
@@ -66,9 +72,21 @@ export function ProductoModal({
     precioCompra: producto?.precioCompra == null ? '' : String(producto.precioCompra),
     cuentaVentas: producto?.cuentaVentas ?? '',
     notas: producto?.notas ?? '',
+    unidadesPorPack: paraEditar(producto?.unidadesPorPack),
+    kgPlasticoUnidad: paraEditar(producto?.kgPlasticoUnidad),
+    llevaIeepnr: producto?.llevaIeepnr === true,
+    textoFactura: producto?.textoFactura ?? '',
   });
   const [codigoTocado, setCodigoTocado] = useState(Boolean(producto));
   const [error, setError] = useState('');
+  // Campo que señala el error (de la comprobación o del servidor).
+  const [campoError, setCampoError] = useState<string | undefined>();
+  // Bloque «Factura con envases»: abierto si el producto ya trae algo de él.
+  const [envasesAbierto, setEnvasesAbierto] = useState(
+    () => !!(producto?.unidadesPorPack || producto?.kgPlasticoUnidad || producto?.llevaIeepnr || producto?.textoFactura),
+  );
+  const lineasTexto = f.textoFactura ? f.textoFactura.split(/\r\n|\r|\n/).length : 0;
+  const invalido = (c: string) => (campoError === c ? { 'aria-invalid': true as const, 'aria-describedby': 'prod-error' } : {});
   const [guardando, setGuardando] = useState(false);
   const planas = familiasPlanas(familias).filter((x) => x.activa || x.id === producto?.familiaId);
 
@@ -89,10 +107,33 @@ export function ProductoModal({
   const precioConIva = Math.round(num(f.precio || '0') * (1 + num(f.ivaPorcentaje || '0') / 100) * 100) / 100;
   const margen = f.precioCompra && num(f.precio) > 0 ? Math.round(((num(f.precio) - num(f.precioCompra)) / num(f.precio)) * 1000) / 10 : null;
 
+  /** Lo que falta o no vale en el bloque de envases (plantilla A), con su campo. */
+  const problemaEnvases = (): { mensaje: string; campo: string } | null => {
+    const upp = leerCantidad(f.unidadesPorPack);
+    if (upp !== null && !(Number.isInteger(upp) && upp >= 1 && upp <= 100000)) {
+      return { mensaje: 'Las unidades por pack son un número entero entre 1 y 100.000.', campo: 'unidadesPorPack' };
+    }
+    const kg = leerCantidad(f.kgPlasticoUnidad);
+    if (kg !== null && !(kg >= 0 && kg <= 1000 && decimalesDe(kg) <= 6)) {
+      return { mensaje: 'Los kg de plástico no reciclado por unidad son un número entre 0 y 1.000, con 6 decimales como mucho (por ejemplo, 0,033558).', campo: 'kgPlasticoUnidad' };
+    }
+    const texto = problemaTextoAdicional(f.textoFactura);
+    if (texto) return { mensaje: texto, campo: 'textoFactura' };
+    return null;
+  };
+
   const guardar = async (e: React.FormEvent) => {
     e.preventDefault();
-    setGuardando(true);
     setError('');
+    setCampoError(undefined);
+    const mal = problemaEnvases();
+    if (mal) {
+      setEnvasesAbierto(true);
+      setError(mal.mensaje);
+      setCampoError(mal.campo);
+      return;
+    }
+    setGuardando(true);
     try {
       const cuerpo = {
         referencia: f.referencia.trim(),
@@ -105,6 +146,11 @@ export function ProductoModal({
         precioCompra: f.precioCompra === '' ? null : num(f.precioCompra),
         cuentaVentas: f.cuentaVentas.trim() || null,
         notas: f.notas.trim() || null,
+        // Plantilla A (envases). Vacío: sin dato.
+        unidadesPorPack: leerCantidad(f.unidadesPorPack),
+        kgPlasticoUnidad: leerCantidad(f.kgPlasticoUnidad),
+        llevaIeepnr: f.llevaIeepnr,
+        textoFactura: f.textoFactura.trim() || null,
       };
       const r = await apiFetch<Producto>(companyPath(producto ? `/productos/${producto.id}` : '/productos'), {
         method: producto ? 'PUT' : 'POST',
@@ -113,6 +159,9 @@ export function ProductoModal({
       onGuardado(r);
     } catch (err) {
       setError(errorMessage(err));
+      const campo = campoDelError(err);
+      setCampoError(campo);
+      if (campo && ['unidadesPorPack', 'kgPlasticoUnidad', 'llevaIeepnr', 'textoFactura'].includes(campo)) setEnvasesAbierto(true);
     } finally {
       setGuardando(false);
     }
@@ -197,9 +246,86 @@ export function ProductoModal({
             <label htmlFor="p-notas" className="block text-sm font-medium text-slate-700">Notas internas <span className="font-normal text-slate-500">(no salen en la factura)</span></label>
             <textarea id="p-notas" rows={2} value={f.notas} onChange={(e) => setF({ ...f, notas: e.target.value })} className={campo} />
           </div>
+          <details
+            className="rounded-lg border border-slate-200 p-3 md:col-span-6"
+            open={envasesAbierto}
+            onToggle={(e) => setEnvasesAbierto(e.currentTarget.open)}
+          >
+            <summary className="cursor-pointer text-sm font-medium text-slate-700">
+              Factura con envases (plantilla A) <span className="font-normal text-slate-500">(opcional)</span>
+            </summary>
+            <p className="mt-2 text-xs text-slate-500">
+              Solo en las series con la plantilla A: al elegir el producto en la factura se proponen las uds (packs × unidades por pack), los kg de plástico y el texto.
+            </p>
+            <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-6">
+              <div className="md:col-span-2">
+                <label htmlFor="p-upp" className="block text-sm font-medium text-slate-700">Unidades por pack</label>
+                <input
+                  id="p-upp"
+                  inputMode="numeric"
+                  value={f.unidadesPorPack}
+                  onChange={(e) => setF({ ...f, unidadesPorPack: e.target.value })}
+                  className={`${campo} text-right tabular-nums aria-[invalid=true]:border-red-500`}
+                  placeholder="4"
+                  {...invalido('unidadesPorPack')}
+                />
+              </div>
+              <div className="md:col-span-4">
+                <label htmlFor="p-kg" className="block text-sm font-medium text-slate-700">Kg de plástico no reciclado por unidad</label>
+                <input
+                  id="p-kg"
+                  inputMode="decimal"
+                  value={f.kgPlasticoUnidad}
+                  onChange={(e) => setF({ ...f, kgPlasticoUnidad: e.target.value })}
+                  className={`${campo} text-right tabular-nums aria-[invalid=true]:border-red-500 md:max-w-[12rem]`}
+                  placeholder="0,033558"
+                  aria-describedby="p-kg-ayuda"
+                  {...invalido('kgPlasticoUnidad')}
+                />
+                <p id="p-kg-ayuda" className="mt-1 text-xs text-slate-500">Hasta 6 decimales. Si el plástico va por pack (el film), divídelo entre las unidades del pack.</p>
+              </div>
+              <label className="flex items-start gap-3 md:col-span-6">
+                <input
+                  type="checkbox"
+                  checked={f.llevaIeepnr}
+                  onChange={(e) => setF({ ...f, llevaIeepnr: e.target.checked })}
+                  className="mt-1 h-4 w-4 accent-blue-600"
+                  aria-describedby="p-ieepnr-ayuda"
+                />
+                <span className="text-sm">
+                  <span className="font-medium text-slate-900">Lleva IEEPNR</span>
+                  <span id="p-ieepnr-ayuda" className="block text-slate-600">
+                    {f.llevaIeepnr && !f.kgPlasticoUnidad.trim()
+                      ? 'Escribe los kg por unidad para que se propongan en la factura.'
+                      : 'Se proponen sus kg de plástico en la factura (uds × kg por unidad).'}
+                  </span>
+                </span>
+              </label>
+              <div className="md:col-span-6">
+                <label htmlFor="p-texto" className="block text-sm font-medium text-slate-700">Texto adicional en la factura</label>
+                <textarea
+                  id="p-texto"
+                  rows={3}
+                  maxLength={TEXTO_ADICIONAL_MAX}
+                  value={f.textoFactura}
+                  onChange={(e) => setF({ ...f, textoFactura: e.target.value })}
+                  className={`${campo} aria-[invalid=true]:border-red-500`}
+                  placeholder={'Cod. RPA Azúcar: 6B30250\nUnidad 1,5 L Refrescos SR'}
+                  aria-describedby="p-texto-ayuda"
+                  {...invalido('textoFactura')}
+                />
+                <p id="p-texto-ayuda" className="mt-1 flex justify-between gap-2 text-xs text-slate-500">
+                  <span>Sale bajo el concepto, en letra pequeña. Se puede cambiar en cada factura.</span>
+                  <span className={`tabular-nums ${lineasTexto > TEXTO_ADICIONAL_LINEAS_MAX ? 'text-red-700' : ''}`}>
+                    {f.textoFactura.length}/{TEXTO_ADICIONAL_MAX} · {lineasTexto}/{TEXTO_ADICIONAL_LINEAS_MAX} líneas
+                  </span>
+                </p>
+              </div>
+            </div>
+          </details>
         </div>
 
-        {error && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+        {error && <p id="prod-error" role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
 
         <div className="flex justify-end gap-3">
           <button type="button" onClick={onCerrar} disabled={guardando} className="rounded-lg bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200">
