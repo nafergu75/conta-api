@@ -387,7 +387,8 @@ export default function FacturacionPage() {
                 <span className="text-sm">
                   <span className="font-medium text-slate-900">Repercuto el IEEPNR en mis facturas</span>
                   <span id="ieepnrRepercute-ayuda" className="block text-slate-600">
-                    Si no lo marcas, el IEEPNR sale a 0 aunque las líneas lleven kg de plástico.
+                    Si lo marcas, la serie A pasa a usar la plantilla A (envases), salvo que le hayas elegido otra en Configuración &gt; Series. Si no lo marcas, la serie
+                    A sigue con la estándar y, en las series con la plantilla A, el IEEPNR sale a 0 aunque las líneas lleven kg de plástico.
                   </span>
                 </span>
               </label>
@@ -429,7 +430,7 @@ export default function FacturacionPage() {
                 </div>
                 <p id="ieepnrCuenta-ayuda" className={`mt-1 text-xs ${errores.ieepnrCuenta ? 'text-red-700' : 'text-slate-500'}`}>
                   {errores.ieepnrCuenta ??
-                    'Déjala vacía si solo repercutes el impuesto: va como venta, en la cuenta de ingresos de su línea. Si sois contribuyentes (presentáis el modelo 592), escribe aquí la cuenta, del grupo 47 o del 7, y el IEEPNR de las ventas que se contabilicen después irá a ella.'}
+                    'Déjala vacía si solo repercutes el impuesto: va como venta, en la cuenta de ingresos de su línea. Si sois contribuyentes (presentáis el modelo 592), escribe aquí la cuenta, del grupo 47 o del 7, y el IEEPNR de las facturas que emitas a partir de ahora irá a ella. Cada factura guarda la cuenta con la que se emitió, y sus rectificativas usan la misma.'}
                 </p>
               </details>
             </section>
