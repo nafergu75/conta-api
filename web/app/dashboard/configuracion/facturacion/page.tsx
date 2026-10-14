@@ -17,6 +17,7 @@ import {
 } from '@/lib/configuracion';
 import { AvisoSoloLectura, CabeceraBloque, Mensaje, SinAcceso, type MensajeConfig } from '../componentes';
 import { useConfiguracion } from '../contexto';
+import ImagenPlantilla from '@/components/configuracion/ImagenPlantilla';
 
 /**
  * Valores por defecto de facturacion: forma de pago, dias de vencimiento,
@@ -27,6 +28,8 @@ import { useConfiguracion } from '../contexto';
  * españolas): si se repercute, a cuánto el kg y, solo si la empresa fuera
  * contribuyente, la cuenta a la que va. Cada factura guarda el tipo con que se
  * hizo: cambiarlo no cambia las emitidas.
+ * Plantilla B (cerámica; solo empresas españolas): la cuenta de ingresos del
+ * cargo de palets de madera, el logo de la marca y el sello de la empresa.
  * Ver: ventas:read o contabilidad:read; cambiar: ventas:write.
  */
 
@@ -44,6 +47,7 @@ interface Formulario {
   ieepnrRepercute: boolean;
   ieepnrPorKg: string;
   ieepnrCuenta: string; // '' = la de ingresos de cada linea
+  cuentaPalets: string; // '' = la de ventas
 }
 
 type Campo = keyof Formulario;
@@ -58,6 +62,7 @@ const aFormulario = (a: AjustesFacturacion): Formulario => ({
   ieepnrRepercute: a.ieepnrRepercute === true,
   ieepnrPorKg: String(a.ieepnrPorKg ?? 0.45).replace('.', ','),
   ieepnrCuenta: a.ieepnrCuenta ?? '',
+  cuentaPalets: a.cuentaPalets ?? '',
 });
 
 /** € por kg escrito a mano ('0,45' o '0.45'): NaN si no es un número con 4 decimales como mucho. */
@@ -82,6 +87,8 @@ export default function FacturacionPage() {
   const [guardando, setGuardando] = useState(false);
   // IEEPNR: solo en una empresa española y con un servidor que lo tenga.
   const conIeepnr = !!ajustes?.empresaEspanola && ajustes.ieepnrRepercute !== undefined;
+  // Plantilla B (cerámica): también solo en España y con un servidor que la tenga.
+  const conPlantillaB = !!ajustes?.empresaEspanola && ajustes.imagenesPlantillaB !== undefined;
 
   useEffect(() => {
     if (!listo || !ver) return;
@@ -115,6 +122,10 @@ export default function FacturacionPage() {
         err.ieepnrCuenta = 'Escribe solo números y una cuenta que empiece por 47 (Hacienda) o por 7 (ingresos), o déjala vacía.';
       }
     }
+    const cuentaPalets = form.cuentaPalets.replace(/[\s.]/g, '');
+    if (conPlantillaB && cuentaPalets && !/^70\d{1,13}$/.test(cuentaPalets)) {
+      err.cuentaPalets = 'Escribe solo números y una cuenta de ventas, que empiece por 70 (por ejemplo, 704), o déjala vacía.';
+    }
     setErrores(err);
     setMensaje(null);
     if (Object.keys(err).length) return;
@@ -131,6 +142,7 @@ export default function FacturacionPage() {
           textoPie: form.textoPie.trim() || null,
           // Solo si el servidor los conoce (si no, rechazaría el cambio entero).
           ...(conIeepnr ? { ieepnrRepercute: form.ieepnrRepercute, ieepnrPorKg: tipoIeepnr, ieepnrCuenta: cuentaIeepnr || null } : {}),
+          ...(conPlantillaB ? { cuentaPalets: cuentaPalets || null } : {}),
         }),
       });
       setAjustes(a);
@@ -433,6 +445,51 @@ export default function FacturacionPage() {
                     'Déjala vacía si solo repercutes el impuesto: va como venta, en la cuenta de ingresos de su línea. Si sois contribuyentes (presentáis el modelo 592), escribe aquí la cuenta, del grupo 47 o del 7, y el IEEPNR de las facturas que emitas a partir de ahora irá a ella. Cada factura guarda la cuenta con la que se emitió, y sus rectificativas usan la misma.'}
                 </p>
               </details>
+            </section>
+          )}
+
+          {conPlantillaB && (
+            <section aria-labelledby="plantilla-b-titulo" className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 md:p-5">
+              <div>
+                <h2 id="plantilla-b-titulo" className="font-semibold text-slate-900">
+                  Plantilla B (cerámica)
+                </h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Solo en las series con la plantilla B. La serie B la usa sola, salvo que le hayas elegido otra en Configuración &gt; Series.
+                </p>
+              </div>
+              <div className="max-w-xs">
+                <label htmlFor="cuentaPalets" className="block text-sm font-medium text-slate-700">
+                  Cuenta del cargo de palets
+                </label>
+                <input
+                  id="cuentaPalets"
+                  value={form.cuentaPalets}
+                  onChange={(e) => cambiar('cuentaPalets', e.target.value)}
+                  disabled={off}
+                  inputMode="numeric"
+                  placeholder="La de ventas (700)"
+                  aria-invalid={errores.cuentaPalets ? true : undefined}
+                  aria-describedby="cuentaPalets-ayuda"
+                  className={`${claseCampo} font-mono`}
+                />
+              </div>
+              <p id="cuentaPalets-ayuda" className={`-mt-2 text-xs ${errores.cuentaPalets ? 'text-red-700' : 'text-slate-500'}`}>
+                {errores.cuentaPalets ??
+                  'La cuenta de ingresos de los palets de madera que se cobran en la factura, por ejemplo la 704 (ventas de envases y embalajes). Vacía, van a la de ventas. Se pone en la línea del cargo al guardar la factura, y en cada factura se puede cambiar.'}
+              </p>
+              <ImagenPlantilla
+                tipo="marca"
+                titulo="Logo de la marca"
+                ayuda="El segundo logo, el de la marca (por ejemplo, PRACTIKA). Sale arriba en el centro, debajo del de la empresa. PNG o JPG, hasta 1 MB."
+                puedeEditar={editar}
+              />
+              <ImagenPlantilla
+                tipo="sello"
+                titulo="Sello de la empresa"
+                ayuda="Sale abajo a la izquierda, junto a los totales. PNG o JPG, hasta 1 MB; mejor con fondo blanco o transparente."
+                puedeEditar={editar}
+              />
             </section>
           )}
 
