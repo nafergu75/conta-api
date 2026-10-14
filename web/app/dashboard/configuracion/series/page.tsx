@@ -15,17 +15,26 @@ import { useConfiguracion } from '../contexto';
  * la descripcion, activar o desactivar, marcar la predeterminada y fijar el
  * numero inicial (solo sin documentos). Sin borrar: una serie se desactiva.
  * Cada serie tiene su plantilla de PDF (GET /series/plantillas): la elegida o
- * la automática (la A en la serie A de una empresa española; si no, la
- * estándar). Cambiarla vale para lo que se cree o se guarde después: las
- * facturas ya emitidas conservan la suya.
+ * la automática (la A en la serie A de una empresa española que repercute el
+ * IEEPNR; si no, la estándar). Cambiarla vale para lo que se cree o se guarde
+ * después: las facturas ya emitidas conservan la suya.
  * Ver: ventas:read o contabilidad:read; cambiar: ventas:write.
  */
 
-/** Plantilla automática de una serie (como el servidor): la A en la serie A si la empresa puede usarla. */
-function plantillaAutomatica(codigo: string, catalogo: PlantillaCatalogo[] | null): string {
-  const a = catalogo?.find((p) => p.id === 'A');
-  return codigo.trim().toUpperCase() === 'A' && a?.disponible ? 'A' : 'default';
+/**
+ * Plantilla automática de una serie, como el servidor: en la serie A, la que
+ * el catálogo marca como su automática (la A si la empresa repercute el
+ * IEEPNR); en las demás, la estándar. Una serie ya guardada sin plantilla
+ * elegida trae la suya (`efectiva`).
+ */
+function plantillaAutomatica(codigo: string, catalogo: PlantillaCatalogo[] | null, efectiva?: string): string {
+  if (efectiva) return efectiva;
+  if (codigo.trim().toUpperCase() !== 'A') return 'default';
+  return catalogo?.find((p) => p.automaticaSerieA)?.id ?? 'default';
 }
+
+/** Por qué no se puede elegir una plantilla del catálogo. */
+const motivoNoDisponible = (p: PlantillaCatalogo) => (p.disenada === false ? ' (aún sin diseño)' : ' (solo empresas españolas)');
 
 const nombrePlantilla = (id: string | null | undefined, catalogo: PlantillaCatalogo[] | null) => {
   const n = normalizarPlantilla(id);
@@ -288,7 +297,7 @@ function FormularioSerie({
   // '' = automática. Solo se ofrece si el servidor tiene plantillas (y la serie las trae, al editar).
   const [plantilla, setPlantilla] = useState(serie?.plantillaElegida ?? '');
   const conPlantilla = !!catalogo && catalogo.length > 0 && (nueva || serie.plantilla !== undefined);
-  const automatica = plantillaAutomatica(nueva ? codigo : serie.codigo, catalogo);
+  const automatica = plantillaAutomatica(nueva ? codigo : serie.codigo, catalogo, !nueva && !serie.plantillaElegida ? serie.plantilla : undefined);
   const deRectificativas = tipo === 'RECTIFICATIVA' || tipo === 'RECTIFICATIVA_SIMPLIFICADA';
   const [errores, setErrores] = useState<Errores>({});
   const [error, setError] = useState('');
@@ -420,7 +429,7 @@ function FormularioSerie({
             {catalogo.map((p) => (
               <option key={p.id} value={p.id} disabled={!p.disponible && p.id !== plantilla}>
                 {p.nombre}
-                {p.disponible ? '' : ' (solo empresas españolas)'}
+                {p.disponible ? '' : motivoNoDisponible(p)}
               </option>
             ))}
           </select>

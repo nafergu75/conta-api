@@ -7,10 +7,14 @@
  *  - 'default' (Estándar): la de siempre.
  *  - 'A': envases (packs, unidades, kg de plástico e IEEPNR), como la factura
  *    NZ004_26. El IVA se calcula por tipo, no por línea, y no hay descuento.
- *  - 'B' y 'C': de momento salen igual que la estándar.
+ *  - 'B': cerámica y materiales de construcción. Aún no tiene diseño, así que
+ *    no se puede elegir (el catálogo la trae con disponible: false).
+ *  - 'C': la estándar con otro nombre (prestaciones de servicios).
  *
  * Cada serie tiene su plantilla (Configuración > Series). La factura toma la
  * de su serie; una rectificativa de una factura de la app, la de esa factura.
+ * La serie A usa sola la A si la empresa repercute el IEEPNR (Configuración >
+ * Facturación); si no, la estándar.
  */
 import { useEffect, useState } from 'react';
 import { apiFetch, companyPath, errorMessage } from './api';
@@ -29,8 +33,12 @@ export interface PlantillaCatalogo {
   /** 'linea': la cuota de IVA se redondea en cada línea. 'tipo': sobre la suma de bases de cada tipo. */
   calculoIva: 'linea' | 'tipo';
   soloEmpresaEspanola: boolean;
-  /** Se puede usar en esta empresa (la A, solo en una española). */
+  /** Tiene su diseño (la B, todavía no). */
+  disenada?: boolean;
+  /** Se puede elegir en esta empresa (la A, solo en una española; la B, en ninguna mientras no tenga diseño). */
   disponible: boolean;
+  /** Es la que usa la serie A sin plantilla elegida (la A, si la empresa repercute el IEEPNR). */
+  automaticaSerieA?: boolean;
 }
 
 /** Nombre corto para las listas, por si el servidor no manda el catálogo. */
