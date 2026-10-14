@@ -26,7 +26,7 @@ import { useConfiguracion } from '../contexto';
 /**
  * Plantilla automática de una serie, como el servidor: la que el catálogo dice
  * que usa ese código (seriesAutomaticas: la A en la serie A si la empresa
- * repercute el IEEPNR, la B en la B y la C en la C); en las demás, la
+ * repercute el IEEPNR, la B en la B si vende cerámica y la C en la C); en las demás, la
  * estándar. Un servidor anterior solo marca la de la serie A. Una serie ya
  * guardada sin plantilla elegida trae la suya (`efectiva`).
  */

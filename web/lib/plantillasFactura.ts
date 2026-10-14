@@ -15,8 +15,9 @@
  * Cada serie tiene su plantilla (Configuración > Series). La factura toma la
  * de su serie; una rectificativa de una factura de la app, la de esa factura.
  * Sin plantilla elegida: la serie A usa la A si la empresa repercute el IEEPNR
- * (Configuración > Facturación); la B, la B; la C, la C; el resto, la
- * estándar. La A y la B, solo en empresas españolas.
+ * y la B, la B si la empresa vende cerámica (las dos casillas, en
+ * Configuración > Facturación); la C, la C; el resto, la estándar. La A y la
+ * B, solo en empresas españolas. Lo dice el servidor (seriesAutomaticas).
  */
 import { useEffect, useState } from 'react';
 import { apiFetch, companyPath, errorMessage } from './api';
