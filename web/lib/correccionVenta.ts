@@ -59,13 +59,18 @@ export function lineaVacia(tipoIva = 21): LineaCorreccion {
 const esFecha = (v: unknown): v is string => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
 const texto = (v: unknown) => (typeof v === 'string' ? v : typeof v === 'number' ? String(v) : '');
 
-/** Porcentaje de retencion leido: el de la lectura o, si solo se leyo el importe, importe / base. */
+/**
+ * Porcentaje de retencion leido: el de la lectura o, si solo se leyo el
+ * importe, importe / base en entero. Es el mismo que usa el servidor
+ * (tipoRetencionLeido) cuando no se le manda otro: asi el cuadre de aqui y el
+ * suyo dan lo mismo.
+ */
 function retencionLeida(ingreso: IngresoExtraido, info: InfoLectura): number {
   const tipo = info.campos['retencion.tipo']?.valorLeido;
   if (typeof tipo === 'number' && Number.isFinite(tipo) && tipo > 0) return tipo;
   const importe = Math.abs(Number(ingreso.retencion) || 0);
   const base = Math.abs(Number(ingreso.base) || 0);
-  return importe > 0 && base > 0 ? redondear2((importe / base) * 100) : 0;
+  return importe > 0 && base > 0 ? Math.round((importe / base) * 100) : 0;
 }
 
 /**
@@ -90,9 +95,18 @@ export function estadoVacio(espanola = true): EstadoCorreccion {
   return { numero: '', fechaEmision: '', fechaVencimiento: '', concepto: '', lineas: [lineaVacia(espanola ? 21 : 0)], tipoRetencion: '0', total: '' };
 }
 
-/** «Volver a lo leído»: lo leido con lineas nuevas (claves nuevas) y las cuentas de por defecto. */
+/**
+ * «Volver a lo leído»: lo leido con las cuentas de por defecto. Cada linea
+ * conserva su clave: las marcas de la lectura van por la clave de la linea
+ * leida (marcasDeLaLectura) y con otra no se verian.
+ */
 export function copiaDe(e: EstadoCorreccion): EstadoCorreccion {
-  return { ...e, lineas: e.lineas.map((l) => ({ ...l, clave: siguienteClave++, cuenta: null })) };
+  return { ...e, lineas: e.lineas.map((l) => ({ ...l, cuenta: null })) };
+}
+
+/** Lo leido con las cuentas ya elegidas con «Cambiar cuenta», con las mismas claves de linea (por las marcas). */
+export function conCuentas(e: EstadoCorreccion, cuentas: Array<string | null>): EstadoCorreccion {
+  return { ...e, lineas: e.lineas.map((l, i) => ({ ...l, cuenta: cuentas[i] ?? null })) };
 }
 
 // ---------------------------------------------------------------------------
