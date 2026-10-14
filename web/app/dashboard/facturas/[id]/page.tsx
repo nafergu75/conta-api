@@ -11,8 +11,10 @@ import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
 import { getCompanyId, getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { formatoImporte, NOMBRE_MONEDA, parseTipo, textoTipo, tipoParaEditar } from '@/lib/moneda';
 import { conDevengoFuera, conNombreNumeroFiscal, ETIQUETA_CORTA, ETIQUETA_LARGA, nombrePais } from '@/lib/fiscal';
-import { useRedSeguridad } from '@/lib/verifactu';
+import { LIMITE_SIMPLIFICADA, useRedSeguridad } from '@/lib/verifactu';
 import AvisoRedSeguridad from '@/components/verifactu/AvisoRedSeguridad';
+import AvisoErrorVerifactu from '@/components/verifactu/AvisoErrorVerifactu';
+import { errorVerifactu, operacionAdmiteSimplificada, propuestaSimplificada, type ErrorVerifactu } from '@/lib/erroresVerifactu';
 import {
   leerAvisosVenta,
   type RectificativaVentaResp,
@@ -203,6 +205,8 @@ export default function FacturaDetallePage() {
   const [cargando, setCargando] = useState(true);
   const [ocupado, setOcupado] = useState(false);
   const [error, setError] = useState('');
+  // El último error, si es de VERI*FACTU (422 VERIFACTU_* al emitir, 409 de una factura registrada): con su salida al lado.
+  const [errorVf, setErrorVf] = useState<ErrorVerifactu | null>(null);
   const [aviso, setAviso] = useState('');
   // Avisos del servidor al guardar o emitir una rectificativa (IVA al periodo de la original, plazos...).
   const [avisosGuardado, setAvisosGuardado] = useState<Array<{ codigo: string; mensaje: string }>>([]);
@@ -267,12 +271,14 @@ export default function FacturaDetallePage() {
   const accion = async (fn: () => Promise<void>, mensaje?: string) => {
     setOcupado(true);
     setError('');
+    setErrorVf(null);
     setAviso('');
     try {
       await fn();
       if (mensaje) setAviso(mensaje);
     } catch (e) {
       setError(errorMessage(e));
+      setErrorVf(errorVerifactu(e, { esRect: factura?.esRectificativa }));
     } finally {
       setOcupado(false);
     }
@@ -339,6 +345,16 @@ export default function FacturaDetallePage() {
   const esProforma = factura.estadoDocumento === 'PROFORMA';
   const esBorrador = factura.estadoDocumento === 'BORRADOR';
   const esFinal = factura.estadoDocumento === 'FINAL';
+  // VERI*FACTU rechaza la completa porque el cliente no tiene NIF válido: si cabe como simplificada, se propone.
+  // VERI*FACTU solo registra las facturas de una empresa española, que lleva la contabilidad en euros.
+  const propuestaF2 = propuestaSimplificada(errorVf, {
+    tipoFactura: factura.tipoFactura,
+    esRect: factura.esRectificativa,
+    espanola: monedaCuenta === 'EUR',
+    f2Prohibida: !operacionAdmiteSimplificada(factura.tipoOperacionEfectivo ?? factura.tipoOperacion),
+    totalConIva: Math.round((factura.baseTotal + factura.ivaTotal) * 100) / 100,
+    limite: LIMITE_SIMPLIFICADA,
+  });
   const proformaPendiente = esProforma && factura.estado === 'PENDIENTE';
   const rectificadaPor = factura.rectificadaPor ?? [];
   const anulada = esFinal && factura.anuladaPorCompleto === true;
@@ -408,6 +424,7 @@ export default function FacturaDetallePage() {
         const t = parseTipo(respuesta);
         if (!(t > 0)) {
           setError('El tipo de cambio tiene que ser un número mayor que cero, con coma o punto decimal (por ejemplo 1,1490).');
+          setErrorVf(null);
           return;
         }
         tipoCambio = t;
@@ -528,7 +545,22 @@ export default function FacturaDetallePage() {
         )}
       </div>
 
-      {error && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+      {error && errorVf ? (
+        <AvisoErrorVerifactu
+          error={errorVf}
+          clienteId={factura.customerId}
+          borradorGuardado={esBorrador}
+          verbo={factura.esRectificativa ? 'Emitir rectificativa' : 'Pasar a factura'}
+          propuesta={propuestaF2}
+          hrefEditar={esBorrador && puedeEditar ? `/dashboard/facturas/nueva?id=${encodeURIComponent(id)}` : undefined}
+          onReintentar={esBorrador && puedeEditar ? emitir : undefined}
+          onRectificativa={esFinal && puedeEditar ? hacerRectificativa : undefined}
+          ocupado={ocupado}
+          fmt={fmtCuenta}
+        />
+      ) : (
+        error && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>
+      )}
       {aviso && <p role="status" className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">{aviso}</p>}
       {sinAsiento && esFinal && (
         <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
