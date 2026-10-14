@@ -7,6 +7,7 @@ import { ApiError, apiFetch, campoDelError, errorMessage } from '@/lib/api';
 import { getUser, tieneAlgunPermiso } from '@/lib/auth';
 import { nombreNumeroFiscal, nombrePais, PAISES, PAISES_UE, pareceNifIvaUe } from '@/lib/fiscal';
 import { paisDelPrefijo } from '@/lib/compras';
+import { CampoWeb, EnlaceWeb } from '@/components/terceros/Web';
 
 interface Proveedor {
   id: string;
@@ -14,6 +15,8 @@ interface Proveedor {
   nifCif: string;
   email?: string | null;
   telefono?: string | null;
+  /** Con https:// delante (el servidor se lo pone). */
+  web?: string | null;
   direccion?: string | null;
   provincia?: string | null;
   pais?: string | null;
@@ -33,6 +36,7 @@ const datosDe = (p: Proveedor) => ({
   nifCif: p.nifCif || '',
   email: p.email || '',
   telefono: p.telefono || '',
+  web: p.web || '',
   direccion: p.direccion || '',
   provincia: p.provincia || '',
   pais: p.pais || 'ES',
@@ -43,9 +47,10 @@ const datosDe = (p: Proveedor) => ({
 
 /**
  * Datos del proveedor. Se guardan todos (antes se perdian la direccion, la
- * provincia, el municipio, el CP y el pais) con PATCH; un email o un telefono
- * vacios se borran. Borrar un proveedor con facturas da 409: se ofrece
- * desactivarlo.
+ * provincia, el municipio, el CP y el pais) con PATCH; un email, un telefono
+ * o una web vacios se borran. Borrar un proveedor con facturas da 409: se
+ * ofrece desactivarlo. La web sale como enlace (pestaña nueva) mientras no se
+ * edita, y su error, junto a su casilla.
  */
 export function SupplierDatosTab({ proveedor, companyId, onUpdate }: SupplierDatosTabProps) {
   const router = useRouter();
@@ -86,7 +91,9 @@ export function SupplierDatosTab({ proveedor, companyId, onUpdate }: SupplierDat
       setAviso(texto);
     } catch (err) {
       setError(errorMessage(err));
-      setCampo(campoDelError(err));
+      const c = campoDelError(err);
+      setCampo(c);
+      if (c === 'web') requestAnimationFrame(() => document.getElementById('sd-web')?.focus());
     } finally {
       setSaving(false);
     }
@@ -100,6 +107,7 @@ export function SupplierDatosTab({ proveedor, companyId, onUpdate }: SupplierDat
         // Vacios: se borran (antes no se podian vaciar).
         email: d.email.trim(),
         telefono: d.telefono.trim(),
+        web: d.web.trim(),
         direccion: d.direccion.trim(),
         provincia: d.provincia.trim(),
         municipio: d.municipio.trim(),
@@ -182,7 +190,8 @@ export function SupplierDatosTab({ proveedor, companyId, onUpdate }: SupplierDat
           {aviso}
         </div>
       )}
-      {error && (
+      {/* El de la web sale junto a su casilla. */}
+      {error && campo !== 'web' && (
         <div role="alert" className="flex flex-wrap items-center gap-3 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 p-4 text-sm">
           <span className="min-w-0 flex-1">{error}</span>
           {ofrecerDesactivar && d.activo && (
@@ -256,6 +265,25 @@ export function SupplierDatosTab({ proveedor, companyId, onUpdate }: SupplierDat
                 Teléfono
               </label>
               <input id="sd-tel" type="tel" value={d.telefono} onChange={set('telefono')} disabled={!editing} aria-invalid={campo === 'telefono'} className={inputClass} />
+            </div>
+            <div className="md:col-span-2">
+              {editing ? (
+                <CampoWeb id="sd-web" value={d.web} onChange={set('web')} error={campo === 'web' ? error : null} claseEtiqueta={label} claseCampo={inputClass} />
+              ) : d.web ? (
+                <>
+                  <p className={label}>Web</p>
+                  <div className="flex min-h-[2.75rem] min-w-0 items-center rounded-lg border border-slate-300 bg-slate-100 px-3.5 py-2.5 text-sm">
+                    <EnlaceWeb web={d.web} />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <label htmlFor="sd-web" className={label}>
+                    Web
+                  </label>
+                  <input id="sd-web" type="text" value="" placeholder="Sin web" disabled className={inputClass} />
+                </>
+              )}
             </div>
           </div>
         </div>
