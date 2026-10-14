@@ -16,25 +16,33 @@ import { useConfiguracion } from '../contexto';
  * numero inicial (solo sin documentos). Sin borrar: una serie se desactiva.
  * Cada serie tiene su plantilla de PDF (GET /series/plantillas): la elegida o
  * la automática (la A en la serie A de una empresa española que repercute el
- * IEEPNR; si no, la estándar). Cambiarla vale para lo que se cree o se guarde
- * después: las facturas ya emitidas conservan la suya.
+ * IEEPNR, la B en la serie B y la C en la serie C; si no, la estándar), y sus
+ * observaciones por defecto, que salen escritas en cada factura nueva.
+ * Cambiarlas vale para lo que se cree o se guarde después: las facturas ya
+ * emitidas conservan lo suyo. Toda empresa tiene la serie C (servicios).
  * Ver: ventas:read o contabilidad:read; cambiar: ventas:write.
  */
 
 /**
- * Plantilla automática de una serie, como el servidor: en la serie A, la que
- * el catálogo marca como su automática (la A si la empresa repercute el
- * IEEPNR); en las demás, la estándar. Una serie ya guardada sin plantilla
- * elegida trae la suya (`efectiva`).
+ * Plantilla automática de una serie, como el servidor: la que el catálogo dice
+ * que usa ese código (seriesAutomaticas: la A en la serie A si la empresa
+ * repercute el IEEPNR, la B en la B y la C en la C); en las demás, la
+ * estándar. Un servidor anterior solo marca la de la serie A. Una serie ya
+ * guardada sin plantilla elegida trae la suya (`efectiva`).
  */
 function plantillaAutomatica(codigo: string, catalogo: PlantillaCatalogo[] | null, efectiva?: string): string {
   if (efectiva) return efectiva;
-  if (codigo.trim().toUpperCase() !== 'A') return 'default';
+  const c = codigo.trim().toUpperCase();
+  if (catalogo?.some((p) => Array.isArray(p.seriesAutomaticas))) return catalogo.find((p) => p.seriesAutomaticas?.includes(c))?.id ?? 'default';
+  if (c !== 'A') return 'default';
   return catalogo?.find((p) => p.automaticaSerieA)?.id ?? 'default';
 }
 
 /** Por qué no se puede elegir una plantilla del catálogo. */
 const motivoNoDisponible = (p: PlantillaCatalogo) => (p.disenada === false ? ' (aún sin diseño)' : ' (solo empresas españolas)');
+
+/** Observaciones por defecto de una serie: 2.000 caracteres como mucho (como el servidor). */
+const OBSERVACIONES_MAX = 2000;
 
 const nombrePlantilla = (id: string | null | undefined, catalogo: PlantillaCatalogo[] | null) => {
   const n = normalizarPlantilla(id);
@@ -55,7 +63,7 @@ const TIPOS: Array<{ tipo: string; titulo: string; ayuda: string }> = [
 const CODIGO_RE = /^[A-Z0-9-]{1,10}$/;
 const NUMERO_MAX = 999_999_999;
 
-type Errores = Partial<Record<'codigo' | 'descripcion' | 'tipoDocumento' | 'numeroInicial' | 'activa' | 'porDefecto' | 'plantilla', string>>;
+type Errores = Partial<Record<'codigo' | 'descripcion' | 'tipoDocumento' | 'numeroInicial' | 'activa' | 'porDefecto' | 'plantilla' | 'observacionesDefecto', string>>;
 
 /** Numero inicial escrito a mano: entero de 1 a 999.999.999, o null si esta vacio. */
 function leerNumero(texto: string): number | null | 'mal' {
@@ -216,6 +224,7 @@ export default function SeriesPage() {
                                     {!s.plantillaElegida && ' (automática)'}
                                   </>
                                 )}
+                                {s.observacionesDefecto && ' · Con observaciones por defecto'}
                               </p>
                             </div>
                             {editar && (
@@ -297,6 +306,9 @@ function FormularioSerie({
   // '' = automática. Solo se ofrece si el servidor tiene plantillas (y la serie las trae, al editar).
   const [plantilla, setPlantilla] = useState(serie?.plantillaElegida ?? '');
   const conPlantilla = !!catalogo && catalogo.length > 0 && (nueva || serie.plantilla !== undefined);
+  // Observaciones por defecto: solo si el servidor las tiene (la serie trae el campo, o el catálogo sabe de la B).
+  const [observaciones, setObservaciones] = useState(serie?.observacionesDefecto ?? '');
+  const conObservaciones = tipo !== 'RECTIFICATIVA_SIMPLIFICADA' && (nueva ? !!catalogo?.some((p) => p.ceramica !== undefined) : serie.observacionesDefecto !== undefined);
   const automatica = plantillaAutomatica(nueva ? codigo : serie.codigo, catalogo, !nueva && !serie.plantillaElegida ? serie.plantilla : undefined);
   const deRectificativas = tipo === 'RECTIFICATIVA' || tipo === 'RECTIFICATIVA_SIMPLIFICADA';
   const [errores, setErrores] = useState<Errores>({});
@@ -313,6 +325,7 @@ function FormularioSerie({
     if (descripcion.trim().length > 191) err.descripcion = 'Como máximo 191 caracteres.';
     const n = leerNumero(numero);
     if (n === 'mal') err.numeroInicial = `Escribe un número entero entre 1 y ${NUMERO_MAX.toLocaleString('es-ES')}.`;
+    if (observaciones.trim().length > OBSERVACIONES_MAX) err.observacionesDefecto = 'Como máximo 2.000 caracteres.';
     setErrores(err);
     setError('');
     if (Object.keys(err).length) return;
@@ -323,10 +336,12 @@ function FormularioSerie({
       cuerpo.tipoDocumento = tipo;
       if (n !== null) cuerpo.numeroInicial = n;
       if (conPlantilla && plantilla) cuerpo.plantilla = plantilla;
+      if (conObservaciones && observaciones.trim()) cuerpo.observacionesDefecto = observaciones.trim();
     } else {
       if (numeroEditable && n !== null && n !== serie.numeroSiguiente) cuerpo.numeroInicial = n;
       // null: vuelve a la automática.
       if (conPlantilla && plantilla !== (serie.plantillaElegida ?? '')) cuerpo.plantilla = plantilla || null;
+      if (conObservaciones && observaciones.trim() !== (serie.observacionesDefecto ?? '')) cuerpo.observacionesDefecto = observaciones.trim() || null;
     }
     setGuardando(true);
     try {
@@ -337,7 +352,7 @@ function FormularioSerie({
       await onGuardada(nueva ? cod : serie.codigo);
     } catch (ex) {
       const campo = campoDelError(ex) as keyof Errores | undefined;
-      if (campo && ['codigo', 'descripcion', 'numeroInicial', 'plantilla'].includes(campo)) setErrores({ [campo]: errorMessage(ex) });
+      if (campo && ['codigo', 'descripcion', 'numeroInicial', 'plantilla', 'observacionesDefecto'].includes(campo)) setErrores({ [campo]: errorMessage(ex) });
       else setError(errorMessage(ex));
     } finally {
       setGuardando(false);
@@ -443,6 +458,29 @@ function FormularioSerie({
             ]
               .filter(Boolean)
               .join('. ') + '.'}
+          </p>
+        </div>
+      )}
+      {conObservaciones && (
+        <div>
+          <label htmlFor={`${id}-observaciones`} className="block text-sm font-medium text-slate-700">
+            Observaciones por defecto <span className="font-normal text-slate-500">(opcional)</span>
+          </label>
+          <textarea
+            id={`${id}-observaciones`}
+            value={observaciones}
+            onChange={(e) => setObservaciones(e.target.value)}
+            disabled={guardando}
+            rows={3}
+            maxLength={OBSERVACIONES_MAX}
+            placeholder="Por ejemplo: ESTE PRESUPUESTO NO INCLUYE EL TRANSPORTE"
+            aria-invalid={errores.observacionesDefecto ? true : undefined}
+            aria-describedby={`${id}-observaciones-ayuda${errores.observacionesDefecto ? ` ${id}-observacionesDefecto-error` : ''}`}
+            className={claseCampo}
+          />
+          {ayudaError('observacionesDefecto')}
+          <p id={`${id}-observaciones-ayuda`} className="mt-1 text-xs text-slate-600">
+            Salen ya escritas en cada {tipo === 'PROFORMA' ? 'proforma' : 'factura'} nueva de esta serie y se pueden cambiar en cada una. Las que ya están guardadas no cambian.
           </p>
         </div>
       )}

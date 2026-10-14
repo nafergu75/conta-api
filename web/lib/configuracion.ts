@@ -102,6 +102,8 @@ export interface SerieConfig {
   plantilla?: string;
   /** La elegida en Configuración > Series; null = automática. */
   plantillaElegida?: string | null;
+  /** Observaciones que se proponen en cada factura nueva de la serie; null = ninguna. Un servidor anterior no las manda. */
+  observacionesDefecto?: string | null;
 }
 
 export interface CuentaParaFactura {
@@ -126,6 +128,12 @@ export interface AjustesFacturacion {
   ieepnrRepercute?: boolean;
   ieepnrPorKg?: number;
   ieepnrCuenta?: string | null;
+  /**
+   * Plantilla B: cuenta de ingresos del cargo de palets (p. ej. 704; null = la
+   * de ventas) y si ya hay logo de la marca y sello. Un servidor anterior no los manda.
+   */
+  cuentaPalets?: string | null;
+  imagenesPlantillaB?: { marca: boolean; sello: boolean };
   guardado: boolean;
   empresaEspanola: boolean;
   monedaCuenta: string;
