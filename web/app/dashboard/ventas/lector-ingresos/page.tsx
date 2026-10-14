@@ -31,6 +31,7 @@ import {
 import {
   cambios,
   comprobarCorreccion,
+  conCuentas,
   copiaDe,
   cuerpoCorrecciones,
   errorCorregible,
@@ -358,7 +359,8 @@ export default function LectorIngresosPage() {
   const abrirCorreccion = (foco = true) => {
     if (!ingreso || !info) return null;
     const leido = estadoInicial(ingreso, info);
-    const c: Correccion = { doc: ingreso.documentId, leido, estado: conUnaLinea(estadoInicial(ingreso, info, cuentas)) };
+    // Las mismas claves de línea que lo leído: si no, las marcas de las líneas no se verían.
+    const c: Correccion = { doc: ingreso.documentId, leido, estado: conUnaLinea(conCuentas(leido, cuentas)) };
     setCorr(c);
     setErrorGuardar('');
     if (foco) requestAnimationFrame(() => document.getElementById('cv-numero')?.focus());
