@@ -98,6 +98,12 @@ function textoSerieA(a: SerieConfig | null | undefined, marcada: boolean): strin
   }
   if (!a) return marcada ? 'No tienes serie A: para facturar con la plantilla A, elígela en una serie de facturas en Configuración > Series.' : '';
   if (a.motivoPlantilla === 'elegida' || (a.plantillaElegida && a.motivoPlantilla === undefined)) {
+    // Elegida a mano la propia plantilla A: ya la usa (sin la casilla, con el IEEPNR a 0).
+    if (normalizarPlantilla(a.plantilla) === 'A') {
+      return marcada
+        ? 'La serie A ya usa la plantilla A, que tiene elegida en Configuración > Series.'
+        : 'La serie A sigue con la plantilla A, que tiene elegida en Configuración > Series, pero en las facturas nuevas el IEEPNR saldrá a 0.';
+    }
     const nombre = NOMBRE_PLANTILLA[normalizarPlantilla(a.plantilla)];
     return marcada
       ? `La serie A tiene elegida la ${nombre} en Configuración > Series y sigue con esa. Para que use la plantilla A, ponle allí «Automática».`
@@ -114,16 +120,25 @@ function textoSerieB(antes: boolean, despues: AjustesFacturacion, b: SerieConfig
   const marcada = despues.vendeCeramica === true;
   const estado = despues.serieCeramica?.estado;
   if (marcada && estado === 'creada') {
-    return `Se ha creado la serie B (cerámica y materiales de construcción) con la plantilla B: ${COLUMNAS_PLANTILLA_B}. Ya puedes elegirla en Nueva factura.`;
+    return `Se ha creado la serie B (cerámica y materiales de construcción) con la plantilla B: columnas de ${COLUMNAS_PLANTILLA_B}. Ya puedes elegirla en Nueva factura.`;
   }
   if (antes === marcada) return '';
-  if (marcada) return estado === 'activa' ? `La serie B usa ahora la plantilla B: ${COLUMNAS_PLANTILLA_B}.` : '';
+  if (marcada) {
+    if (estado !== 'activa') return '';
+    // 'activa' con plantilla elegida solo puede ser la B (con otra, el servidor dice 'otraPlantilla').
+    return b?.motivoPlantilla === 'elegida'
+      ? 'La serie B ya usa la plantilla B, que tiene elegida en Configuración > Series.'
+      : `La serie B usa ahora la plantilla B: columnas de ${COLUMNAS_PLANTILLA_B}.`;
+  }
   if (b === undefined) return '';
-  if (b?.motivoPlantilla === 'elegida') return `La serie B sigue con la ${NOMBRE_PLANTILLA[normalizarPlantilla(b.plantilla)]}, que tiene elegida en Configuración > Series.`;
+  if (b?.motivoPlantilla === 'elegida') {
+    const id = normalizarPlantilla(b.plantilla);
+    return `La serie B sigue con la ${id === 'B' ? 'plantilla B' : NOMBRE_PLANTILLA[id]}, que tiene elegida en Configuración > Series.`;
+  }
   return 'La serie B vuelve a la plantilla estándar. No se ha borrado ni desactivado.';
 }
 
-/** Aviso de la serie B (desactivada, de otro tipo o con otra plantilla), con el enlace a las series. */
+/** Aviso de la serie B (desactivada, histórica del lector, de otro tipo o con otra plantilla), con el enlace a las series. */
 function AvisoSerieB({ texto, anunciar = false }: { texto: string; anunciar?: boolean }) {
   return (
     <div role={anunciar ? 'status' : undefined} className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
@@ -140,20 +155,31 @@ function AvisoSerieB({ texto, anunciar = false }: { texto: string; anunciar?: bo
 
 /**
  * Bajo la casilla «Vendo cerámica»: qué pasará al guardar (si se ha cambiado)
- * o cómo está la serie B (si ya estaba marcada).
+ * o cómo está la serie B (si ya estaba marcada). Justo después de guardar, el
+ * aviso de la serie B sale solo bajo «Guardado» (`avisoAparte`), no dos veces.
  */
-function EstadoSerieB({ marcada, guardada, serie }: { marcada: boolean; guardada: boolean; serie: AjustesFacturacion['serieCeramica'] }) {
+function EstadoSerieB({
+  marcada,
+  guardada,
+  serie,
+  avisoAparte,
+}: {
+  marcada: boolean;
+  guardada: boolean;
+  serie: AjustesFacturacion['serieCeramica'];
+  avisoAparte: boolean;
+}) {
   if (marcada !== guardada) {
     return (
       <p className="text-sm font-medium text-slate-700">
         {marcada
           ? 'Al guardar se crea la serie B, si no la tienes.'
-          : 'Al guardar, la serie B vuelve a la plantilla estándar. No se borra ni se desactiva.'}
+          : 'Al guardar, la serie B vuelve a la plantilla estándar, salvo que tenga otra elegida en Configuración > Series. No se borra ni se desactiva.'}
       </p>
     );
   }
   if (!marcada || !serie) return null;
-  if (serie.aviso) return <AvisoSerieB texto={serie.aviso} />;
+  if (serie.aviso) return avisoAparte ? null : <AvisoSerieB texto={serie.aviso} />;
   if (serie.estado === 'pendiente') {
     return <p className="text-sm text-slate-600">La serie B aún no está creada: se crea al guardar o al abrir Configuración &gt; Series.</p>;
   }
@@ -307,7 +333,8 @@ export default function FacturacionPage() {
       ) : !form || !ajustes ? (
         mensaje ? <Mensaje mensaje={mensaje} /> : <p className="text-sm text-slate-500">Cargando…</p>
       ) : (
-        <form onSubmit={guardar} className="space-y-6" noValidate>
+        <form onSubmit={guardar} className="space-y-6 md:pb-16" noValidate>
+          {/* md:pb-16: en el escritorio, la confirmación y Guardar quedan por encima del botón flotante de Carmen. */}
           {!editar && <AvisoSoloLectura quien={QUIEN_EDITA.facturacion} />}
 
           <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 md:p-5">
@@ -531,7 +558,7 @@ export default function FacturacionPage() {
                     <p className="text-sm font-medium text-slate-700">
                       {form.ieepnrRepercute
                         ? 'Al guardar, la serie A pasa a la plantilla A (si no tiene otra elegida en Configuración > Series).'
-                        : 'Al guardar, la serie A vuelve a la plantilla estándar. Las facturas ya hechas no cambian.'}
+                        : 'Al guardar, la serie A vuelve a la plantilla estándar (si no tiene otra elegida en Configuración > Series). Las facturas ya hechas no cambian.'}
                     </p>
                   )}
                 </div>
@@ -607,14 +634,19 @@ export default function FacturacionPage() {
                       <span className="font-medium text-slate-900">{CASILLA_CERAMICA}</span>
                       <span id="vendeCeramica-ayuda" className="block text-slate-600">
                         Se crea la serie B con la plantilla B: {COLUMNAS_PLANTILLA_B}, además de la obra, los pesos neto y bruto y el cargo de palets. Si ya tienes
-                        una serie B, se usa esa. Sin marcar, la serie B sigue con la estándar; quitar la marca no borra ni desactiva la serie. En cualquier serie
+                        una serie B de facturas activa, se usa esa. Sin marcar, la serie B sigue con la estándar; quitar la marca no borra ni desactiva la serie. En cualquier serie
                         puedes elegir la plantilla B a mano.
                       </span>
                     </span>
                   </label>
                   {/* Qué pasará al guardar o cómo está la serie B (siempre en la página, para que se anuncie). */}
                   <div role="status" className="mt-2 pl-7 empty:hidden">
-                    <EstadoSerieB marcada={form.vendeCeramica} guardada={ajustes.vendeCeramica === true} serie={ajustes.serieCeramica} />
+                    <EstadoSerieB
+                      marcada={form.vendeCeramica}
+                      guardada={ajustes.vendeCeramica === true}
+                      serie={ajustes.serieCeramica}
+                      avisoAparte={!!mensaje?.ok && !!avisoGuardado}
+                    />
                   </div>
                 </div>
               )}
