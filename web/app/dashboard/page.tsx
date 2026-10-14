@@ -460,8 +460,8 @@ export default function DashboardPage() {
                       {r.movimientosManuales === 1
                         ? 'El movimiento anotado a mano ya no cuenta aquí: el resumen sale de las facturas. Puedes consultarlo en'
                         : `Los ${r.movimientosManuales} movimientos anotados a mano ya no cuentan aquí: el resumen sale de las facturas. Puedes consultarlos en`}{' '}
-                      <Link href="/dashboard/movimientos" className="font-medium underline hover:no-underline">
-                        Movimientos
+                      <Link href="/dashboard/movimientos/antiguos" className="font-medium underline hover:no-underline">
+                        Movimientos antiguos
                       </Link>
                       .
                     </span>
