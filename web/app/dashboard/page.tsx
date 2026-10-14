@@ -283,7 +283,7 @@ export default function DashboardPage() {
   const claseBotonSecundario =
     'inline-flex items-center justify-center gap-1.5 px-4 py-2 border border-slate-300 bg-white text-slate-700 text-sm font-semibold rounded-lg hover:bg-slate-50 active:scale-[0.98] transition-all';
 
-  // Sustituyen a «Nuevo movimiento»: los movimientos a mano ya no cuentan en el resumen.
+  // Las altas desde el resumen: una venta o un gasto (los movimientos a mano ya no se crean).
   const accionesNuevas = (
     <>
       {acceso?.nuevoGasto && (
@@ -445,8 +445,8 @@ export default function DashboardPage() {
               </div>
               <p className="mt-3 text-xs text-slate-500">
                 Las cifras salen de tus facturas de venta y de gasto y de las nóminas, cobradas o no. Las ventas cuentan en la fecha de la
-                operación si la factura la indica y, si no, en la de la factura; los gastos, en la fecha de la factura. Importes sin IVA, en{' '}
-                {nombreMonedaPlural(moneda)}.
+                operación si la factura la indica y, si no, en la de la factura; los gastos, en la fecha de la factura. Las compras de inmovilizado
+                no cuentan como gasto. Importes sin IVA, en {nombreMonedaPlural(moneda)}.
               </p>
             </section>
 
@@ -458,9 +458,8 @@ export default function DashboardPage() {
                     <Info size={16} className="mt-0.5 shrink-0 text-slate-400" aria-hidden="true" />
                     <span>
                       {r.movimientosManuales === 1
-                        ? 'El movimiento que anotaste a mano con «Nuevo movimiento» ya no cuenta aquí'
-                        : `Los ${r.movimientosManuales} movimientos que anotaste a mano con «Nuevo movimiento» ya no cuentan aquí`}
-                      : el resumen sale de las facturas. Puedes verlos en{' '}
+                        ? 'El movimiento anotado a mano ya no cuenta aquí: el resumen sale de las facturas. Puedes consultarlo en'
+                        : `Los ${r.movimientosManuales} movimientos anotados a mano ya no cuentan aquí: el resumen sale de las facturas. Puedes consultarlos en`}{' '}
                       <Link href="/dashboard/movimientos" className="font-medium underline hover:no-underline">
                         Movimientos
                       </Link>
@@ -517,6 +516,14 @@ export default function DashboardPage() {
                     </p>
                     <div className="mt-5 space-y-3 border-t border-slate-100 pt-4">
                       <Fila etiqueta="Facturas de gasto" valor={importe(r.gastoFacturas)} />
+                      {/* Las compras de inmovilizado (grupo 2) van aparte: no son un gasto del año. */}
+                      {!!r.inmovilizado && (
+                        <Fila
+                          etiqueta="Compras de inmovilizado"
+                          ayuda="No cuentan como gasto: son bienes que duran varios años (grupo 2). Su IVA sí está en el IVA soportado."
+                          valor={importe(r.inmovilizado)}
+                        />
+                      )}
                       {/* Una empresa de fuera de España no lleva nóminas en la app: sin la fila, salvo que tenga alguna. */}
                       {r.nominasIncluidas && (conIva || r.nominas > 0) && (
                         <Fila
@@ -525,7 +532,9 @@ export default function DashboardPage() {
                           valor={importe(r.gastoPersonal)}
                         />
                       )}
-                      {f && conIva && <Fila etiqueta="IVA soportado" valor={importe(f.gastos.iva)} />}
+                      {f && conIva && (
+                        <Fila etiqueta="IVA soportado" ayuda={r.inmovilizado ? 'Incluye el de las compras de inmovilizado' : undefined} valor={importe(f.gastos.iva)} />
+                      )}
                       {!!f?.gastos.retencion && <Fila etiqueta="Retenciones practicadas" valor={importe(f.gastos.retencion)} />}
                     </div>
                   </div>
@@ -538,7 +547,8 @@ export default function DashboardPage() {
                     </p>
                     <p className="mt-1 text-xs text-slate-500">Ingresos menos gastos del periodo.</p>
                     <p className="mt-5 border-t border-slate-100 pt-4 text-xs text-slate-500">
-                      Es una cifra orientativa: no tiene en cuenta las amortizaciones ni otros apuntes que solo están en la contabilidad.
+                      Es una cifra orientativa: no tiene en cuenta las amortizaciones, las compras de inmovilizado ni otros apuntes que solo están en la
+                      contabilidad.
                     </p>
                   </div>
 
@@ -746,7 +756,8 @@ export default function DashboardPage() {
                   Detalle de gastos
                 </h3>
                 <p className="mt-1 mb-6 text-xs text-slate-500">
-                  Gastos por proveedor, sin IVA, según la fecha de las facturas, pagadas o no, y las nóminas aparte. Los abonos ya están restados.
+                  Gastos por proveedor, sin IVA, según la fecha de las facturas, pagadas o no, y las nóminas aparte. Los abonos ya están restados y
+                  las compras de inmovilizado no cuentan.
                 </p>
                 {proveedores.estado === 'error' ? (
                   <ErrorBloque texto="No se ha podido cargar el detalle de gastos." error={proveedores.error} onReintentar={proveedores.reintentar} />
@@ -807,7 +818,10 @@ export default function DashboardPage() {
               {/* Gastos por categoría: cuenta de gasto del plan y «Personal» */}
               <div className="rounded-xl bg-white border border-slate-200 p-4 sm:p-6" aria-busy={categorias.estado === 'cargando'}>
                 <h2 className="text-base font-semibold text-slate-900">Gastos por categoría</h2>
-                <p className="mt-1 mb-5 text-xs text-slate-500">Por la cuenta de gasto de cada factura, {enPeriodo(selectedYear, selectedPeriod)}. Las nóminas van en «Personal».</p>
+                <p className="mt-1 mb-5 text-xs text-slate-500">
+                  Por la cuenta de gasto de cada factura, {enPeriodo(selectedYear, selectedPeriod)}. Las nóminas van en «Personal» y las compras de inmovilizado
+                  no cuentan.
+                </p>
                 {categorias.estado === 'error' ? (
                   <ErrorBloque texto="No se han podido cargar las categorías." error={categorias.error} onReintentar={categorias.reintentar} />
                 ) : !categorias.datos ? (
