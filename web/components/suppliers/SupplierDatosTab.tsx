@@ -272,7 +272,8 @@ export function SupplierDatosTab({ proveedor, companyId, onUpdate }: SupplierDat
               ) : d.web ? (
                 <>
                   <p className={label}>Web</p>
-                  <div className="flex min-h-[2.75rem] min-w-0 items-center rounded-lg border border-slate-300 bg-slate-100 px-3.5 py-2.5 text-sm">
+                  {/* Con el aspecto de las casillas desactivadas, también de noche (campo-lectura en globals.css). */}
+                  <div className="campo-lectura flex min-h-[2.75rem] min-w-0 items-center rounded-lg border border-slate-300 bg-slate-100 px-3.5 py-2.5 text-sm">
                     <EnlaceWeb web={d.web} />
                   </div>
                 </>
