@@ -1,9 +1,8 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { ArrowSquareOut, Info } from '@phosphor-icons/react';
-import { getCompanyId } from '@/lib/auth';
 import { plantillaPorCasilla, RUTA_AJUSTES_FACTURACION, type MotivoPlantilla } from '@/lib/plantillasFactura';
 
 const RUTA_SERIES = '/dashboard/configuracion/series';
@@ -18,40 +17,14 @@ const RUTA_SERIES = '/dashboard/configuracion/series';
  * cualquier otro caso no sale.
  *
  * Los enlaces se abren en una pestaña nueva: la factura a medio hacer no se pierde.
- * Quien usa la serie A o la B para otra cosa también lo puede ocultar para esa
- * serie y esa empresa en este navegador. Si el navegador no deja guardarlo, se
- * oculta solo hasta salir de la página.
  */
 export default function AvisoPlantillaSerie({ codigo, motivo }: { codigo: string; motivo?: MotivoPlantilla | string }) {
   const casilla = plantillaPorCasilla(motivo);
-  const [clave, setClave] = useState<string | null>(null);
-  // Hasta leer el navegador no se enseña: así no parpadea si estaba oculto.
-  const [oculto, setOculto] = useState(true);
-
-  useEffect(() => {
-    const k = `conta:aviso-plantilla:${getCompanyId()}:${codigo}`;
-    setClave(k);
-    try {
-      setOculto(window.localStorage.getItem(k) === '1');
-    } catch {
-      setOculto(false);
-    }
-  }, [codigo]);
-
-  if (!casilla || oculto) return null;
-
-  const ocultar = () => {
-    try {
-      if (clave) window.localStorage.setItem(clave, '1');
-    } catch {
-      // Sin almacenamiento (ventana privada, bloqueado): se oculta solo ahora.
-    }
-    setOculto(true);
-  };
+  if (!casilla) return null;
 
   return (
-    <div role="note" className="flex flex-wrap items-start gap-x-3 gap-y-1 border-b border-sky-200 bg-sky-50 px-5 py-2 text-sm text-sky-900">
-      <p className="flex min-w-0 flex-1 basis-64 gap-2">
+    <div role="note" className="border-b border-sky-200 bg-sky-50 px-5 py-2 text-sm text-sky-900">
+      <p className="flex min-w-0 gap-2">
         <Info size={16} className="mt-0.5 shrink-0" aria-hidden="true" />
         <span>
           Esta serie usa la plantilla estándar. Para facturar con las columnas de la plantilla {casilla.plantilla} ({casilla.que}), marca «{casilla.casilla}» en{' '}
@@ -59,14 +32,6 @@ export default function AvisoPlantillaSerie({ codigo, motivo }: { codigo: string
           en ella la plantilla «Estándar» en <EnlaceOtraPestana href={RUTA_SERIES}>Configuración &gt; Series</EnlaceOtraPestana> y este aviso dejará de salir.
         </span>
       </p>
-      <button
-        type="button"
-        onClick={ocultar}
-        aria-label={`No mostrar más este aviso en la serie ${codigo}`}
-        className="ml-6 shrink-0 rounded px-1.5 py-1 text-xs font-medium underline hover:bg-black/5 dark:hover:bg-white/10 sm:-my-1 sm:ml-0"
-      >
-        No mostrar más
-      </button>
     </div>
   );
 }
