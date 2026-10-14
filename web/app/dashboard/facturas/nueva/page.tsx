@@ -210,6 +210,8 @@ interface FacturaApi {
   rectificativa?: RectificativaVentaResp | null;
   /** Plantilla A: peso bruto escrito a mano. */
   pesoBrutoKg?: number | null;
+  /** Plantilla con la que se guardó (la fija el servidor). */
+  plantillaId?: string;
   lineas: Array<{
     descripcion: string;
     cantidad: number;
@@ -446,6 +448,8 @@ function FormularioFactura() {
   const [observaciones, setObservaciones] = useState('');
   // Plantilla A: peso bruto escrito a mano, el IEEPNR de Configuración > Facturación y las series de proformas.
   const [pesoBruto, setPesoBruto] = useState('');
+  // Plantilla con la que se guardó el borrador o la proforma que se edita (null: alta nueva).
+  const [plantillaGuardada, setPlantillaGuardada] = useState<string | null>(null);
   const [ajustesIeepnr, setAjustesIeepnr] = useState<{ repercute: boolean; porKg: number }>({ repercute: false, porKg: 0.45 });
   const [seriesProforma, setSeriesProforma] = useState<Serie[]>([]);
   const [lineas, setLineas] = useState<Linea[]>([lineaVacia()]);
@@ -514,7 +518,7 @@ function FormularioFactura() {
   // esa factura; la proforma, la de su serie P; si no, la de la serie elegida (la de rectificativas en una
   // rectificativa). Sin el dato (servidor anterior), la estándar.
   const serieProforma = esProforma
-    ? (borradorId ? seriesProforma.find((s) => s.codigo === serie) : undefined) ?? seriesProforma.find((s) => s.porDefecto) ?? seriesProforma[0]
+    ? (borradorId ? seriesProforma.find((s) => s.codigo === serie) : undefined) ?? seriesProforma.find((s) => s.activa && s.porDefecto) ?? seriesProforma.find((s) => s.activa)
     : undefined;
   const plantilla = normalizarPlantilla(
     esRect && conOriginalApp
@@ -576,6 +580,7 @@ function FormularioFactura() {
           setFechaOperacion(invoice.fechaOperacion ?? '');
           setObservaciones(invoice.observaciones ?? '');
           setPesoBruto(paraEditar(invoice.pesoBrutoKg));
+          setPlantillaGuardada(invoice.plantillaId ?? null);
           setIrpf(invoice.lineas.find((l) => l.tipoRetencion)?.tipoRetencion ?? 0);
           if (invoice.moneda) {
             setMoneda(invoice.moneda);
@@ -1259,7 +1264,9 @@ function FormularioFactura() {
     }
     if (fechaVencimiento < fechaEmision) return falla('El vencimiento no puede ser anterior a la fecha de emisión.', 'fechaVencimiento');
     if (!esRect && fechaOperacion && fechaOperacion > fechaEmision) return falla('La fecha de la operación no puede ser posterior a la de emisión.', 'fechaOperacion');
-    const mal = lineas.findIndex((l) => !l.descripcion.trim() || num(l.cantidad) === 0 || l.precioUnitario === '');
+    // Rectificativa por diferencias con la plantilla A: una línea de 0 uds con kg corrige solo los kg (y su IEEPNR).
+    const soloKg = (l: Linea) => envases && esRect && !sustitucion && num(l.cantidad) === 0 && !!leerCantidad(l.kgPlastico);
+    const mal = lineas.findIndex((l) => !l.descripcion.trim() || (num(l.cantidad) === 0 && !soloKg(l)) || l.precioUnitario === '');
     if (mal >= 0) {
       const l = lineas[mal];
       const que = !l.descripcion.trim() ? 'descripcion' : num(l.cantidad) === 0 ? 'cantidad' : 'precioUnitario';
@@ -1277,8 +1284,13 @@ function FormularioFactura() {
           return falla(`Línea ${n}: los kg de plástico son un número con 3 decimales como mucho (por ejemplo, 103,089).`, `lineas.${i}.kgPlastico`);
         }
         const signo = Math.sign(num(l.cantidad));
-        if (packs && Math.sign(packs) !== signo) return falla(`Línea ${n}: los packs van con el mismo signo que las uds (en negativo solo si las uds lo están).`, `lineas.${i}.packs`);
-        if (kg && Math.sign(kg) !== signo) return falla(`Línea ${n}: los kg de plástico van con el mismo signo que las uds (en negativo solo si las uds lo están).`, `lineas.${i}.kgPlastico`);
+        if (signo === 0) {
+          // Solo corrige los kg de plástico: sin packs, y los kg de cualquier signo.
+          if (packs) return falla(`Línea ${n}: una línea que solo corrige los kg de plástico va sin packs (deja los packs vacíos).`, `lineas.${i}.packs`);
+        } else {
+          if (packs && Math.sign(packs) !== signo) return falla(`Línea ${n}: los packs van con el mismo signo que las uds (en negativo solo si las uds lo están).`, `lineas.${i}.packs`);
+          if (kg && Math.sign(kg) !== signo) return falla(`Línea ${n}: los kg de plástico van con el mismo signo que las uds (en negativo solo si las uds lo están).`, `lineas.${i}.kgPlastico`);
+        }
         const texto = problemaTextoAdicional(l.textoAdicional);
         if (texto) return falla(`Línea ${n}: ${texto.charAt(0).toLowerCase()}${texto.slice(1)}`, `lineas.${i}.textoAdicional`);
       }
@@ -1368,6 +1380,27 @@ function FormularioFactura() {
       return;
     }
     setCampoError(undefined);
+    // Un borrador o una proforma guardados con otra plantilla que la que usa hoy su serie (se
+    // cambió en Configuración > Series): al guardarlo pasa a la de ahora y pierde lo que esta no
+    // lleva. Se pregunta una vez.
+    if (plantillaGuardada !== null && normalizarPlantilla(plantillaGuardada) !== plantilla) {
+      const pierde = envases
+        ? lineas.some((l) => num(l.descuentoPorcentaje) !== 0)
+          ? 'los descuentos por línea (la plantilla A no los lleva: tendrás que poner el precio ya rebajado)'
+          : null
+        : pesoBruto.trim() || lineas.some((l) => l.packs.trim() || l.kgPlastico.trim() || l.textoAdicional.trim())
+          ? 'los packs, los kg de plástico, el texto adicional y el peso bruto (esa plantilla no los lleva)'
+          : null;
+      if (
+        pierde &&
+        !window.confirm(
+          `Este documento se guardó con la plantilla ${NOMBRE_PLANTILLA[normalizarPlantilla(plantillaGuardada)]} y su serie usa ahora la ${NOMBRE_PLANTILLA[plantilla]}. Al guardarlo se quitan ${pierde}.\n\n¿Guardar igualmente?`,
+        )
+      ) {
+        return;
+      }
+      setPlantillaGuardada(plantilla);
+    }
     if (emitir) {
       const siguiente = (serieElegida?.ultimoNumero ?? 0) + 1;
       const tipoTxt =
@@ -2057,7 +2090,7 @@ function FormularioFactura() {
               : conOriginalApp && anuladas.length > 0
                 ? `${anuladas.length === 1 ? `La ${anuladas[0]} ya está anulada` : `Las ${anuladas.join(', ')} ya están anuladas`} por completo: salen sus líneas en positivo, que es como se deshace la anulación. Elige el motivo (una devolución, un descuento, un rappel, un impago o un concurso no valen: solo restan) y explica por qué se deshace.`
                 : conOriginalApp
-                ? `Salen ${deDondeSalen}, en negativo. Deja solo lo que se devuelve o se descuenta y ajusta las cantidades. Un rappel puede ir en una línea: 1 × -500.${envases ? ' Los packs y los kg de plástico van con el mismo signo que las uds.' : ''}`
+                ? `Salen ${deDondeSalen}, en negativo. Deja solo lo que se devuelve o se descuenta y ajusta las cantidades. Un rappel puede ir en una línea: 1 × -500.${envases ? ' Los packs y los kg de plástico van con el mismo signo que las uds. Para corregir solo los kg de plástico (y su IEEPNR), pon 0 uds, deja los packs vacíos y escribe los kg que sobran (en negativo) o los que faltan.' : ''}`
                 : 'Escribe lo que cambia: en negativo lo que baja, como una devolución o un descuento.'}
             {propuestaPendiente &&
               (lineasDeBorrador
@@ -2290,6 +2323,7 @@ function FormularioFactura() {
           tipoIeepnr={tipoIeepnr}
           sinIeepnr={sinIeepnr}
           monedaNoEuro={monedaDoc !== 'EUR' ? monedaDoc : null}
+          ventaFuera={tipoOperacion === 'EXPORTACION' || tipoOperacion === 'INTRACOMUNITARIA' ? tipoOperacion : null}
           puedeConfigurar={tieneAlgunPermiso(getUser(), ['ventas:write'])}
           fmt={fmt}
         />

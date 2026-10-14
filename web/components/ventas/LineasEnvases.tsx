@@ -143,7 +143,8 @@ export default function LineasEnvases({
           const uds = udsPropuestas(l, p);
           const kg = kgPropuestos(l, p);
           const recalcularUds = !!l.udsTocadas && !coincide(l.cantidad, uds);
-          const recalcularKg = !!l.kgTocados && !coincide(l.kgPlastico, kg);
+          // Con 0 uds (rectificativa que solo corrige los kg) no hay kg que proponer.
+          const recalcularKg = !!l.kgTocados && leerCantidad(l.cantidad) !== 0 && !coincide(l.kgPlastico, kg);
           const datosProducto = [
             p?.unidadesPorPack ? `${formatoCantidad(p.unidadesPorPack, 0)} uds por pack` : null,
             p?.llevaIeepnr && p.kgPlasticoUnidad !== null && p.kgPlasticoUnidad !== undefined

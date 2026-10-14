@@ -8,8 +8,9 @@ import { formatoCantidad, type ResumenEnvases as Resumen } from '@/lib/plantilla
  * Resumen bajo las líneas de una factura con la plantilla A (envases), como
  * en la factura NZ004_26: el peso bruto, que se escribe a mano, y los totales
  * de kg de plástico, packs, uds e IEEPNR. Avisa si el IEEPNR sale a 0 (la
- * empresa no lo repercute, o la factura que se rectifica no lo llevaba) y si la
- * factura no va en euros.
+ * empresa no lo repercute, o la factura que se rectifica no lo llevaba), si la
+ * factura no va en euros y, sin bloquear, si la venta sale de España con IEEPNR
+ * (exportación o entrega intracomunitaria).
  */
 
 /** Por qué el IEEPNR sale a 0 aunque haya kg: los ajustes de la empresa o la factura que se rectifica. */
@@ -26,6 +27,7 @@ export default function ResumenEnvases({
   tipoIeepnr,
   sinIeepnr,
   monedaNoEuro,
+  ventaFuera = null,
   puedeConfigurar,
   fmt,
 }: {
@@ -39,6 +41,8 @@ export default function ResumenEnvases({
   sinIeepnr: SinIeepnr;
   /** La factura va en otra moneda: el IEEPNR solo se repercute en euros. */
   monedaNoEuro: string | null;
+  /** La venta sale de España: 'EXPORTACION' o 'INTRACOMUNITARIA' (null si no). */
+  ventaFuera?: string | null;
   /** Puede cambiar Configuración > Facturación. */
   puedeConfigurar: boolean;
   fmt: (n: number) => string;
@@ -101,6 +105,16 @@ export default function ResumenEnvases({
                 )}
               </>
             )}
+          </span>
+        </p>
+      )}
+      {ventaFuera && resumen.ieepnr !== 0 && (
+        <p role="status" className="flex gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          <WarningCircle size={16} className="mt-0.5 shrink-0" aria-hidden="true" />
+          <span>
+            Esta venta sale de España ({ventaFuera === 'EXPORTACION' ? 'exportación' : 'entrega intracomunitaria'}) y lleva IEEPNR. Los envases que salen de España no
+            pagan este impuesto (Ley 7/2022): pregunta a tu gestoría si debes cobrárselo al cliente y si puedes pedir la devolución del que pagaste al comprarlos. Puedes
+            guardarla igualmente.
           </span>
         </p>
       )}
