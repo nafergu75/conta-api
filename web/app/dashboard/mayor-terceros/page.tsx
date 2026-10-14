@@ -9,6 +9,7 @@ import { anioDeTexto, anioEspana, rangoAnios } from '@/lib/anios';
 import { ponerEnUrl } from '@/lib/urlEstado';
 import SelectorAnio from '@/components/SelectorAnio';
 import { TablaInforme, fecha, importe, type Tabla } from '../informes/TablaInforme';
+import { esNotaFueraDelMayor, FacturasFueraDelMayor, type FacturaFueraDelMayor } from '@/components/contabilidad/FacturasFueraDelMayor';
 
 /**
  * Mayor de clientes y de proveedores: el saldo de cada tercero segun la
@@ -54,6 +55,8 @@ interface Detalle {
     estado: string;
   }>;
   totalPendiente: number;
+  /** Sus facturas sin asiento o con el asiento en borrador: el mayor no las cuenta (un servidor anterior no lo manda). */
+  facturasFueraDelMayor?: FacturaFueraDelMayor[];
   tabla: Tabla;
 }
 
@@ -403,7 +406,11 @@ function DetalleTercero({ tipo, fila, periodo, onCerrar }: { tipo: Tipo; fila: F
                   </div>
                 ))}
               </div>
-              <TablaInforme tabla={detalle.tabla} />
+              {/* Lo que el mayor no cuenta (sin asiento o en borrador), con su enlace para arreglarlo; su nota no se repite abajo. */}
+              <FacturasFueraDelMayor facturas={detalle.facturasFueraDelMayor ?? []} />
+              <TablaInforme
+                tabla={detalle.facturasFueraDelMayor?.length ? { ...detalle.tabla, notas: detalle.tabla.notas?.filter((n) => !esNotaFueraDelMayor(n)) } : detalle.tabla}
+              />
               {detalle.facturasPendientes.length > 0 && (
                 <section className="rounded-lg border border-slate-200 bg-white p-4">
                   <h3 className="text-sm font-semibold text-slate-900">
