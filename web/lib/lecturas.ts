@@ -10,6 +10,8 @@ import type { RectificativaVentaLeida } from './rectificativasVenta';
  *  GET  /<lector>/lecturas/:id           estado; la pantalla consulta cada pocos segundos
  *  POST /<lector>/lecturas/:id/descartar la deja descartada y borra el archivo
  *  POST /<lector>/lecturas/:id/origen-tercero   de donde es el cliente o el proveedor: vuelve a validar sin leer otra vez
+ *  POST /<lector>/lecturas/:id/manual    «Rellenarla a mano»: la lectura que ha fallado, tarda o sale muy
+ *                                        incompleta pasa a vacia (origen MANUAL), con el archivo ya subido
  *
  * Al subir la factura va tambien de donde ha dicho la persona que es el
  * cliente (ventas) o el proveedor (gastos): esa eleccion manda en las validaciones.
@@ -21,7 +23,8 @@ import type { RectificativaVentaLeida } from './rectificativasVenta';
 
 export type LectorPantalla = 'gastos' | 'ventas';
 export type NivelValidacion = 'ok' | 'revisar' | 'error';
-export type FuenteCampo = 'azure' | 'claude' | 'qr' | 'calculado' | 'facturae';
+/** manual: lo ha escrito la persona al corregir la lectura o al rellenarla a mano. */
+export type FuenteCampo = 'azure' | 'claude' | 'qr' | 'calculado' | 'facturae' | 'manual';
 
 export type CampoId =
   | 'tipoDocumento'
@@ -71,7 +74,8 @@ export interface DiferenciaQr {
 
 export interface InfoLectura {
   lecturaId: string;
-  origen: 'AZURE' | 'AZURE_CLAUDE' | 'CLAUDE' | 'FACTURAE';
+  /** MANUAL: no se ha leido nada; la persona la rellena a mano con el archivo ya subido. */
+  origen: 'AZURE' | 'AZURE_CLAUDE' | 'CLAUDE' | 'FACTURAE' | 'MANUAL';
   textoOrigen: string;
   /** texto null: se leyo con Claude sin que haya nada que contar (Azure no configurado, WEBP...). */
   respaldo: { motivo: string; texto: string | null } | null;
@@ -210,7 +214,8 @@ export interface LecturaIngresoLista {
 }
 
 type Leyendo = { lecturaId: string; estado: 'LEYENDO'; reintentarEnMs: number; segundos: number };
-type ConError = { lecturaId: string; estado: 'ERROR'; codigo: string; mensaje: string };
+/** puedeRellenarAMano: el archivo sigue guardado y se puede terminar a mano (un servidor anterior no lo manda). */
+type ConError = { lecturaId: string; estado: 'ERROR'; codigo: string; mensaje: string; puedeRellenarAMano?: boolean };
 type Cerrada = { lecturaId: string; estado: 'CONFIRMADA' | 'DESCARTADA' };
 type Respuesta<L> = Leyendo | L | ConError | Cerrada;
 
@@ -238,12 +243,18 @@ const ESPERA_MIN_MS = 1500;
 const ESPERA_MAX_MS = 5000;
 const PLAZO_MAX_MS = 120_000;
 
-/** Error de una lectura, con su codigo y, si la hay, una salida para registrarla a mano. */
+/**
+ * Error de una lectura, con su codigo y, si la hay, una salida para registrarla
+ * a mano. `aMano`: la lectura (lecturaId) se puede rellenar a mano con el
+ * archivo ya subido (POST /lecturas/:id/manual): ha fallado y el servidor ha
+ * guardado el archivo, o tarda demasiado.
+ */
 export class ErrorLectura extends Error {
   constructor(
     message: string,
     readonly codigo: string,
     readonly alternativa?: { ruta: string; texto: string },
+    readonly aMano?: { lecturaId: string } | null,
   ) {
     super(message);
     this.name = 'ErrorLectura';
@@ -323,7 +334,9 @@ export async function leerFactura<T extends LectorPantalla>(
   }
   datos.append('archivo', archivo, archivo.name);
   const inicio = Date.now();
-  const tarda = () => new ErrorLectura(MENSAJE_TARDA, 'TARDA', ALTA_MANUAL[lector]);
+  // La que tarda demasiado se puede rellenar a mano si el servidor ya la ha aceptado (tiene id).
+  let id: string | null = null;
+  const tarda = () => new ErrorLectura(MENSAJE_TARDA, 'TARDA', ALTA_MANUAL[lector], id ? { lecturaId: id } : null);
 
   /** Una peticion con el tope de lo que queda de plazo. */
   const pedir = async (ruta: string, init: RequestInit = {}): Promise<Respuesta<ListaDe<T>>> => {
@@ -352,6 +365,7 @@ export async function leerFactura<T extends LectorPantalla>(
     if (codigoDe(e) === 'LECTOR_SIN_IA') throw new ErrorLectura(MENSAJE_SIN_IA[lector], 'LECTOR_SIN_IA', ALTA_MANUAL[lector]);
     throw e;
   }
+  id = r.lecturaId;
   alEmpezar?.(r.lecturaId);
 
   for (;;) {
@@ -362,7 +376,7 @@ export async function leerFactura<T extends LectorPantalla>(
     if (r.estado === 'ERROR') {
       const e = r as ConError;
       const mensaje = e.codigo === 'LECTOR_SIN_IA' ? MENSAJE_SIN_IA[lector] : e.mensaje;
-      throw new ErrorLectura(mensaje, e.codigo, ALTA_MANUAL[lector]);
+      throw new ErrorLectura(mensaje, e.codigo, ALTA_MANUAL[lector], e.puedeRellenarAMano ? { lecturaId: e.lecturaId } : null);
     }
     if (r.estado !== 'LEYENDO') throw new ErrorLectura(MENSAJE_CERRADA, r.estado);
 
@@ -423,6 +437,37 @@ export async function cambiarOrigenLectura<T extends LectorPantalla>(lector: T, 
 export async function descartarLectura(lector: LectorPantalla, lecturaId: string): Promise<void> {
   await apiFetch(companyPath(`${RUTA[lector]}/${encodeURIComponent(lecturaId)}/descartar`), { method: 'POST' }).catch(() => undefined);
 }
+
+/**
+ * «Rellenarla a mano»: la lectura que ha fallado, que tarda demasiado o que ha
+ * salido muy incompleta pasa a vacia, con el archivo ya subido (se archiva con
+ * la factura al registrarla). Devuelve la lectura LISTA con origen MANUAL: en
+ * ventas, el ingreso vacio (se registra con `correcciones`); en gastos, el
+ * gasto vacio. Errores: 409 ARCHIVO_YA_BORRADO (hay que subirla otra vez) o
+ * LECTURA_YA_CONFIRMADA, 400 LECTURA_NO_LISTA (descartada).
+ */
+export async function rellenarAMano<T extends LectorPantalla>(lector: T, lecturaId: string): Promise<ListaDe<T>> {
+  const r = await apiFetch<Respuesta<ListaDe<T>>>(companyPath(`${RUTA[lector]}/${encodeURIComponent(lecturaId)}/manual`), { method: 'POST' });
+  if (!r || r.estado !== 'LISTA') throw new ErrorLectura(MENSAJE_CERRADA, 'CERRADA');
+  return r as ListaDe<T>;
+}
+
+/** Lo que una lectura tiene que traer como minimo; si falta, sale muy incompleta. */
+const CAMPOS_OBLIGATORIOS = /^(numero|fechaEmision|totales\.base|totales\.totalAPagar|desglose\.\d+\.base)$/;
+
+/**
+ * La lectura ha salido muy incompleta: falta el numero, la fecha, alguna base
+ * o el total (el servidor lo marca con OBLIGATORIOS), o se ha leido con menos
+ * del 50 % de confianza. Entonces se ofrece «Rellenarla a mano».
+ */
+export function esMuyIncompleta(info: InfoLectura | null | undefined): boolean {
+  if (!info || info.origen === 'MANUAL') return false;
+  if (info.confianza !== null && info.confianza < 0.5) return true;
+  return Object.entries(info.campos).some(([id, c]) => !!c && CAMPOS_OBLIGATORIOS.test(id) && !!c.codigos?.includes('OBLIGATORIOS'));
+}
+
+/** La lectura se rellena a mano: no hay nada leido. */
+export const esAMano = (info: InfoLectura | null | undefined) => info?.origen === 'MANUAL';
 
 // ---------------------------------------------------------------------------
 // Textos

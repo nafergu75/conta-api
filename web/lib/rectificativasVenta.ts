@@ -817,6 +817,12 @@ export interface RectificativaVentaLeida {
   motivoLeido: string | null;
   motivoPropuesto: MotivoVenta | null;
   importesNegativos: boolean;
+  /**
+   * La factura leída dice que es una rectificativa (tipo de documento). Con los
+   * importes corregidos a mano, la pantalla vuelve a decidir con esto si hay que
+   * preguntar el signo (pideSigno solo mira lo leído). Un servidor anterior no lo manda.
+   */
+  esRectificativaLeida?: boolean;
   /** Es rectificativa y trae los importes en positivo: hay que decir si restan o suman. */
   pideSigno: boolean;
   /** I con negativos; con positivos no se propone. */
