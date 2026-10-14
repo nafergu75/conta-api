@@ -36,21 +36,24 @@ const campo =
   'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 aria-[invalid=true]:border-red-500 aria-[invalid=true]:bg-red-50';
 const etq = 'mb-1 block text-xs font-medium text-slate-600';
 
+/** Lo que se edita, sacado de la ficha guardada. */
+const datosDe = (cliente: DatosFiscales) => ({
+  pais: cliente.pais || 'ES',
+  nifCif: cliente.nifCif,
+  direccion: cliente.direccion ?? '',
+  cp: cliente.cp ?? '',
+  municipio: cliente.municipio ?? '',
+  provincia: cliente.provincia ?? '',
+  email: cliente.email ?? '',
+  telefono: cliente.telefono ?? '',
+  web: cliente.web ?? '',
+  monedaPreferida: cliente.monedaPreferida ?? '',
+});
+
 export function DatosFiscalesCliente({ cliente, onGuardado }: { cliente: DatosFiscales; onGuardado: (c: DatosFiscales) => void }) {
   const puedeEditar = tieneAlgunPermiso(getUser(), ['ventas:write']);
   const [editando, setEditando] = useState(false);
-  const [d, setD] = useState({
-    pais: cliente.pais || 'ES',
-    nifCif: cliente.nifCif,
-    direccion: cliente.direccion ?? '',
-    cp: cliente.cp ?? '',
-    municipio: cliente.municipio ?? '',
-    provincia: cliente.provincia ?? '',
-    email: cliente.email ?? '',
-    telefono: cliente.telefono ?? '',
-    web: cliente.web ?? '',
-    monedaPreferida: cliente.monedaPreferida ?? '',
-  });
+  const [d, setD] = useState(() => datosDe(cliente));
   const [guardando, setGuardando] = useState(false);
   const [mensaje, setMensaje] = useState<{ ok: boolean; texto: string; campo?: string } | null>(null);
   const ue = d.pais !== 'ES' && PAISES_UE.has(d.pais);
@@ -71,7 +74,7 @@ export function DatosFiscalesCliente({ cliente, onGuardado }: { cliente: DatosFi
     } catch (err) {
       const c = campoDelError(err);
       setMensaje({ ok: false, texto: errorMessage(err), campo: c });
-      if (c === 'web') requestAnimationFrame(() => document.getElementById('cli-web')?.focus());
+      if (c === 'web' || c === 'email') requestAnimationFrame(() => document.getElementById(`cli-${c}`)?.focus());
     } finally {
       setGuardando(false);
     }
@@ -123,7 +126,12 @@ export function DatosFiscalesCliente({ cliente, onGuardado }: { cliente: DatosFi
           {puedeEditar && (
             <button
               type="button"
-              onClick={() => setEditando(true)}
+              onClick={() => {
+                // Siempre desde lo guardado: lo descartado antes no vuelve.
+                setD(datosDe(cliente));
+                setMensaje(null);
+                setEditando(true);
+              }}
               className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
               <PencilSimple size={16} /> Editar
@@ -190,7 +198,14 @@ export function DatosFiscalesCliente({ cliente, onGuardado }: { cliente: DatosFi
         </div>
         <div>
           <label htmlFor="cli-email" className={etq}>Email</label>
-          <input id="cli-email" type="email" value={d.email} onChange={s('email')} className={campo} />
+          <input
+            id="cli-email"
+            type="email"
+            value={d.email}
+            onChange={s('email')}
+            aria-invalid={mensaje?.ok === false && mensaje.campo === 'email'}
+            className={campo}
+          />
         </div>
         <div>
           <label htmlFor="cli-tel" className={etq}>Teléfono</label>
@@ -210,6 +225,8 @@ export function DatosFiscalesCliente({ cliente, onGuardado }: { cliente: DatosFi
         <button
           type="button"
           onClick={() => {
+            // Cancelar deshace lo escrito: el siguiente «Guardar» no lo grabaria sin verlo.
+            setD(datosDe(cliente));
             setEditando(false);
             // Un error de la web (o de otro dato) no se queda a la vista al cancelar.
             setMensaje(null);
