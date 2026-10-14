@@ -28,7 +28,7 @@ import { CuentaLinea } from '@/components/contabilidad/CuentaLinea';
 import { hoyEspana, LIMITE_SIMPLIFICADA, useRedSeguridad } from '@/lib/verifactu';
 import AvisoRedSeguridad from '@/components/verifactu/AvisoRedSeguridad';
 import AvisoErrorVerifactu from '@/components/verifactu/AvisoErrorVerifactu';
-import { errorVerifactu, propuestaSimplificada, type ErrorVerifactu } from '@/lib/erroresVerifactu';
+import { errorVerifactu, MAX_DESCRIPCION_OPERACION, propuestaSimplificada, type ErrorVerifactu } from '@/lib/erroresVerifactu';
 import { useAvisoPlanAnterior } from '@/components/contabilidad/AvisoPlanAnterior';
 import BloqueRectificativaVenta from '@/components/ventas/BloqueRectificativaVenta';
 import { AvisoServidorAnterior, BloqueRectificaFueraAnterior } from '@/components/ventas/RectificativaServidorAnterior';
@@ -235,6 +235,8 @@ interface FacturaApi {
   fechaVencimiento: string;
   fechaOperacion?: string | null;
   observaciones?: string;
+  /** VERI*FACTU: descripción de la operación del registro. Un servidor que no la devuelve no manda la clave. */
+  descripcionOperacion?: string | null;
   moneda?: string;
   tipoCambio?: number;
   fuenteTipoCambio?: string;
@@ -493,6 +495,7 @@ function idDelCampo(c: string | undefined, esRect: boolean): string | null {
   if (c === 'pesoBrutoKg') return 'peso-bruto';
   if (c === 'pesoNetoKg') return 'peso-neto';
   if (c === 'obra') return 'obra';
+  if (c === 'descripcionOperacion') return 'descripcion-operacion';
   // packs, kgPlastico y textoAdicional: plantilla A (LineasEnvases); palets, cajas, metros2, piezas, formato, calidad,
   // pesoKg y unidadPrecio: plantilla B (LineasCeramica); el descuento, solo en la tabla de siempre.
   const l = /^lineas\.(\d+)\.(cantidad|precioUnitario|descripcion|packs|kgPlastico|textoAdicional|descuentoPorcentaje|palets|cajas|metros2|piezas|formato|calidad|pesoKg|unidadPrecio)/.exec(c);
@@ -564,6 +567,11 @@ function FormularioFactura() {
   const [fechaOperacion, setFechaOperacion] = useState('');
   const [irpf, setIrpf] = useState(0);
   const [observaciones, setObservaciones] = useState('');
+  // VERI*FACTU: descripción de la operación del registro (opcional). Se manda si se sabe la guardada (documento
+  // nuevo, o el servidor la devuelve) o si se escribe: así un servidor que no la devuelve no la borra al guardar.
+  const [descripcionOperacion, setDescripcionOperacion] = useState('');
+  const [descripcionConocida, setDescripcionConocida] = useState(!borradorId);
+  const [descripcionTocada, setDescripcionTocada] = useState(false);
   // Plantilla A: peso bruto escrito a mano, el IEEPNR de Configuración > Facturación y las series de proformas.
   const [pesoBruto, setPesoBruto] = useState('');
   // Plantilla B: la obra y el peso neto escrito a mano.
@@ -710,6 +718,10 @@ function FormularioFactura() {
           setVencimientoTocado(true);
           setFechaOperacion(invoice.fechaOperacion ?? '');
           setObservaciones(invoice.observaciones ?? '');
+          if ('descripcionOperacion' in invoice) {
+            setDescripcionOperacion(invoice.descripcionOperacion ?? '');
+            setDescripcionConocida(true);
+          }
           setPesoBruto(paraEditar(invoice.pesoBrutoKg));
           setObra(invoice.obra ?? '');
           setPesoNeto(paraEditar(invoice.pesoNetoKg));
@@ -1342,6 +1354,8 @@ function FormularioFactura() {
     setAvisoSimplificada(true);
     document.getElementById('tipo')?.focus();
   };
+  // La descripción de la operación de VERI*FACTU: solo en las facturas de una empresa española (no en las proformas).
+  const conDescripcionVf = espanola && !esProforma;
   const serieElegidaRect = (seriesRect ?? []).find((s) => s.codigo === serieRect);
   // Rectificativa de un ticket sin ninguna serie de ese tipo: el servidor crea la RT (o la RTK) al guardar.
   // Si las hay pero están todas desactivadas, no crea otra: hay que activarla en Configuración > Series.
@@ -1391,6 +1405,9 @@ function FormularioFactura() {
 
   const cuerpo = () => {
     const fiscal = espanola ? { tipoOperacion: tipoOperacion || null, ...causaYReferencia() } : {};
+    // VERI*FACTU: vacía es null (el registro usa entonces las líneas). Sin saber la guardada ni tocarla, no se manda.
+    const descripcion =
+      conDescripcionVf && (descripcionConocida || descripcionTocada) ? { descripcionOperacion: descripcionOperacion.trim() || null } : {};
     const lineasCuerpo = lineas.map((l, i) => ({
       descripcion: l.descripcion.trim(),
       // Plantilla B: la cantidad de la unidad del precio (los m² o las piezas).
@@ -1470,6 +1487,7 @@ function FormularioFactura() {
           ? {}
           : { moneda: monedaDoc, ...(enDivisa && tipoManual.trim() ? { tipoCambio: manual } : volverAlBce ? { tipoCambio: null } : {}), ...fiscal }),
         ...peso,
+        ...descripcion,
         lineas: lineasCuerpo,
         rectificativa: bloqueParaEnviar(rectEnviar, { ticket, reparto: repartoLineas.porOriginal }),
       };
@@ -1490,6 +1508,7 @@ function FormularioFactura() {
       ...(enDivisa && tipoManual.trim() ? { tipoCambio: manual } : volverAlBce ? { tipoCambio: null } : {}),
       ...fiscal,
       ...peso,
+      ...descripcion,
       lineas: lineasCuerpo,
     };
   };
@@ -2804,6 +2823,33 @@ function FormularioFactura() {
               {obsDeSerie && observaciones === obsDeSerie && ' Son las de la serie por defecto: puedes cambiarlas.'}
             </p>
           </div>
+          {conDescripcionVf && !compat && (
+            <div>
+              <label className={etiqueta} htmlFor="descripcion-operacion">
+                Descripción para VERI*FACTU (opcional)
+              </label>
+              <textarea
+                id="descripcion-operacion"
+                rows={2}
+                maxLength={MAX_DESCRIPCION_OPERACION}
+                className={campo}
+                value={descripcionOperacion}
+                placeholder={esRect ? 'Ej.: devolución de 2 cajas dañadas' : 'Ej.: venta de agua mineral en envases de 1,5 l'}
+                onChange={(e) => {
+                  setDescripcionOperacion(e.target.value);
+                  setDescripcionTocada(true);
+                }}
+                {...marca('descripcionOperacion')}
+              />
+              {junto('descripcionOperacion')}
+              <p className="mt-1 text-xs text-slate-500">
+                Va en el registro que se envía a la AEAT y no se imprime. Si la dejas vacía, se usan{' '}
+                {esRect ? 'la explicación de la rectificativa o los conceptos de las líneas' : 'los conceptos de las líneas'}.
+                {!descripcionConocida && !descripcionTocada && ' Si ya escribiste una al guardar el borrador, se conserva mientras no la cambies.'}{' '}
+                {descripcionOperacion.length > 0 && `${descripcionOperacion.length}/${MAX_DESCRIPCION_OPERACION}`}
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="space-y-4 rounded-xl border border-slate-200 bg-slate-50 p-5">
