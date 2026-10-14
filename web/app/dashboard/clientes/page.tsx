@@ -290,7 +290,7 @@ function NuevoClienteModal({
       const c = campoDelError(err);
       setCampo(c);
       setSaving(false);
-      if (c === 'web') requestAnimationFrame(() => document.getElementById('web')?.focus());
+      if (c === 'web') requestAnimationFrame(() => document.getElementById('nc-web')?.focus());
     }
   }
 
@@ -423,7 +423,7 @@ function NuevoClienteModal({
 
           <div className="flex flex-col gap-2">
             <CampoWeb
-              id="web"
+              id="nc-web"
               value={web}
               onChange={(e) => setWeb(e.target.value)}
               error={campo === 'web' ? error : null}
