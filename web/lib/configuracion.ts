@@ -109,10 +109,14 @@ export interface SerieConfig {
   observacionesDefecto?: string | null;
 }
 
-/** La serie B de cerámica, tal como la describe el servidor al leer o guardar Configuración > Facturación. */
+/**
+ * La serie B de cerámica, tal como la describe el servidor al leer o guardar
+ * Configuración > Facturación. 'historica': desactivada y con facturas de otro
+ * programa leídas con el lector (no hay que activarla; el aviso dice qué hacer).
+ */
 export interface SerieCeramica {
   codigo: string;
-  estado: 'creada' | 'activa' | 'pendiente' | 'desactivada' | 'otroTipo' | 'otraPlantilla';
+  estado: 'creada' | 'activa' | 'pendiente' | 'desactivada' | 'historica' | 'otroTipo' | 'otraPlantilla';
   aviso: string | null;
 }
 
