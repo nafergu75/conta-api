@@ -13,7 +13,8 @@ export interface Tabla {
   titulo: string;
   periodo: string;
   empresa: { nombre: string; nif: string };
-  columnas: Array<{ titulo: string; tipo: TipoColumna; ancho: number }>;
+  /** `saldo`: columna de saldo (acumulado, inicial o final), su 0,00 se ve siempre. */
+  columnas: Array<{ titulo: string; tipo: TipoColumna; ancho: number; saldo?: boolean }>;
   filas: Array<{ celdas: Array<string | number | null>; estilo?: EstiloFila; sangria?: number }>;
   notas?: string[];
 }
@@ -25,10 +26,15 @@ export const importe = (n: number) => {
 };
 export const fecha = (iso: string) => (/^\d{4}-\d{2}-\d{2}/.test(iso) ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : iso);
 
-function celda(v: string | number | null, tipo: TipoColumna, estilo: EstiloFila): string {
+/**
+ * Texto de una celda, igual que en el PDF: el cero de Debe, Haber y demás
+ * importes de una fila normal va en blanco; el de un saldo se escribe (0,00),
+ * porque un saldo a cero es un dato.
+ */
+function celda(v: string | number | null, col: { tipo: TipoColumna; saldo?: boolean }, estilo: EstiloFila): string {
   if (v === null || v === '') return '';
-  if (tipo === 'importe' && typeof v === 'number') return estilo === 'normal' && v === 0 ? '' : importe(v);
-  if (tipo === 'fecha' && typeof v === 'string') return fecha(v);
+  if (col.tipo === 'importe' && typeof v === 'number') return estilo === 'normal' && v === 0 && !col.saldo ? '' : importe(v);
+  if (col.tipo === 'fecha' && typeof v === 'string') return fecha(v);
   return String(v);
 }
 
@@ -81,7 +87,7 @@ export function TablaInforme({ tabla, maxFilas, compacta = false }: { tabla: Tab
             {filas.map((f, i) => {
               const estilo = f.estilo ?? 'normal';
               if (estilo === 'seccion') {
-                const texto = f.celdas.map((v, k) => celda(v, tabla.columnas[k]?.tipo ?? 'texto', estilo)).filter(Boolean).join(' · ');
+                const texto = f.celdas.map((v, k) => celda(v, tabla.columnas[k] ?? { tipo: 'texto' }, estilo)).filter(Boolean).join(' · ');
                 return (
                   <tr key={i} className="border-t border-slate-200 bg-slate-50">
                     <td colSpan={tabla.columnas.length} className={`${celdaX} py-2 font-semibold text-slate-900`}>
@@ -101,7 +107,7 @@ export function TablaInforme({ tabla, maxFilas, compacta = false }: { tabla: Tab
               return (
                 <tr key={i} className={clase}>
                   {tabla.columnas.map((c, k) => {
-                    const v = celda(f.celdas[k] ?? null, c.tipo, estilo);
+                    const v = celda(f.celdas[k] ?? null, c, estilo);
                     const sangria = k === primeraTexto && f.sangria ? { paddingLeft: (compacta ? 8 : 12) + f.sangria * (compacta ? 12 : 16) } : undefined;
                     return (
                       <td

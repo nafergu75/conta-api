@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { FilePdf, FileXls, MagnifyingGlass } from '@phosphor-icons/react';
 import { Tooltip } from '@/app/dashboard/components/Tooltip';
 import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
+import { motivoDescarga, nombreDescarga } from '@/lib/descargaInforme';
 import { TablaInforme, type Tabla } from './TablaInforme';
 import { BuscadorTercero } from '@/components/contabilidad/BuscadorTercero';
 import { BuscadorCuenta } from '@/components/contabilidad/BuscadorCuenta';
@@ -257,20 +258,26 @@ function InformesContables() {
 
   const descargar = async (formato: 'pdf' | 'xlsx') => {
     if (!aplicada || faltaCuenta(aplicada)) return;
+    // Descarga lo que se está viendo (la consulta aplicada), con un nombre legible:
+    // «Libro mayor - Bar Pepe SL - 2026.pdf», «Libro mayor - cuentas 430 a 572 - 2026.xlsx».
     const info = INFORMES.find((i) => i.id === aplicada.tipo)!;
     const p = parametros(aplicada);
     p.set('formato', formato);
-    const deQuien = aplicada.tipo === 'mayor' && aplicada.mayorPor === 'tercero' ? ` ${terceroLeido?.nombre || aplicada.tercero?.nombre || ''}` : '';
-    const nombre = `${info.nombre}${deQuien} ${aplicada.desde || aplicada.hasta ? `${p.get('desde')} a ${p.get('hasta')}` : aplicada.ejercicio}`
-      .normalize('NFD')
-      .replace(/[̀-ͯ]/g, '')
-      .replace(/[^\w-]+/g, '_');
+    const fechaFichero = (iso: string | null) => (iso ? `${iso.slice(8, 10)}-${iso.slice(5, 7)}-${iso.slice(0, 4)}` : '');
+    let deQuien = '';
+    if (aplicada.tipo === 'mayor' && aplicada.mayorPor === 'tercero') deQuien = terceroLeido?.nombre || aplicada.tercero?.nombre || '';
+    else if (aplicada.tipo === 'mayor' || aplicada.tipo === 'sumas') {
+      if (p.get('cuenta')) deQuien = `cuenta ${p.get('cuenta')}`;
+      else if (p.get('cuentaDesde') || p.get('cuentaHasta')) deQuien = `cuentas ${p.get('cuentaDesde') ?? '1'} a ${p.get('cuentaHasta') ?? '9'}`;
+    }
+    const cuando = aplicada.desde || aplicada.hasta ? `${fechaFichero(p.get('desde'))} a ${fechaFichero(p.get('hasta'))}` : String(aplicada.ejercicio);
+    const nombre = nombreDescarga([info.nombre, deQuien, cuando], formato);
     setDescargando(formato);
     setError('');
     try {
-      await apiDownload(companyPath(`/informes-contables/${info.ruta}?${p}`), `${nombre}.${formato}`);
+      await apiDownload(companyPath(`/informes-contables/${info.ruta}?${p}`), nombre);
     } catch (e) {
-      setError(errorMessage(e));
+      setError(motivoDescarga(e, formato));
     } finally {
       setDescargando('');
     }

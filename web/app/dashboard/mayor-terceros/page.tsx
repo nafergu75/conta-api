@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { ArrowLeft, CaretRight, FilePdf, FileXls, MagnifyingGlass, X } from '@phosphor-icons/react';
 import { Tooltip } from '@/app/dashboard/components/Tooltip';
 import { apiDownload, apiFetch, companyPath, errorMessage } from '@/lib/api';
+import { motivoDescarga, nombreDescarga } from '@/lib/descargaInforme';
 import { anioDeTexto, anioEspana, rangoAnios } from '@/lib/anios';
 import { ponerEnUrl } from '@/lib/urlEstado';
 import SelectorAnio from '@/components/SelectorAnio';
@@ -60,7 +61,12 @@ interface Detalle {
   tabla: Tabla;
 }
 
-const sinTildes = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w-]+/g, '_');
+/** Periodo para el nombre del fichero: «2026» o «2026 hasta 30-06-2026» (sin barras: no valen en un nombre de fichero). */
+const periodoDescarga = (p: URLSearchParams) => {
+  const hasta = p.get('hasta');
+  if (!hasta) return p.get('ejercicio') ?? '';
+  return `${hasta.slice(0, 4)} hasta ${hasta.slice(8, 10)}-${hasta.slice(5, 7)}-${hasta.slice(0, 4)}`;
+};
 
 export default function MayorTercerosPage() {
   // useSearchParams necesita un Suspense para generar la página.
@@ -134,15 +140,22 @@ function MayorTerceros() {
     if (listaLeida) cargar();
   }, [cargar, listaLeida]);
 
+  // Descarga lo que se está viendo: mismo periodo, «Solo con saldo» y búsqueda que la lista.
+  const [descargando, setDescargando] = useState<'' | 'pdf' | 'xlsx'>('');
   const descargar = async (formato: 'pdf' | 'xlsx') => {
     const p = periodo();
     if (soloConSaldo) p.set('soloConSaldo', '1');
     if (busqueda) p.set('q', busqueda);
+    const nombre = nombreDescarga([tipo === 'clientes' ? 'Mayor de clientes' : 'Mayor de proveedores', periodoDescarga(p), busqueda && `buscando ${busqueda}`], formato);
     p.set('formato', formato);
+    setDescargando(formato);
+    setError('');
     try {
-      await apiDownload(companyPath(`/informes-contables/terceros/${tipo}?${p}`), `mayor_${tipo}_${hasta || ejercicio}.${formato}`);
+      await apiDownload(companyPath(`/informes-contables/terceros/${tipo}?${p}`), nombre);
     } catch (e) {
-      setError(errorMessage(e));
+      setError(motivoDescarga(e, formato));
+    } finally {
+      setDescargando('');
     }
   };
 
@@ -214,11 +227,11 @@ function MayorTerceros() {
           Solo con saldo
         </label>
         <div className="col-span-2 flex gap-2 sm:ml-auto">
-          <button onClick={() => descargar('pdf')} disabled={!listado} className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 sm:flex-none">
-            <FilePdf size={16} /> PDF
+          <button onClick={() => descargar('pdf')} disabled={!listado || cargando || !!descargando} className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 sm:flex-none">
+            <FilePdf size={16} /> {descargando === 'pdf' ? 'Preparando…' : 'PDF'}
           </button>
-          <button onClick={() => descargar('xlsx')} disabled={!listado} className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-emerald-600 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 sm:flex-none">
-            <FileXls size={16} /> Excel
+          <button onClick={() => descargar('xlsx')} disabled={!listado || cargando || !!descargando} className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-emerald-600 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 sm:flex-none">
+            <FileXls size={16} /> {descargando === 'xlsx' ? 'Preparando…' : 'Excel'}
           </button>
         </div>
       </div>
@@ -350,11 +363,20 @@ function DetalleTercero({ tipo, fila, periodo, onCerrar }: { tipo: Tipo; fila: F
     return () => window.removeEventListener('keydown', esc);
   }, [onCerrar]);
 
+  // Descarga el mismo detalle que se ve: mismo tercero y mismo periodo.
+  const [descargando, setDescargando] = useState<'' | 'pdf' | 'xlsx'>('');
+  const [errorDescarga, setErrorDescarga] = useState('');
   const descargar = async (formato: 'pdf' | 'xlsx') => {
+    const quien = fila.nombre || detalle?.tercero.nombre || '';
+    const nombre = nombreDescarga([`${tipo === 'clientes' ? 'Mayor del cliente' : 'Mayor del proveedor'} ${quien}`, periodoDescarga(periodo)], formato);
+    setDescargando(formato);
+    setErrorDescarga('');
     try {
-      await apiDownload(`${ruta}?${qs}&formato=${formato}`, `mayor_${sinTildes(fila.nombre || detalle?.tercero.nombre || 'tercero')}.${formato}`);
+      await apiDownload(`${ruta}?${qs}&formato=${formato}`, nombre);
     } catch (e) {
-      setError(errorMessage(e));
+      setErrorDescarga(motivoDescarga(e, formato));
+    } finally {
+      setDescargando('');
     }
   };
 
@@ -374,11 +396,11 @@ function DetalleTercero({ tipo, fila, periodo, onCerrar }: { tipo: Tipo; fila: F
             <p className="font-mono text-xs text-slate-500">{datos}</p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <button onClick={() => descargar('pdf')} disabled={!detalle} className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">
-              <FilePdf size={16} /> <span className="hidden sm:inline">PDF</span>
+            <button onClick={() => descargar('pdf')} disabled={!detalle || !!descargando} aria-label="Descargar en PDF" className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">
+              <FilePdf size={16} /> <span className="hidden sm:inline">{descargando === 'pdf' ? 'Preparando…' : 'PDF'}</span>
             </button>
-            <button onClick={() => descargar('xlsx')} disabled={!detalle} className="flex items-center gap-1.5 rounded-lg border border-emerald-600 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50">
-              <FileXls size={16} /> <span className="hidden sm:inline">Excel</span>
+            <button onClick={() => descargar('xlsx')} disabled={!detalle || !!descargando} aria-label="Descargar en Excel" className="flex items-center gap-1.5 rounded-lg border border-emerald-600 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50">
+              <FileXls size={16} /> <span className="hidden sm:inline">{descargando === 'xlsx' ? 'Preparando…' : 'Excel'}</span>
             </button>
             <button onClick={onCerrar} className="hidden rounded p-2 text-slate-500 hover:bg-slate-100 sm:block" aria-label="Cerrar">
               <X size={18} />
@@ -388,6 +410,7 @@ function DetalleTercero({ tipo, fila, periodo, onCerrar }: { tipo: Tipo; fila: F
 
         <div className="flex-1 space-y-4 overflow-y-auto p-4">
           {error && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+          {errorDescarga && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{errorDescarga}</p>}
           {!detalle && !error && <p className="text-sm text-slate-500">Cargando movimientos…</p>}
           {detalle && (
             <>
